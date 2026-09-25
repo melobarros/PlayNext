@@ -10,6 +10,24 @@
 or Google sign-in), seamless guest-to-account data migration, and
 cross-session persistence for registered users."
 
+## Clarifications
+
+### Session 2026-09-25
+
+- Q: Where should the app invite a guest to create an account? → A: The
+  Profile area is the always-available passive entry point, plus a single
+  dismissible nudge right after a Watch Now lock-in; the core loop is
+  never interrupted.
+- Q: Should this spec include a "forgot password" recovery flow? → A: Out
+  of scope — a forgotten password means the user must re-register;
+  email-based recovery is deferred to a future spec.
+- Q: What should a signed-in user experience when the connection drops?
+  → A: They keep using the app with their last-synced data and an offline
+  notice; changes made offline stay pending and apply when the connection
+  returns.
+- Q: After 5 consecutive failed sign-in attempts, how long should the
+  account stay temporarily blocked? → A: 15 minutes.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Guest creates an account and keeps everything (Priority: P1)
@@ -43,6 +61,10 @@ guest converts to an account with zero data loss.
    device, **Then** their preferences, watchlist, and history appear there.
 4. **Given** a guest with no saved data, **When** they register, **Then** a
    fresh empty account is created and they are signed in.
+5. **Given** a guest who just locked in a choice with Watch Now, **When**
+   the Match Found view appears, **Then** a single dismissible
+   account-creation nudge appears, and the start-new-loop action is not
+   blocked by it.
 
 ---
 
@@ -154,16 +176,28 @@ stays in control of the account.
   data stays fully intact; the visitor keeps using the app as a guest, and
   migration retries on their next registration or sign-in attempt.
 - What happens when the wrong password is entered? A friendly, generic
-  error is shown; after 5 consecutive failures the account is temporarily
-  blocked from sign-in with a clear message (see Assumptions).
+  error is shown; after 5 consecutive failures the account is blocked from
+  sign-in for 15 minutes with a clear message saying when the visitor can
+  try again.
 - What happens when the visitor is offline? Registration and sign-in are
   unavailable with a clear notice; guest mode keeps working and nothing is
   lost.
+- What happens when a signed-in user goes offline? They keep using the
+  app with their last-synced data and an offline notice; changes made
+  offline apply to the account when the connection returns — newest-wins
+  if the same title changed elsewhere meanwhile.
+- What happens if the user signs out while offline changes are pending?
+  The pending changes are saved to the account first when a connection is
+  available; otherwise the app warns that unsynced changes will be lost
+  before completing the sign-out.
 - What happens when a session expires? The user is asked to sign in again;
   their data is untouched.
 - What happens when two devices change the same title differently? The
   newest action wins on that title everywhere — the same rule as the
   migration merge.
+- What happens when the guest dismisses the account nudge? It stays
+  dismissed for the rest of the session; the Profile area remains the
+  permanent, interruption-free entry point.
 - What happens if the visitor closes the app mid-migration? Same as a
   dropped network: guest data is untouched and migration retries later.
 
@@ -172,9 +206,10 @@ stays in control of the account.
 ### Functional Requirements
 
 - **FR-001**: The system MUST remain fully usable without an account; no
-  step of the quiz, deck, watchlist, or history MAY require sign-in. The
-  Profile area MUST invite account creation without ever interrupting the
-  core loop.
+  step of the quiz, deck, watchlist, or history MAY require sign-in.
+  Account creation MUST be offered through the always-available Profile
+  area and through a single dismissible nudge shown after a Watch Now
+  lock-in; the nudge MUST never block or delay the core loop.
 - **FR-002**: The Profile area MUST offer account creation with email and
   password, and sign-in with Google.
 - **FR-003**: When a guest with saved data registers, the system MUST
@@ -206,7 +241,8 @@ stays in control of the account.
   stored or displayed in readable form anywhere.
 - **FR-011**: Wrong-credential attempts MUST show a friendly, generic
   error; after 5 consecutive failures on the same account, sign-in for
-  that account MUST be temporarily blocked with a clear message.
+  that account MUST be blocked for 15 minutes with a clear message saying
+  when the visitor can try again.
 - **FR-012**: The visitor MUST be able to cancel Google sign-in at any
   point and return to their previous state with nothing changed.
 - **FR-013**: The user MUST be able to sign out from the Profile area;
@@ -220,7 +256,11 @@ stays in control of the account.
 - **FR-016**: While offline, registration and sign-in MUST be unavailable
   with a clear notice; guest mode MUST keep working and no guest data MAY
   be lost by an offline auth attempt.
-- **FR-017**: All Profile and auth screens MUST remain fully usable at
+- **FR-017**: While offline, a signed-in user MUST be able to keep using
+  the app with their last-synced data and an offline notice; changes made
+  offline MUST stay pending and MUST apply automatically when the
+  connection returns, under the same newest-wins rule.
+- **FR-018**: All Profile and auth screens MUST remain fully usable at
   360px viewport width with touch targets of at least 44px, in dark
   high-contrast styling.
 
@@ -262,13 +302,17 @@ stays in control of the account.
 - **SC-009**: The full account flow (register, migrate, sign out, sign in,
   change password) is completable on a 360px-wide screen with touch input
   only.
+- **SC-010**: 100% of changes made by a signed-in user while offline are
+  applied to the account after the connection returns.
 
 ## Assumptions
 
 - Scope: accounts, sign-in, guest-to-account migration, sign-out, and
-  password change. Forgot-password ("reset password") and account
-  deletion are out of scope for this spec, as is the Settings view's
-  subscription/language management (a future spec).
+  password change. Forgot-password ("reset password") is out of scope — a
+  user who forgets their password must register again with a different
+  email address, since the old address remains taken; email-based
+  recovery is deferred. Account deletion and the Settings view's
+  subscription/language management are also out of scope.
 - The merge rule is union-plus-newest-wins: titles unique to either side
   are kept; conflicting values on the same title (or the preferences
   record) are resolved by the newer action, which supersedes the older
@@ -280,7 +324,7 @@ stays in control of the account.
 - Google sign-in links to an existing account by matching the verified
   Google email, instead of creating a duplicate account.
 - Numeric defaults chosen where the PRD is silent: sessions expire after
-  30 days of inactivity; sign-in is temporarily blocked after 5
+  30 days of inactivity; sign-in is blocked for 15 minutes after 5
   consecutive failures; accounts activate immediately with no
   email-verification round-trip (keeping sign-up friction low, per
   Principle II).
@@ -292,3 +336,6 @@ stays in control of the account.
   this feature.
 - Exclusions migrate as ratings: a title rated Disliked or Not Interested
   on the device stays excluded after migration.
+- Signed-in offline use means the device keeps a copy of the account's
+  last-synced state; the account remains the source of truth and pending
+  offline changes apply under the newest-wins rule.
