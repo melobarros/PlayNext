@@ -1,0 +1,77 @@
+<main class="mx-auto flex min-h-dvh max-w-md flex-col px-5 pt-10 pb-8">
+  @if (isSummary()) {
+    <app-summary
+      [state]="state()"
+      (start)="startRecommendations()"
+      (retake)="retake()"
+      (goBack)="back()"
+    />
+  } @else {
+    <header>
+      <p class="text-xs font-medium tracking-wide text-chalk-500 uppercase">
+        Step {{ state().step }} of {{ stepCount }}
+      </p>
+      <div
+        class="mt-2 h-1 w-full overflow-hidden rounded-full bg-ink-800"
+        role="progressbar"
+        aria-label="Quiz progress"
+        [attr.aria-valuenow]="state().step"
+        aria-valuemin="1"
+        [attr.aria-valuemax]="stepCount"
+      >
+        <div
+          class="h-full rounded-full bg-accent-500 transition-all"
+          [style.width.%]="(state().step / stepCount) * 100"
+        ></div>
+      </div>
+    </header>
+
+    <div class="mt-8 flex-1">
+      @switch (state().step) {
+        @case (1) {
+          <app-step-media-type
+            [choice]="state().mediaType"
+            [options]="mediaTypeOptions()"
+            (choiceChange)="onChoice('mediaType', $event)"
+          />
+        }
+        @case (2) {
+          <app-step-genres
+            [choice]="state().genre"
+            [options]="genreOptions()"
+            (choiceChange)="onChoice('genre', $event)"
+          />
+        }
+        @case (3) {
+          <app-step-providers
+            [choice]="state().provider"
+            [includeUnownedProviders]="state().includeUnownedProviders"
+            (choiceChange)="onChoice('provider', $event)"
+            (includeUnownedProvidersChange)="onUnownedProvidersChange($event)"
+          />
+        }
+      }
+    </div>
+
+    <footer class="mt-8 flex items-center gap-3">
+      @if (state().step > 1) {
+        <button
+          type="button"
+          class="touch-target inline-flex items-center rounded-full border border-ink-600 px-5 text-sm font-medium text-chalk-300"
+          (click)="back()"
+        >
+          Back
+        </button>
+      }
+
+      <button
+        type="button"
+        class="touch-target inline-flex flex-1 items-center justify-center rounded-full bg-accent-500 px-6 font-semibold text-white disabled:bg-ink-800 disabled:text-chalk-500"
+        [disabled]="!canGoNext()"
+        (click)="next()"
+      >
+        {{ state().step < stepCount ? 'Next' : 'Finish' }}
+      </button>
+    </footer>
+  }
+</main>

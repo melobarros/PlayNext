@@ -1,0 +1,55 @@
+@import 'tailwindcss';
+
+/*
+ * Scan every component source, including the inline templates in .ts files —
+ * Tailwind v4 does not read TypeScript templates by default, and a missed
+ * utility would ship a silently unstyled screen.
+ */
+@source "./app";
+
+/*
+ * PlayNext design tokens — dark, high-contrast by default (constitution,
+ * Principle I). Tailwind v4 is CSS-first: these generate utilities such as
+ * `bg-ink-950`, `text-chalk-50`, `border-ink-700`.
+ */
+@theme {
+  --color-ink-950: #0b0b0f;
+  --color-ink-900: #15151c;
+  --color-ink-800: #1e1e28;
+  --color-ink-700: #2a2a36;
+  --color-ink-600: #3a3a4a;
+
+  --color-chalk-50: #f5f5f7;
+  --color-chalk-300: #c9c9d4;
+  --color-chalk-500: #a1a1ad;
+
+  --color-accent-400: #9b82ff;
+  --color-accent-500: #7c5cff;
+  --color-accent-600: #6a46f5;
+}
+
+/*
+ * Every interactive target meets the 44px minimum touch size (constitution,
+ * Principle I). Applied to chips, buttons and links alike.
+ */
+@utility touch-target {
+  min-height: 2.75rem;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background-color: var(--color-ink-950);
+  }
+
+  body {
+    @apply bg-ink-950 text-chalk-50 antialiased;
+    margin: 0;
+    min-height: 100dvh;
+  }
+
+  /* Visible focus for keyboard users without breaking the dark theme. */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent-400;
+  }
+}

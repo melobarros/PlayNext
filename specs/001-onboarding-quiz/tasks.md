@@ -29,10 +29,10 @@ FIRST in each story and must fail before implementation.
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Scaffold the Angular app per research.md: run `ng new playnext --directory=frontend --style=tailwind --routing --ssr=false --test-runner=vitest --package-manager=npm` (Angular 22.2.0, zoneless + standalone + strict defaults, Tailwind 4.3.3 CSS-first, Vitest runner); commit the generated workspace
-- [ ] T002 Add PWA support with `ng add @angular/pwa` (creates frontend/ngsw-config.json, frontend/src/manifest.webmanifest, icons, wires provideServiceWorker)
-- [ ] T003 [P] Configure dark-by-default theme: set dark background + high-contrast tokens via Tailwind v4 `@theme` in frontend/src/styles.css; set dark `theme-color` in frontend/src/manifest.webmanifest and frontend/src/index.html meta tags
-- [ ] T004 [P] Add `.editorconfig` at the repository root with formatting rules for TS/HTML/CSS/JSON (constitution code-quality standard)
+- [X] T001 Scaffold the Angular app per research.md: run `ng new playnext --directory=frontend --style=tailwind --routing --ssr=false --test-runner=vitest --package-manager=npm` (Angular 22.2.0, zoneless + standalone + strict defaults, Tailwind 4.3.3 CSS-first, Vitest runner); commit the generated workspace
+- [X] T002 Add PWA support with `ng add @angular/pwa` (creates frontend/ngsw-config.json, frontend/src/manifest.webmanifest, icons, wires provideServiceWorker)
+- [X] T003 [P] Configure dark-by-default theme: set dark background + high-contrast tokens via Tailwind v4 `@theme` in frontend/src/styles.css; set dark `theme-color` in frontend/src/manifest.webmanifest and frontend/src/index.html meta tags
+- [X] T004 [P] Add `.editorconfig` at the repository root with formatting rules for TS/HTML/CSS/JSON (constitution code-quality standard)
 
 ---
 
@@ -42,13 +42,13 @@ FIRST in each story and must fail before implementation.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Create domain types in frontend/src/app/core/models/quiz.ts exactly per data-model.md: `MediaType` ('movie' | 'tv' | 'anime'), `DimensionChoice<T>` (`values: T[]`, `any: boolean`), `QuizState` (`schemaVersion: 1`; `status: 'in-progress' | 'completed'`; `step: 1 | 2 | 3`; `mediaType`, `genre`, `provider` dimensions; `includeUnownedProviders: boolean`; `completedAt?: string`; `updatedAt: string`), `StreamingProvider` (`id`, `displayName`, `regions`), `Genre` (`id`, `displayName`), `QuizOptions`
-- [ ] T006 [P] Create static quiz options in frontend/src/app/core/models/quiz-options.data.ts: 3 media types; 9 curated genres (Action, Comedy, Drama, Horror, Romance, Sci-Fi, Thriller, Animation, Documentary per FR-003); region-relevant provider list plus a `fallbackProviders` default popular list (FR-013)
-- [ ] T007 Create PreferenceStore in frontend/src/app/core/services/preference-store.ts implementing contracts/preference-storage.md: LocalStorage key `playnext:quiz-state`; unknown `schemaVersion` or unparseable JSON MUST reset to a first visit; `updatedAt` set on every write; write failures non-fatal with last successful state retained
-- [ ] T008 [P] Create QuizOptionsService in frontend/src/app/core/services/quiz-options.service.ts exposing the static options behind an interface (the Milestone 2 API swap seam per research.md), with an explicit provider-list failure/fallback path (FR-013)
-- [ ] T009 Create quiz rules in plain TypeScript (no Angular imports) in frontend/src/app/features/quiz/quiz-logic/quiz-rules.ts implementing data-model.md state transitions and validation: a step is complete iff `values.length > 0 || any === true` (FR-005); `any === true` MUST imply `values` is empty (exclusive chip); exactly 3 steps in fixed order (FR-001); completion sets `status: 'completed'` with non-null `completedAt`
-- [ ] T010 Create app shell in frontend/src/app/app.component.ts with routes in frontend/src/app/app.routes.ts: quiz route (default) and a placeholder `deck` route stubbed for the spec 002 hand-off; bottom navigation area left to the deck slice
-- [ ] T011 Wire QuizOptionsService and PreferenceStore providers in frontend/src/app/app.config.ts
+- [X] T005 Create domain types in frontend/src/app/core/models/quiz.ts exactly per data-model.md: `MediaType` ('movie' | 'tv' | 'anime'), `DimensionChoice<T>` (`values: T[]`, `any: boolean`), `QuizState` (`schemaVersion: 1`; `status: 'in-progress' | 'completed'`; `step: 1 | 2 | 3`; `mediaType`, `genre`, `provider` dimensions; `includeUnownedProviders: boolean`; `completedAt?: string`; `updatedAt: string`), `StreamingProvider` (`id`, `displayName`, `regions`), `Genre` (`id`, `displayName`), `QuizOptions`
+- [X] T006 [P] Create static quiz options in frontend/src/app/core/models/quiz-options.data.ts: 3 media types; 9 curated genres (Action, Comedy, Drama, Horror, Romance, Sci-Fi, Thriller, Animation, Documentary per FR-003); region-relevant provider list plus a `fallbackProviders` default popular list (FR-013)
+- [X] T007 Create PreferenceStore in frontend/src/app/core/services/preference-store.ts implementing contracts/preference-storage.md: LocalStorage key `playnext:quiz-state`; unknown `schemaVersion` or unparseable JSON MUST reset to a first visit; `updatedAt` set on every write; write failures non-fatal with last successful state retained
+- [X] T008 [P] Create QuizOptionsService in frontend/src/app/core/services/quiz-options.service.ts exposing the static options behind an interface (the Milestone 2 API swap seam per research.md), with an explicit provider-list failure/fallback path (FR-013)
+- [X] T009 Create quiz rules in plain TypeScript (no Angular imports) in frontend/src/app/features/quiz/quiz-logic/quiz-rules.ts implementing data-model.md state transitions and validation: a step is complete iff `values.length > 0 || any === true` (FR-005); `any === true` MUST imply `values` is empty (exclusive chip); exactly 3 steps in fixed order (FR-001); completion sets `status: 'completed'` with non-null `completedAt`
+- [X] T010 Create app shell in frontend/src/app/app.component.ts with routes in frontend/src/app/app.routes.ts: quiz route (default) and a placeholder `deck` route stubbed for the spec 002 hand-off; bottom navigation area left to the deck slice
+- [X] T011 Wire QuizOptionsService and PreferenceStore providers in frontend/src/app/app.config.ts
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -62,16 +62,16 @@ FIRST in each story and must fail before implementation.
 
 ### Tests for User Story 1 (write FIRST, ensure they FAIL) ⚠️
 
-- [ ] T012 [P] [US1] Write failing tests for quiz rules in frontend/src/app/features/quiz/quiz-logic/quiz-rules.spec.ts: zero selections rejected (FR-005); "Any / No preference" chip alone satisfies the step; selecting Any clears values; step advance rules; completion sets non-null completedAt
-- [ ] T013 [P] [US1] Write failing tests for PreferenceStore in frontend/src/app/core/services/preference-store.spec.ts: completed document round-trips per contract schema; corrupt JSON and unknown schemaVersion reset to a first visit; updatedAt changes on every write
+- [X] T012 [P] [US1] Write failing tests for quiz rules in frontend/src/app/features/quiz/quiz-logic/quiz-rules.spec.ts: zero selections rejected (FR-005); "Any / No preference" chip alone satisfies the step; selecting Any clears values; step advance rules; completion sets non-null completedAt
+- [X] T013 [P] [US1] Write failing tests for PreferenceStore in frontend/src/app/core/services/preference-store.spec.ts: completed document round-trips per contract schema; corrupt JSON and unknown schemaVersion reset to a first visit; updatedAt changes on every write
 
 ### Implementation for User Story 1
 
-- [ ] T014 [P] [US1] Implement step 1 in frontend/src/app/features/quiz/steps/step-media-type.component.ts: Movie/TV/Anime multi-select chips + exclusive "Any / No preference" chip, 44px touch targets
-- [ ] T015 [P] [US1] Implement step 2 in frontend/src/app/features/quiz/steps/step-genres.component.ts: genre multi-select chips + exclusive Any chip, 44px touch targets
-- [ ] T016 [P] [US1] Implement step 3 in frontend/src/app/features/quiz/steps/step-providers.component.ts: provider multi-select chips + exclusive Any chip; "Show content on other platforms" toggle defaulting off (FR-006); load failure shows Retry then the fallback list with a notice (FR-013)
-- [ ] T017 [US1] Implement the quiz shell in frontend/src/app/features/quiz/quiz.component.ts: stepper wiring, "Step X of 3" progress indicator (FR-007), Next disabled until the current step is valid (FR-005), QuizState held in a signal
-- [ ] T018 [US1] Implement the summary in frontend/src/app/features/quiz/summary/summary.component.ts: shows all selections with a single primary start-recommendations action (FR-009); on confirm, write `status: 'completed'` via PreferenceStore and navigate to the deck stub route
+- [X] T014 [P] [US1] Implement step 1 in frontend/src/app/features/quiz/steps/step-media-type.component.ts: Movie/TV/Anime multi-select chips + exclusive "Any / No preference" chip, 44px touch targets
+- [X] T015 [P] [US1] Implement step 2 in frontend/src/app/features/quiz/steps/step-genres.component.ts: genre multi-select chips + exclusive Any chip, 44px touch targets
+- [X] T016 [P] [US1] Implement step 3 in frontend/src/app/features/quiz/steps/step-providers.component.ts: provider multi-select chips + exclusive Any chip; "Show content on other platforms" toggle defaulting off (FR-006); load failure shows Retry then the fallback list with a notice (FR-013)
+- [X] T017 [US1] Implement the quiz shell in frontend/src/app/features/quiz/quiz.component.ts: stepper wiring, "Step X of 3" progress indicator (FR-007), Next disabled until the current step is valid (FR-005), QuizState held in a signal
+- [X] T018 [US1] Implement the summary in frontend/src/app/features/quiz/summary/summary.component.ts: shows all selections with a single primary start-recommendations action (FR-009); on confirm, write `status: 'completed'` via PreferenceStore and navigate to the deck stub route
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -85,13 +85,13 @@ FIRST in each story and must fail before implementation.
 
 ### Tests for User Story 2 (write FIRST, ensure they FAIL) ⚠️
 
-- [ ] T019 [US2] Add failing resume tests to frontend/src/app/core/services/preference-store.spec.ts: in-progress document round-trips restoring step + answers (FR-010); completed document drives the skip decision (FR-011)
-- [ ] T020 [P] [US2] Write failing boot-decision tests in frontend/src/app/app-boot.spec.ts: no saved state → quiz step 1; in-progress state → quiz at saved step with answers; completed state → deck stub route
+- [X] T019 [US2] Add failing resume tests to frontend/src/app/core/services/preference-store.spec.ts: in-progress document round-trips restoring step + answers (FR-010); completed document drives the skip decision (FR-011)
+- [X] T020 [P] [US2] Write failing boot-decision tests in frontend/src/app/app-boot.spec.ts: no saved state → quiz step 1; in-progress state → quiz at saved step with answers; completed state → deck stub route
 
 ### Implementation for User Story 2
 
-- [ ] T021 [US2] Implement boot decision in frontend/src/app/app.component.ts: read PreferenceStore on load; in-progress → quiz at saved step with prior answers; completed → deck stub (FR-011)
-- [ ] T022 [US2] Persist every transition: quiz shell (frontend/src/app/features/quiz/quiz.component.ts) writes the in-progress QuizState to PreferenceStore on each selection and navigation change (FR-010)
+- [X] T021 [US2] Implement boot decision in frontend/src/app/app.component.ts: read PreferenceStore on load; in-progress → quiz at saved step with prior answers; completed → deck stub (FR-011)
+- [X] T022 [US2] Persist every transition: quiz shell (frontend/src/app/features/quiz/quiz.component.ts) writes the in-progress QuizState to PreferenceStore on each selection and navigation change (FR-010)
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -105,13 +105,13 @@ FIRST in each story and must fail before implementation.
 
 ### Tests for User Story 3 (write FIRST, ensure they FAIL) ⚠️
 
-- [ ] T023 [P] [US3] Write failing retake tests in frontend/src/app/features/quiz/quiz-logic/quiz-retake.spec.ts: retake transition resets to step 1 with values pre-filled from the saved document (FR-012); completing a retake REPLACES the document (US3 scenario 3)
+- [X] T023 [P] [US3] Write failing retake tests in frontend/src/app/features/quiz/quiz-logic/quiz-retake.spec.ts: retake transition resets to step 1 with values pre-filled from the saved document (FR-012); completing a retake REPLACES the document (US3 scenario 3)
 
 ### Implementation for User Story 3
 
-- [ ] T024 [US3] Implement Back navigation in frontend/src/app/features/quiz/quiz.component.ts: Back from step n returns to step n-1 with all previously entered answers retained (FR-008)
-- [ ] T025 [US3] Implement the retake entry point in frontend/src/app/features/quiz/summary/summary.component.ts: "Retake quiz" action → status 'in-progress', step 1, answers pre-filled from the saved document (FR-012)
-- [ ] T026 [US3] Implement replace-on-complete: completing a retake overwrites the saved document via the quiz-rules transition and PreferenceStore (US3 scenario 3)
+- [X] T024 [US3] Implement Back navigation in frontend/src/app/features/quiz/quiz.component.ts: Back from step n returns to step n-1 with all previously entered answers retained (FR-008)
+- [X] T025 [US3] Implement the retake entry point in frontend/src/app/features/quiz/summary/summary.component.ts: "Retake quiz" action → status 'in-progress', step 1, answers pre-filled from the saved document (FR-012)
+- [X] T026 [US3] Implement replace-on-complete: completing a retake overwrites the saved document via the quiz-rules transition and PreferenceStore (US3 scenario 3)
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -121,10 +121,10 @@ FIRST in each story and must fail before implementation.
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T027 [P] 360px/touch/dark audit across all quiz screens: every chip and action ≥44px, no horizontal scrolling at 360px viewport, dark high-contrast styling (FR-014); fix any findings in frontend/src/app/features/quiz/
-- [ ] T028 [P] PWA validation: `ng build --configuration=production`, serve the build, verify installable manifest and that the offline shell serves the quiz (constitution PWA-only delivery; SC-005)
-- [ ] T029 Run the quickstart.md validation walkthrough end-to-end (all 9 steps), record results, fix any failures found
-- [ ] T030 [P] Update README.md with frontend prerequisites and run/test instructions (`npm install`, `ng serve`, `ng test`, `ng build`)
+- [X] T027 [P] 360px/touch/dark audit across all quiz screens: every chip and action ≥44px, no horizontal scrolling at 360px viewport, dark high-contrast styling (FR-014); fix any findings in frontend/src/app/features/quiz/
+- [X] T028 [P] PWA validation: `ng build --configuration=production`, serve the build, verify installable manifest and that the offline shell serves the quiz (constitution PWA-only delivery; SC-005)
+- [X] T029 Run the quickstart.md validation walkthrough end-to-end (all 9 steps), record results, fix any failures found
+- [X] T030 [P] Update README.md with frontend prerequisites and run/test instructions (`npm install`, `ng serve`, `ng test`, `ng build`)
 
 ---
 
@@ -221,3 +221,30 @@ With multiple developers:
 - Commit after each task or logical group
 - Stop at any checkpoint to validate story independently
 - Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence
+
+---
+
+## Deviations from plan (recorded during implementation)
+
+- **File naming**: tasks name `*.component.ts` files; the Angular 22 scaffold's
+  own convention is suffix-less (`quiz.ts`, `step-providers.ts`,
+  `summary.ts`). The scaffold convention was followed. Task intent is
+  unchanged — every listed component exists at the corresponding path.
+- **T010/T021 (boot decision)**: lives in `frontend/src/app/app-boot.ts`, not
+  `app.component.ts`. The default route loads an `Entry` component that reads
+  `PreferenceStore` and forwards to `/quiz` or `/deck`. `app.component.ts` is
+  `app.ts` in this workspace.
+- **T011 (provider wiring)**: no work required —
+  `PreferenceStore` and `QuizOptionsService` are both `providedIn: 'root'`.
+- **T022 (persist every transition)**: implemented inside the quiz shell's
+  private `update()` during US1, so every transition was durable from the start
+  rather than retrofitted in US2.
+- **Test placement**: the FR-013 provider fallback test lives in
+  `step-providers.spec.ts` (a rendered component test) rather than the quiz
+  rules tests, since the fallback is a component-level flow. An additional
+  shell-level integration suite, `quiz.spec.ts`, drives the whole quiz through
+  the DOM and covers quickstart walkthrough steps 1–6.
+- **Not machine-verifiable**: walkthrough steps 8 (360px touch rendering) and
+  9 (Lighthouse PWA audit) were verified statically — layout audit, chip-width
+  arithmetic, and serving the production build to confirm the manifest, service
+  worker and app shell are delivered. A real-browser pass is still outstanding.

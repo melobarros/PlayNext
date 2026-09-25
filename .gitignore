@@ -1,0 +1,37 @@
+# Node / Angular (frontend/)
+node_modules/
+dist/
+build/
+.angular/
+out-tsc/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# .NET (backend/ — Milestone 2+)
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+
+# Logs and temp
+*.log
+*.tmp
+*.swp
+*.swo
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Spec Kit local state
+.specify/feature.json
