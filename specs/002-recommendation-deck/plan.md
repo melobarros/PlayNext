@@ -177,6 +177,19 @@ honestly rather than smoothed over:
 **No violations. Complexity Tracking remains empty** — no new project, no new
 dependency, no new pattern.
 
+## Complexity Tracking
+
+> **Fill ONLY if Constitution Check has violations that must be justified**
+
+| Violation | Why Needed | Simpler Alternative Rejected Because |
+|-----------|------------|-------------------------------------|
+| *None* | — | — |
+
+No constitutional violations were claimed at either the pre-research gate or the
+post-design re-check. No new project, no new dependency, no new pattern; the
+two additions this slice makes to 001's structure are `deck-logic/` (the same
+framework-free module pattern 001 established) and `core/` (shared contracts).
+
 ## Deferred (recorded, not silently dropped)
 
 | Item | Deferred to | Why |
