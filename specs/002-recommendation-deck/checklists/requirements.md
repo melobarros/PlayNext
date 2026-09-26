@@ -39,6 +39,9 @@
 - Two constitution invariants are encoded as testable requirements: Filter
   Enforcement (FR-006) and the Feedback Loop (FR-009), matching Principle V.
 - Open choices resolved as documented assumptions instead of clarification
-  markers (Reset Filters = instant unfiltered restart, mock data in Milestone 1,
-  rating actions advance the deck). Revisit here if any is wrong before
-  `/speckit-plan`.
+  markers (Reset Filters = return to the quiz with answers pre-filled — settled
+  by the clarification session; mock data in Milestone 1; rating actions
+  advance the deck). Revisit here if any is wrong before `/speckit-plan`.
+- Corrected 2026-09-26 during `/speckit-plan`: this note previously read
+  "Reset Filters = instant unfiltered restart", which contradicted the
+  clarification recorded in spec.md. The spec wins; see research.md D9.

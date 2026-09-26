@@ -36,7 +36,10 @@
   and advancing; this spec owns persistence, watchlist/history views,
   re-rating, and the exclusion contract (FR-007) with the deck.
 - Two open choices were resolved as documented assumptions instead of
-  clarification markers: tabs follow the PRD exactly (Want to Watch / Loved /
-  Disliked — Liked and Not Interested are recorded but not listed), and
-  account sync is deferred to spec 004. Revisit here if either is wrong
-  before `/speckit-plan`.
+  clarification markers: tabs follow the PRD (Want to Watch / Loved / Disliked,
+  with the Loved tab also listing Liked titles; Not Interested is recorded and
+  excludes but is not listed), and account sync is deferred to spec 004.
+  Revisit here if either is wrong before `/speckit-plan`.
+- Corrected 2026-09-26: this note previously said Liked titles were "recorded
+  but not listed", which contradicted the clarification recorded in spec.md.
+  The spec wins.
