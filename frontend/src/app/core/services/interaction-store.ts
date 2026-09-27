@@ -1,0 +1,174 @@
+import { Injectable } from '@angular/core';
+import {
+  emptyInteractionDocument,
+  INTERACTION_SCHEMA_VERSION,
+  INTERACTION_STATES,
+  INTERACTION_STORAGE_KEY,
+  Interaction,
+  InteractionDocument,
+  InteractionState,
+  WatchHistoryEntry,
+} from '../models/interaction';
+
+/** ISO-8601 enough for our purposes: a string a `Date` can actually parse. */
+function isIsoString(value: unknown): value is string {
+  return typeof value === 'string' && !Number.isNaN(Date.parse(value));
+}
+
+/** One stored rating. The title id is the key, not a field (see `interaction.ts`). */
+function isInteraction(value: unknown): value is Interaction {
+  if (typeof value !== 'object' || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  const state = entry['state'];
+
+  return (
+    typeof state === 'string' &&
+    (INTERACTION_STATES as readonly string[]).includes(state) &&
+    isIsoString(entry['updatedAt'])
+  );
+}
+
+function isHistoryEntry(value: unknown): value is WatchHistoryEntry {
+  if (typeof value !== 'object' || value === null) return false;
+  const entry = value as Record<string, unknown>;
+
+  return typeof entry['titleId'] === 'string' && isIsoString(entry['chosenAt']);
+}
+
+/**
+ * Shape check against the frozen persistence contract
+ * (`specs/002-recommendation-deck/contracts/interaction-storage.md`).
+ *
+ * An unknown `state` invalidates the whole document rather than just that
+ * entry: silently dropping it would change which titles are excluded, and a
+ * wrong exclusion set is worse than starting over.
+ */
+export function isValidInteractionDocument(value: unknown): value is InteractionDocument {
+  if (typeof value !== 'object' || value === null) return false;
+  const document = value as Record<string, unknown>;
+
+  if (document['schemaVersion'] !== INTERACTION_SCHEMA_VERSION) return false;
+  if (!isIsoString(document['updatedAt'])) return false;
+
+  const interactions = document['interactions'];
+  if (typeof interactions !== 'object' || interactions === null || Array.isArray(interactions)) {
+    return false;
+  }
+  if (!Object.values(interactions).every(isInteraction)) return false;
+
+  const history = document['history'];
+  if (!Array.isArray(history) || !history.every(isHistoryEntry)) return false;
+
+  return true;
+}
+
+/**
+ * Reads and writes the guest's ratings and watching history.
+ *
+ * Shaped after spec 001's `PreferenceStore`, with one deliberate difference:
+ * `read()` returns an **empty document** rather than `null` when nothing is
+ * saved. For quiz state, "no state" is a distinct condition that gates the
+ * entry redirect; for interactions, "nothing rated yet" and "an empty record"
+ * are the same thing, and returning a usable value spares every caller a
+ * null check before it can rank anything.
+ *
+ * The exclusion set is never stored. Callers derive it from `interactions` at
+ * read time, so re-rating a title changes its eligibility immediately and
+ * there is no second list to keep in sync (research.md D2).
+ */
+@Injectable({ providedIn: 'root' })
+export class InteractionStore {
+  /** Used when LocalStorage is unavailable (blocked or private browsing). */
+  private memoryFallback: string | null = null;
+
+  /**
+   * The saved document, or an empty one. Never `null`; never a shared
+   * reference — each call parses a fresh copy, so a caller that edits what it
+   * was handed cannot corrupt what is stored.
+   */
+  read(): InteractionDocument {
+    const raw = this.readRaw();
+
+    if (raw !== null) {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (isValidInteractionDocument(parsed)) return parsed;
+      } catch {
+        // Unparseable — fall through to the reset below.
+      }
+
+      // Unknown schema version or a malformed document: start fresh and let
+      // the next write overwrite it (contract: readers treat it as absent).
+      this.clear();
+    }
+
+    return emptyInteractionDocument();
+  }
+
+  /** Records a rating, replacing any previous one for that title (003 FR-006). */
+  record(titleId: string, state: InteractionState): void {
+    const document = this.read();
+    document.interactions[titleId] = { state, updatedAt: new Date().toISOString() };
+    this.write(document);
+  }
+
+  /**
+   * Records a Watch Now decision (FR-008).
+   *
+   * Both writes happen together on purpose. The `watchingNow` interaction and
+   * its history entry are two halves of one decision, and splitting them into
+   * two calls would let a caller land one without the other — leaving a title
+   * that says it was watched with no entry in the log, or the reverse.
+   */
+  recordWatch(titleId: string): void {
+    const now = new Date().toISOString();
+    const document = this.read();
+
+    document.interactions[titleId] = { state: 'watchingNow', updatedAt: now };
+    document.history.push({ titleId, chosenAt: now });
+
+    this.write(document);
+  }
+
+  clear(): void {
+    this.memoryFallback = null;
+    try {
+      this.storage()?.removeItem(INTERACTION_STORAGE_KEY);
+    } catch {
+      // Nothing to do — the in-memory copy is already cleared.
+    }
+  }
+
+  private write(document: InteractionDocument): void {
+    const serialized = JSON.stringify({
+      ...document,
+      updatedAt: new Date().toISOString(),
+    });
+
+    try {
+      this.storage()?.setItem(INTERACTION_STORAGE_KEY, serialized);
+    } catch {
+      // Non-fatal: the document stays in memory so the session continues.
+    }
+    this.memoryFallback = serialized;
+  }
+
+  private readRaw(): string | null {
+    try {
+      const stored = this.storage()?.getItem(INTERACTION_STORAGE_KEY);
+      if (stored !== null && stored !== undefined) return stored;
+    } catch {
+      // Fall back to memory below.
+    }
+    return this.memoryFallback;
+  }
+
+  /** Returns LocalStorage, or null when the browser refuses to provide it. */
+  private storage(): Storage | null {
+    try {
+      return typeof localStorage === 'undefined' ? null : localStorage;
+    } catch {
+      return null;
+    }
+  }
+}

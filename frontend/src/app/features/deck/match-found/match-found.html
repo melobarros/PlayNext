@@ -1,0 +1,80 @@
+<main class="mx-auto flex min-h-dvh max-w-md flex-col px-5 pt-6 pb-8">
+  @if (title(); as match) {
+    <header class="text-center">
+      <p class="text-xs font-semibold tracking-[0.2em] text-accent-400 uppercase">Match found</p>
+      <h1 class="mt-2 text-3xl font-semibold text-chalk-50">{{ match.title }}</h1>
+      <p class="mt-1 text-sm text-chalk-500">
+        {{ match.releaseYear }} &middot; {{ mediaTypeLabel() }}
+      </p>
+    </header>
+
+    <section class="mt-8">
+      <h2 class="text-xs font-semibold tracking-[0.2em] text-chalk-500 uppercase">
+        Where to watch
+      </h2>
+
+      @if (waysToWatch().length > 0) {
+        <ul class="mt-3 flex flex-col gap-2">
+          @for (way of waysToWatch(); track way.url) {
+            <!--
+              The provider's own URL, opened away from the app: in a standalone
+              PWA there is no browser chrome, so a same-tab navigation would
+              leave the visitor with no way back (constitution II).
+            -->
+            <li>
+              <a
+                class="touch-target flex items-center justify-center rounded-full bg-accent-500 px-6 font-semibold text-white"
+                [href]="way.url"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {{ way.name }}
+              </a>
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="mt-3 text-sm text-chalk-300">Not on your services right now.</p>
+      }
+    </section>
+
+    <!--
+      Only when a trailer exists (US2 scenario 4). An ordinary link, never an
+      embed: no player code loads here (FR-008).
+    -->
+    @if (trailerUrl(); as trailer) {
+      <a
+        class="touch-target mt-3 flex items-center justify-center rounded-full border border-ink-600 px-6 font-medium text-chalk-300"
+        [href]="trailer"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Watch trailer
+      </a>
+    }
+
+    <button
+      type="button"
+      class="touch-target mt-auto flex items-center justify-center rounded-full border border-ink-700 px-6 font-medium text-chalk-300"
+      (click)="startNewLoop()"
+    >
+      Start a new loop
+    </button>
+  } @else {
+    <!--
+      The id resolved to nothing — a stale link, or a title retired since it was
+      rated. Still not a dead end: the way out is the same button.
+    -->
+    <section class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+      <h1 class="text-xl font-semibold text-chalk-50">This title is no longer available</h1>
+      <p class="text-chalk-300">It may have left the catalog since you rated it.</p>
+      <button
+        type="button"
+        class="touch-target mt-2 inline-flex items-center rounded-full bg-accent-500 px-6 font-medium text-white"
+        (click)="startNewLoop()"
+      >
+        Start a new loop
+      </button>
+    </section>
+  }
+</main>

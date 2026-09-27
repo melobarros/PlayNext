@@ -95,6 +95,14 @@ implementation):
 12. **360px touch (FR-017, SC-008)**: at 360px with touch emulation, browse,
     rate, and complete Watch Now → no horizontal scrolling, every control
     ≥44px, action bar sticky.
+
+    > **Not yet run.** This step needs a real browser with touch emulation, so
+    > it could not be executed in the implementation environment — jsdom has no
+    > layout engine to measure against. The pieces are unit-tested (every button
+    > carries `touch-target`, the action bar carries `sticky bottom-0`, the card
+    > surface carries `touch-pan-y`), but assertions about class names are not a
+    > measurement. **FR-017 and SC-008 remain unverified** until someone runs
+    > this step.
 13. **Determinism (SC-005)**: `localStorage.clear()`, answer the quiz
     identically twice → the card sequence is identical both times.
 

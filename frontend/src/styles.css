@@ -26,6 +26,14 @@
   --color-accent-400: #9b82ff;
   --color-accent-500: #7c5cff;
   --color-accent-600: #6a46f5;
+
+  /*
+   * Poster art is 2:3, used by the deck card (002 FR-003). Match Found shows no
+   * artwork: it was reached from the card the visitor just chose, so the poster
+   * would be a second copy of what they were already looking at.
+   * The namespace is `--aspect-*`, matching Tailwind's own `--aspect-video`.
+   */
+  --aspect-poster: 2 / 3;
 }
 
 /*

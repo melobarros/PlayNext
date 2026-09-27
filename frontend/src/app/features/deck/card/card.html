@@ -1,0 +1,95 @@
+<article
+  class="flex flex-col overflow-hidden rounded-3xl border border-ink-700 bg-ink-900"
+  [attr.aria-labelledby]="'card-title-' + title().id"
+>
+  <!--
+    Poster art, or the CSS-only placeholder when there is none or it failed
+    (FR-016). The placeholder makes no request, so it cannot fail in the same
+    conditions that broke the poster. `fetchpriority` is high because this is
+    the one card on screen (FR-002) — the shell preloads the *next* one only.
+  -->
+  @if (posterSrc(); as src) {
+    <img
+      class="aspect-poster w-full object-cover"
+      [src]="src"
+      [alt]="posterAlt()"
+      fetchpriority="high"
+      (error)="onPosterError()"
+    />
+  } @else {
+    <div
+      class="aspect-poster flex w-full items-center justify-center bg-linear-to-br from-ink-800 to-ink-700"
+      role="img"
+      [attr.aria-label]="posterAlt()"
+    >
+      <span class="text-3xl font-semibold tracking-wide text-ink-600">
+        {{ mediaTypeLabel() }}
+      </span>
+    </div>
+  }
+
+  <div class="flex flex-1 flex-col gap-3 p-5">
+    <div class="flex items-start justify-between gap-3">
+      <h2 [id]="'card-title-' + title().id" class="text-xl font-semibold text-balance">
+        {{ title().title }}
+      </h2>
+
+      <p class="shrink-0 rounded-full bg-ink-800 px-3 py-1 text-sm font-semibold text-accent-400">
+        {{ rating() }}
+        <span class="sr-only">out of 10</span>
+      </p>
+    </div>
+
+    <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-chalk-500">
+      <span>{{ title().releaseYear }}</span>
+      <span aria-hidden="true">&middot;</span>
+      <span>{{ mediaTypeLabel() }}</span>
+      @if (runtime(); as length) {
+        <span aria-hidden="true">&middot;</span>
+        <span>{{ length }}</span>
+      }
+    </p>
+
+    @if (genreLabels().length > 0) {
+      <ul class="flex flex-wrap gap-2">
+        @for (genre of genreLabels(); track genre) {
+          <li
+            class="rounded-full border border-ink-700 px-3 py-1 text-xs font-medium text-chalk-300"
+          >
+            {{ genre }}
+          </li>
+        }
+      </ul>
+    }
+
+    <!--
+      Native <details>: the disclosure works with no JavaScript, which is what
+      keeps the synopsis reachable when the bundle is cold or the connection
+      has just dropped (research.md D8).
+    -->
+    @if (hasSynopsis()) {
+      <details>
+        <summary
+          class="touch-target flex cursor-pointer items-center text-sm font-medium text-accent-400"
+        >
+          Synopsis
+        </summary>
+        <p class="pt-2 text-sm leading-relaxed text-chalk-300">{{ title().synopsis }}</p>
+      </details>
+    }
+
+    <div class="mt-auto pt-1">
+      @if (providerLabels().length > 0) {
+        <ul class="flex flex-wrap gap-2">
+          @for (provider of providerLabels(); track provider) {
+            <li class="rounded-full bg-ink-800 px-3 py-1 text-xs font-medium text-chalk-300">
+              {{ provider }}
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="text-xs text-chalk-500">Not on your services</p>
+      }
+    </div>
+  </div>
+</article>

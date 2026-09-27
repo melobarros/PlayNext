@@ -1,0 +1,65 @@
+<main class="mx-auto flex min-h-dvh max-w-md flex-col px-5 pt-6">
+  <!--
+    The notices are in the flow, above the card, and a line of small text each
+    (FR-017). They are the whole reason the deck can be honest about degraded
+    state without taking the decision away: an overlay or a full-height banner
+    would report the problem by causing a worse one.
+  -->
+  @if (usingCachedTitles()) {
+    <p class="mb-3 rounded-lg bg-ink-800 px-3 py-2 text-xs text-chalk-300" role="status">
+      Couldn't reach the catalog. Showing saved results.
+    </p>
+  }
+  @if (isOffline()) {
+    <p class="mb-3 rounded-lg bg-ink-800 px-3 py-2 text-xs text-chalk-300" role="status">
+      You're offline. Cards you've already loaded still work.
+    </p>
+  }
+
+  @if (card(); as current) {
+    <!--
+      The card is the only thing on screen (FR-002). `touch-pan-y` leaves
+      vertical scrolling to the browser — the synopsis has to stay reachable —
+      while the horizontal gesture comes to us. Capture is taken on pointerdown
+      so a drag that wanders off the card still finishes as one gesture.
+    -->
+    <div
+      #cardSurface
+      class="touch-pan-y"
+      [class.transition-transform]="!isDragging()"
+      [class.duration-200]="!isDragging()"
+      [style.transform]="'translateX(' + dragX() + 'px)'"
+      (pointerdown)="onPointerDown($event)"
+      (pointermove)="onPointerMove($event)"
+      (pointerup)="onPointerUp($event)"
+      (pointercancel)="onPointerUp($event)"
+    >
+      <app-card [title]="current" />
+    </div>
+
+    <!--
+      Sticky, so no action ever scrolls out of reach on a long card (FR-017).
+
+      The `<footer>` is here rather than inside `app-actions` because `sticky`
+      only works against a tall scrolling ancestor: an element that is exactly
+      its own wrapper's height has nowhere to stick. The shell owns placement,
+      the action bar owns the buttons.
+    -->
+    <footer
+      class="sticky bottom-0 mt-auto border-t border-ink-800 bg-ink-950/95 px-5 py-4 backdrop-blur"
+    >
+      <app-actions (ratingChosen)="onRating($event)" (watchNow)="onWatchNow()" (skipped)="skip()" />
+    </footer>
+  } @else {
+    <!--
+      The host carries the layout classes for the same reason the `<footer>`
+      above does: `flex-1` has to be on the element that is the flex child, and
+      that is `app-empty-state`, not the `<section>` inside it.
+    -->
+    <app-empty-state
+      class="flex flex-1 flex-col"
+      [outcome]="outcome()"
+      (startNewLoop)="startLoop()"
+    />
+  }
+</main>

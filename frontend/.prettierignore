@@ -1,0 +1,19 @@
+# Compiled output
+/dist
+/build
+/out-tsc
+/.angular
+
+# Dependencies
+/node_modules
+
+# Test coverage
+/coverage
+
+# Package manager lockfiles — generated, not hand-formatted
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Generated assets
+/src/assets

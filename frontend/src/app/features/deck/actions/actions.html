@@ -1,0 +1,35 @@
+<!--
+  Five columns, because the five ratings are one judgement each and should be
+  reachable without aiming. Labels may wrap to two lines at 360px; every button
+  keeps its 44px minimum either way (FR-017).
+-->
+<div class="grid grid-cols-5 gap-1.5">
+  @for (action of ratings; track action.state) {
+    <button
+      type="button"
+      class="touch-target flex items-center justify-center rounded-xl border border-ink-700 bg-ink-900 px-0.5 text-center text-xs leading-tight font-medium text-chalk-300"
+      (click)="ratingChosen.emit(action.state)"
+    >
+      {{ action.label }}
+    </button>
+  }
+</div>
+
+<div class="mt-2 flex items-center gap-2">
+  <button
+    type="button"
+    class="touch-target inline-flex items-center justify-center rounded-full border border-ink-600 px-5 font-medium text-chalk-300"
+    (click)="skipped.emit()"
+  >
+    Skip
+  </button>
+
+  <!-- The product's headline action, so it takes the room that is left. -->
+  <button
+    type="button"
+    class="touch-target inline-flex flex-1 items-center justify-center rounded-full bg-accent-500 px-6 font-semibold text-white"
+    (click)="watchNow.emit()"
+  >
+    {{ 'Watch Now' }}
+  </button>
+</div>

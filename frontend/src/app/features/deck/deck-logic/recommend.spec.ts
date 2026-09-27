@@ -1,0 +1,642 @@
+import { Interaction } from '../../../core/models/interaction';
+import { MEDIA_CATALOG } from '../../../core/models/media-catalog.data';
+import { MediaTitle } from '../../../core/models/media-title';
+import { Preference } from '../../../core/models/quiz';
+import { rankTitles } from './recommend';
+
+const RATED_AT = '2026-09-26T10:00:00.000Z';
+
+/** A rating as stored: the state and when it was recorded. */
+function rated(state: Interaction['state']): Interaction {
+  return { state, updatedAt: RATED_AT };
+}
+
+/**
+ * Tests for the recommendation engine
+ * (`specs/002-recommendation-deck/contracts/recommendation-engine.md`).
+ *
+ * The engine is the product's core asset and the reason the deck is
+ * trustworthy, so it is specified as a pure function and tested as one: no
+ * `TestBed`, no DOM, no clock. Two of the constitution's named invariants —
+ * Filter Enforcement (G1) and the Feedback Loop (G2) — are proven here.
+ *
+ * Filter assertions compare **sorted** id lists. That keeps this file about
+ * membership only; ordering is T014's subject, and a bug in the sort should
+ * not be able to masquerade as a filter failure.
+ */
+
+/** A title with sensible defaults, so each test states only what it cares about. */
+function title(id: string, overrides: Partial<MediaTitle> = {}): MediaTitle {
+  return {
+    id,
+    title: id,
+    releaseYear: 2020,
+    mediaType: 'movie',
+    genres: [],
+    synopsis: '',
+    rating: 7,
+    voteCount: 1000,
+    availability: [],
+    ...overrides,
+  };
+}
+
+/** A completed preference with everything set to "Any". */
+function preference(overrides: Partial<Preference> = {}): Preference {
+  return {
+    mediaType: { values: [], any: true },
+    genre: { values: [], any: true },
+    provider: { values: [], any: true },
+    includeUnownedProviders: false,
+    completedAt: '2026-09-26T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function on(providerId: string): MediaTitle['availability'] {
+  return [{ providerId, deepLinkUrl: `https://example.test/${providerId}` }];
+}
+
+describe('rankTitles — hard filters', () => {
+  const noInteractions: Record<string, Interaction> = {};
+
+  // ---------------------------------------------------------- filter 1 --
+  describe('filter 1: media type (FR-005)', () => {
+    it('drops titles whose media type was not chosen', () => {
+      const catalog = [
+        title('a-film', { mediaType: 'movie' }),
+        title('a-series', { mediaType: 'tv' }),
+        title('an-anime', { mediaType: 'anime' }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({ mediaType: { values: ['movie'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result.map((t) => t.id)).toEqual(['a-film']);
+    });
+
+    it('keeps every chosen media type', () => {
+      const catalog = [
+        title('a-film', { mediaType: 'movie' }),
+        title('a-series', { mediaType: 'tv' }),
+        title('an-anime', { mediaType: 'anime' }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({ mediaType: { values: ['movie', 'anime'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result.map((t) => t.id).sort()).toEqual(['a-film', 'an-anime']);
+    });
+
+    it('filters nothing when the visitor chose Any', () => {
+      const catalog = [
+        title('a-film', { mediaType: 'movie' }),
+        title('a-series', { mediaType: 'tv' }),
+        title('an-anime', { mediaType: 'anime' }),
+      ];
+
+      const result = rankTitles(catalog, preference(), noInteractions, []);
+
+      expect(result).toHaveLength(3);
+    });
+  });
+
+  // ---------------------------------------------------------- filter 2 --
+  describe('filter 2: genre (FR-005)', () => {
+    it('drops a title sharing no genre with the choice', () => {
+      const catalog = [
+        title('scary', { genres: ['horror'] }),
+        title('funny', { genres: ['comedy'] }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({ genre: { values: ['horror'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result.map((t) => t.id)).toEqual(['scary']);
+    });
+
+    it('keeps a title sharing at least one genre', () => {
+      const catalog = [title('both', { genres: ['comedy', 'horror'] })];
+
+      const result = rankTitles(
+        catalog,
+        preference({ genre: { values: ['horror'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result.map((t) => t.id)).toEqual(['both']);
+    });
+
+    it('drops a title with no genres at all', () => {
+      const catalog = [title('unlabelled', { genres: [] })];
+
+      const result = rankTitles(
+        catalog,
+        preference({ genre: { values: ['horror'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result).toEqual([]);
+    });
+
+    it('filters nothing when the visitor chose Any', () => {
+      const catalog = [title('unlabelled', { genres: [] }), title('scary', { genres: ['horror'] })];
+
+      const result = rankTitles(catalog, preference(), noInteractions, []);
+
+      expect(result).toHaveLength(2);
+    });
+  });
+
+  // ------------------------------------- filter 3 (the constitution one) --
+  describe('filter 3: availability (FR-006, Filter Enforcement invariant)', () => {
+    it('drops a title that is not on any selected service', () => {
+      const catalog = [
+        title('on-netflix', { availability: on('netflix') }),
+        title('on-hulu', { availability: on('hulu') }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({ provider: { values: ['netflix'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result.map((t) => t.id)).toEqual(['on-netflix']);
+    });
+
+    it('keeps a title available on any one of several selected services', () => {
+      const catalog = [title('on-hulu', { availability: on('hulu') })];
+
+      const result = rankTitles(
+        catalog,
+        preference({ provider: { values: ['netflix', 'hulu'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result.map((t) => t.id)).toEqual(['on-hulu']);
+    });
+
+    it('drops a title with no availability when services were chosen', () => {
+      // We cannot claim a title is watchable for them, so it is not suggested.
+      const catalog = [title('nowhere', { availability: [] })];
+
+      const result = rankTitles(
+        catalog,
+        preference({ provider: { values: ['netflix'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result).toEqual([]);
+    });
+
+    it('disables filter 3 entirely when the visitor opted into other platforms', () => {
+      // This is an explicit opt-in (spec 001 FR-006), not an exception to be
+      // quietly re-applied. Every title survives, including unavailable ones.
+      const catalog = [
+        title('on-netflix', { availability: on('netflix') }),
+        title('on-hulu', { availability: on('hulu') }),
+        title('nowhere', { availability: [] }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({
+          provider: { values: ['netflix'], any: false },
+          includeUnownedProviders: true,
+        }),
+        noInteractions,
+        [],
+      );
+
+      expect(result.map((t) => t.id).sort()).toEqual(['nowhere', 'on-hulu', 'on-netflix']);
+    });
+
+    it('filters nothing when the visitor chose Any service', () => {
+      const catalog = [
+        title('on-hulu', { availability: on('hulu') }),
+        title('nowhere', { availability: [] }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({ provider: { values: [], any: true } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result).toHaveLength(2);
+    });
+
+    it('holds the invariant across every shape of provider preference', () => {
+      // G1: no returned title is unavailable on the selected services unless
+      // the visitor opted into other platforms. This is the whole reason the
+      // deck can be trusted not to waste the visitor's time.
+      const catalog = [
+        title('netflix-only', { availability: on('netflix') }),
+        title('hulu-only', { availability: on('hulu') }),
+        title('both', { availability: [...on('netflix'), ...on('hulu')] }),
+        title('nowhere', { availability: [] }),
+      ];
+
+      const preferences = [
+        preference({ provider: { values: ['netflix'], any: false } }),
+        preference({ provider: { values: ['hulu'], any: false } }),
+        preference({ provider: { values: ['netflix', 'hulu'], any: false } }),
+        preference({ provider: { values: ['mubi'], any: false } }),
+      ];
+
+      for (const preferencesUnderTest of preferences) {
+        const result = rankTitles(catalog, preferencesUnderTest, noInteractions, []);
+        const selected = preferencesUnderTest.provider.values;
+
+        for (const returned of result) {
+          const available = returned.availability.some((entry) =>
+            selected.includes(entry.providerId),
+          );
+          expect(available).toBe(true);
+        }
+      }
+    });
+  });
+
+  // ---------------------------------------------------------- filter 4 --
+  describe('filter 4: previously rejected (FR-009, Feedback Loop invariant)', () => {
+    /**
+     * The constitution's second named invariant, stated as a property rather
+     * than as three examples: whatever the visitor rejected, none of it comes
+     * back.
+     *
+     * **These pass the moment they are written.** Filter 4 ships inside
+     * `rankTitles` from US1, so this is regression coverage pinning a guarantee
+     * that already holds — the genuinely new US3 work is the persistence wiring,
+     * and `deck.spec.ts`'s cross-session test is the one that had to be observed
+     * failing first. Saying so plainly beats staging a red that was never real.
+     */
+    it('never suggests a disliked title again (US3 scenario 1)', () => {
+      const catalog = [title('rejected'), title('fine')];
+
+      const result = rankTitles(catalog, preference(), { rejected: rated('disliked') }, []);
+
+      expect(result.map((t) => t.id)).toEqual(['fine']);
+    });
+
+    it('treats notInterested exactly as it treats disliked', () => {
+      // Two states, one rule: `isExcluding` owns the list, so the pair can only
+      // diverge if someone edits it — which is what this pins.
+      const catalog = [title('rejected'), title('fine')];
+
+      const disliked = rankTitles(catalog, preference(), { rejected: rated('disliked') }, []);
+      const notInterested = rankTitles(
+        catalog,
+        preference(),
+        { rejected: rated('notInterested') },
+        [],
+      );
+
+      expect(notInterested.map((t) => t.id)).toEqual(disliked.map((t) => t.id));
+      expect(notInterested.map((t) => t.id)).toEqual(['fine']);
+    });
+
+    it('excludes a title rejected in an earlier session (US3 scenario 2)', () => {
+      // The map is read straight from storage, so a rating made last week is
+      // indistinguishable from one made a second ago. That is the whole of
+      // cross-session exclusion: there is no session concept to honour.
+      const catalog = [title('rejected-last-week'), title('fresh')];
+      const fromStorage = { 'rejected-last-week': rated('notInterested') };
+
+      const result = rankTitles(catalog, preference(), fromStorage, []);
+
+      expect(result.map((t) => t.id)).toEqual(['fresh']);
+    });
+
+    it('leaves a title alone when it was rated something else', () => {
+      // Filter 4 is about rejection, not about being rated. The positive states
+      // — and `watchingNow`, which is neither — must not remove a title from
+      // the deck, or rating anything at all would shrink the visitor's options.
+      const catalog = [title('a'), title('b'), title('c'), title('d')];
+      const interactions = {
+        a: rated('loved'),
+        b: rated('liked'),
+        c: rated('wantToWatch'),
+        d: rated('watchingNow'),
+      };
+
+      const result = rankTitles(catalog, preference(), interactions, []);
+
+      expect(result.map((t) => t.id).sort()).toEqual(['a', 'b', 'c', 'd']);
+    });
+
+    it('makes a title eligible again when it is re-rated away from rejected', () => {
+      // Spec 003 FR-007 depends on this: "un-disliking" needs no extra
+      // mechanism, because eligibility is derived from the current state on
+      // every ranking rather than recorded in a separate exclusion list.
+      const catalog = [title('changed-their-mind')];
+
+      const rejected = rankTitles(
+        catalog,
+        preference(),
+        { 'changed-their-mind': rated('disliked') },
+        [],
+      );
+      const reRated = rankTitles(
+        catalog,
+        preference(),
+        { 'changed-their-mind': rated('loved') },
+        [],
+      );
+
+      expect(rejected).toEqual([]);
+      expect(reRated.map((t) => t.id)).toEqual(['changed-their-mind']);
+    });
+
+    it('stays excluded when the loop restarts, though a merely-shown title returns', () => {
+      // The seam between filter 4 and filter 5, and the reason both exist.
+      // Clearing the shown list is what makes a new loop feel fresh; it must
+      // not also resurrect everything the visitor rejected (US3 scenario 1).
+      const catalog = [title('seen-but-fine'), title('rejected')];
+      const interactions = { rejected: rated('disliked') };
+
+      const firstLoop = rankTitles(catalog, preference(), interactions, [
+        'seen-but-fine',
+        'rejected',
+      ]);
+      const newLoop = rankTitles(catalog, preference(), interactions, []);
+
+      expect(firstLoop).toEqual([]);
+      expect(newLoop.map((t) => t.id)).toEqual(['seen-but-fine']);
+    });
+  });
+
+  // ---------------------------------------------------------- filter 5 --
+  describe('filter 5: already shown (FR-010)', () => {
+    it('drops a title the visitor has already advanced past', () => {
+      const catalog = [title('seen'), title('unseen')];
+
+      const result = rankTitles(catalog, preference(), noInteractions, ['seen']);
+
+      expect(result.map((t) => t.id)).toEqual(['unseen']);
+    });
+
+    it('treats an id the catalog does not know as harmless', () => {
+      const catalog = [title('seen')];
+
+      const result = rankTitles(catalog, preference(), noInteractions, ['a-retired-title']);
+
+      expect(result.map((t) => t.id)).toEqual(['seen']);
+    });
+  });
+
+  describe('the filters compose', () => {
+    it('applies every filter at once', () => {
+      const catalog = [
+        title('wanted', {
+          mediaType: 'movie',
+          genres: ['horror'],
+          availability: on('netflix'),
+        }),
+        title('wrong-type', { mediaType: 'tv', genres: ['horror'], availability: on('netflix') }),
+        title('wrong-genre', {
+          mediaType: 'movie',
+          genres: ['comedy'],
+          availability: on('netflix'),
+        }),
+        title('wrong-service', {
+          mediaType: 'movie',
+          genres: ['horror'],
+          availability: on('hulu'),
+        }),
+        title('already-seen', {
+          mediaType: 'movie',
+          genres: ['horror'],
+          availability: on('netflix'),
+        }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({
+          mediaType: { values: ['movie'], any: false },
+          genre: { values: ['horror'], any: false },
+          provider: { values: ['netflix'], any: false },
+        }),
+        noInteractions,
+        ['already-seen'],
+      );
+
+      expect(result.map((t) => t.id)).toEqual(['wanted']);
+    });
+
+    it('returns an empty array rather than throwing when nothing survives (G5, FR-014)', () => {
+      const catalog = [title('on-hulu', { availability: on('hulu') })];
+
+      const result = rankTitles(
+        catalog,
+        preference({ provider: { values: ['netflix'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result).toEqual([]);
+    });
+  });
+});
+
+describe('rankTitles — score and order', () => {
+  const noInteractions: Record<string, Interaction> = {};
+
+  describe('matchedGenres (term 1)', () => {
+    it('ranks a title matching more of the chosen genres higher', () => {
+      const catalog = [
+        title('one-genre', { genres: ['horror'] }),
+        title('two-genres', { genres: ['horror', 'thriller'] }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({ genre: { values: ['horror', 'thriller'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result.map((t) => t.id)).toEqual(['two-genres', 'one-genre']);
+    });
+
+    it('contributes nothing when the visitor chose Any', () => {
+      // With every term equal, the two titles fall back to the id tiebreak.
+      const catalog = [
+        title('bbb', { genres: ['horror', 'thriller', 'drama'] }),
+        title('aaa', { genres: [] }),
+      ];
+
+      const result = rankTitles(catalog, preference(), noInteractions, []);
+
+      expect(result.map((t) => t.id)).toEqual(['aaa', 'bbb']);
+    });
+  });
+
+  describe('historyAffinity (term 2, the Feedback Loop invariant)', () => {
+    it('lifts titles wearing a genre the visitor has loved', () => {
+      const catalog = [
+        title('loved-horror', { genres: ['horror'] }),
+        title('a-comedy', { genres: ['comedy'] }),
+        title('another-horror', { genres: ['horror'] }),
+      ];
+      const interactions = { 'loved-horror': rated('loved') };
+
+      const withHistory = rankTitles(catalog, preference(), interactions, []).map((t) => t.id);
+      const withoutHistory = rankTitles(catalog, preference(), noInteractions, []).map((t) => t.id);
+
+      expect(withoutHistory).toEqual(['a-comedy', 'another-horror', 'loved-horror']);
+      expect(withHistory).toEqual(['another-horror', 'loved-horror', 'a-comedy']);
+    });
+
+    it('sinks titles wearing a genre the visitor rejected, and can go negative', () => {
+      const catalog = [
+        title('disliked-horror', { genres: ['horror'] }),
+        title('a-comedy', { genres: ['comedy'] }),
+        title('another-horror', { genres: ['horror'] }),
+      ];
+      const interactions = { 'disliked-horror': rated('disliked') };
+
+      const result = rankTitles(catalog, preference(), interactions, []).map((t) => t.id);
+
+      // The rejected title itself is gone (filter 4 / G2), but its genre still
+      // drags down a title the visitor has never rated. That generalization is
+      // the entire point of the term.
+      expect(result).toEqual(['a-comedy', 'another-horror']);
+    });
+
+    it('counts wantToWatch and liked as positive, like loved', () => {
+      for (const state of ['liked', 'wantToWatch'] as const) {
+        const catalog = [
+          title('rated-horror', { genres: ['horror'] }),
+          title('a-comedy', { genres: ['comedy'] }),
+          title('another-horror', { genres: ['horror'] }),
+        ];
+
+        const result = rankTitles(catalog, preference(), { 'rated-horror': rated(state) }, []).map(
+          (t) => t.id,
+        );
+
+        expect(result).toEqual(['another-horror', 'rated-horror', 'a-comedy']);
+      }
+    });
+  });
+
+  describe('weightedRating (term 3, confidence weighting)', () => {
+    it('does not let a lone 10.0 outrank a well-established 8.4 (D7)', () => {
+      // The anchors authored into the mock catalog for exactly this assertion
+      // (T006): a 10.0 on a handful of votes, against an 8.4 with hundreds of
+      // thousands. Weighting is (rating x votes + 6.5 x 500) / (votes + 500),
+      // which lands them at 6.53 and 8.40 — a decisive gap, not a rounding one.
+      const loud = MEDIA_CATALOG.find((t) => t.id === 'midnight-static')!;
+      const established = MEDIA_CATALOG.find((t) => t.id === 'your-name')!;
+
+      expect(loud.rating).toBeGreaterThan(established.rating);
+      expect(loud.voteCount).toBeLessThan(established.voteCount);
+
+      const result = rankTitles(MEDIA_CATALOG, preference(), noInteractions, []);
+
+      expect(result.findIndex((t) => t.id === 'midnight-static')).toBeGreaterThan(
+        result.findIndex((t) => t.id === 'your-name'),
+      );
+    });
+
+    it('still ranks a better-rated title above a worse-rated one at equal confidence', () => {
+      const catalog = [
+        title('worse', { rating: 7, voteCount: 5000 }),
+        title('better', { rating: 9, voteCount: 5000 }),
+      ];
+
+      const result = rankTitles(catalog, preference(), noInteractions, []);
+
+      expect(result.map((t) => t.id)).toEqual(['better', 'worse']);
+    });
+  });
+
+  describe('the total order (FR-011)', () => {
+    it('breaks a score tie by id ascending, whatever order the catalog arrived in', () => {
+      const sameScore = { rating: 8, voteCount: 1000, genres: ['horror'] };
+      const inOrder = [title('aaa', sameScore), title('bbb', sameScore), title('ccc', sameScore)];
+      const shuffled = [title('ccc', sameScore), title('aaa', sameScore), title('bbb', sameScore)];
+
+      expect(rankTitles(inOrder, preference(), noInteractions, []).map((t) => t.id)).toEqual([
+        'aaa',
+        'bbb',
+        'ccc',
+      ]);
+      expect(rankTitles(shuffled, preference(), noInteractions, []).map((t) => t.id)).toEqual([
+        'aaa',
+        'bbb',
+        'ccc',
+      ]);
+    });
+
+    it('is deterministic: equal inputs give an identical array, element for element (G3)', () => {
+      const reversed = [...MEDIA_CATALOG].reverse();
+
+      const fromCatalog = rankTitles(MEDIA_CATALOG, preference(), noInteractions, []);
+      const fromReversed = rankTitles(reversed, preference(), noInteractions, []);
+
+      // Two devices, two arrival orders, one deck — the guarantee FR-011 and
+      // SC-005 rest on.
+      expect(fromReversed.map((t) => t.id)).toEqual(fromCatalog.map((t) => t.id));
+    });
+
+    it('orders by score descending, not merely by the id tiebreak', () => {
+      const catalog = [
+        title('zzz-best', { rating: 9.5, voteCount: 100000 }),
+        title('aaa-worst', { rating: 5, voteCount: 100000 }),
+      ];
+
+      const result = rankTitles(catalog, preference(), noInteractions, []);
+
+      expect(result.map((t) => t.id)).toEqual(['zzz-best', 'aaa-worst']);
+    });
+  });
+
+  describe('purity (G4)', () => {
+    it('never mutates its inputs', () => {
+      const catalog = [title('bbb', { genres: ['horror'] }), title('aaa', { genres: ['horror'] })];
+      const preferences = preference({ genre: { values: ['horror'], any: false } });
+      const interactions = { bbb: rated('loved') };
+      const shown = ['ccc'];
+
+      const before = structuredClone({ catalog, preferences, interactions, shown });
+
+      rankTitles(catalog, preferences, interactions, shown);
+
+      expect(catalog).toEqual(before.catalog);
+      expect(preferences).toEqual(before.preferences);
+      expect(interactions).toEqual(before.interactions);
+      expect(shown).toEqual(before.shown);
+    });
+
+    it('returns a new array each call, so a caller cannot corrupt the engine', () => {
+      const first = rankTitles(MEDIA_CATALOG, preference(), noInteractions, []);
+      first.length = 0;
+
+      expect(rankTitles(MEDIA_CATALOG, preference(), noInteractions, []).length).toBe(
+        MEDIA_CATALOG.length,
+      );
+    });
+  });
+});

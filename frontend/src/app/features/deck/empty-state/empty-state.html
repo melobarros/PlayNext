@@ -1,0 +1,42 @@
+<!--
+  `flex-1` fills the host, which the shell stretches: this sits inside
+  `<main class="flex min-h-dvh flex-col">`, and a bare child of a flex column
+  that does not ask to grow collapses to its content height instead of
+  centring.
+-->
+<section class="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+  <h1 class="text-xl font-semibold">{{ copy().title }}</h1>
+  <p class="text-chalk-300">{{ copy().body }}</p>
+
+  @if (canResetFilters()) {
+    <button
+      type="button"
+      class="touch-target inline-flex items-center rounded-full bg-accent-500 px-6 font-medium text-white"
+      (click)="resetFilters()"
+    >
+      Reset Filters
+    </button>
+  } @else {
+    <!--
+      The one outcome with nothing to reset. A button here would write a retake
+      over a quiz document that does not exist, and `startRetake` has no state
+      to reopen — so this is a link, and it says the honest thing.
+    -->
+    <a
+      routerLink="/quiz"
+      class="touch-target inline-flex items-center rounded-full bg-accent-500 px-6 font-medium text-white"
+    >
+      Take the quiz
+    </a>
+  }
+
+  @if (canStartNewLoop()) {
+    <button
+      type="button"
+      class="touch-target inline-flex items-center rounded-full px-6 font-medium text-chalk-300 underline"
+      (click)="startNewLoop.emit()"
+    >
+      Start a new loop
+    </button>
+  }
+</section>
