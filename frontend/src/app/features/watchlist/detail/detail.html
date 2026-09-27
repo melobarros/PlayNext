@@ -1,0 +1,140 @@
+<main
+  class="mx-auto flex min-h-[calc(100dvh-var(--spacing-nav))] max-w-md flex-col px-5 pt-6 pb-8"
+>
+  @if (title(); as details) {
+    <app-poster
+      class="block w-40 self-center"
+      [src]="details.posterUrl"
+      [alt]="posterAlt()"
+      [placeholderText]="mediaTypeLabel()"
+    />
+
+    <header class="mt-5">
+      <div class="flex items-start justify-between gap-3">
+        <h1 class="text-2xl font-semibold text-balance text-chalk-50">{{ details.title }}</h1>
+
+        @if (rating(); as score) {
+          <p class="shrink-0 rounded-full bg-ink-800 px-3 py-1 text-sm font-semibold text-accent-400">
+            {{ score }}
+            <span class="sr-only">out of 10</span>
+          </p>
+        }
+      </div>
+
+      <p class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-chalk-500">
+        <span>{{ details.releaseYear }}</span>
+        <span aria-hidden="true">&middot;</span>
+        <span>{{ mediaTypeLabel() }}</span>
+        @if (runtime(); as length) {
+          <span aria-hidden="true">&middot;</span>
+          <span>{{ length }}</span>
+        }
+      </p>
+    </header>
+
+    @if (genreLabels().length > 0) {
+      <ul class="mt-4 flex flex-wrap gap-2">
+        @for (genre of genreLabels(); track genre) {
+          <li class="rounded-full border border-ink-700 px-3 py-1 text-xs font-medium text-chalk-300">
+            {{ genre }}
+          </li>
+        }
+      </ul>
+    }
+
+    <!--
+      Outright, not behind the card's `<details>`: the card hides the synopsis
+      to keep the deck quiet, but here the visitor has already stopped and asked
+      for this one title.
+    -->
+    @if (details.synopsis.trim().length > 0) {
+      <p class="mt-4 text-sm leading-relaxed text-chalk-300">{{ details.synopsis }}</p>
+    }
+
+    <!--
+      The same block Match Found renders, from the same field (research.md D11).
+      Links are resolved here at render time, so a title that changed services
+      since it was rated gets the current answer, not the one recorded then.
+    -->
+    <app-ways-to-watch class="mt-8" [availability]="availability()" />
+
+    <!--
+      `mt-auto` pins the controls to the bottom of the screen rather than
+      leaving them mid-page: five buttons on a 360px phone are only usable
+      where a thumb already rests, and the back link below is where it was.
+    -->
+    <section class="mt-auto pt-8" aria-labelledby="rating-heading">
+      <h2 id="rating-heading" class="text-sm font-medium text-chalk-500">Your rating</h2>
+
+      <!--
+        Only for one of the five (FR-004). A `watchingNow` title says nothing
+        here, because the vocabulary's only label for it is the verb "Watch
+        Now" — see `currentState` in detail.ts. `data-current` exists so a test
+        can read the indicator without matching the button that says the same
+        words.
+      -->
+      @if (currentStateLabel(); as current) {
+        <p data-current class="mt-2 text-sm text-chalk-300">
+          Currently <span class="font-semibold text-accent-400">{{ current }}</span>
+        </p>
+      }
+
+      <div class="mt-3 grid grid-cols-5 gap-1.5">
+        @for (action of ratingActions; track action.state) {
+          <button
+            type="button"
+            class="touch-target flex items-center justify-center rounded-xl border px-0.5 text-center text-xs leading-tight font-medium"
+            [attr.data-rating]="action.state"
+            [attr.aria-pressed]="action.state === currentState()"
+            [class.border-accent-500]="action.state === currentState()"
+            [class.bg-ink-800]="action.state === currentState()"
+            [class.text-accent-400]="action.state === currentState()"
+            [class.border-ink-700]="action.state !== currentState()"
+            [class.text-chalk-300]="action.state !== currentState()"
+            (click)="choose(action.state)"
+          >
+            {{ action.label }}
+          </button>
+        }
+      </div>
+
+      <!--
+        Outside the five and visibly so (FR-005): "no rating" is not a sixth
+        rating, and a Remove sharing their styling would make the control offer
+        six equally-weighted answers to a question with five.
+      -->
+      <button
+        type="button"
+        data-action="remove"
+        class="touch-target mt-3 inline-flex items-center justify-center rounded-full px-4 text-sm font-medium text-chalk-500 underline underline-offset-4"
+        (click)="remove()"
+      >
+        Remove rating
+      </button>
+    </section>
+
+    <a
+      class="touch-target mt-4 flex items-center justify-center rounded-full border border-ink-700 px-6 font-medium text-chalk-300"
+      routerLink="/watchlist"
+    >
+      Back to my watchlist
+    </a>
+  } @else {
+    <!--
+      The id resolved to nothing: a stale link, or a title that has left the
+      catalog since it was rated. Same wording as Match Found, and still not a
+      dead end — this is the only screen a delisted rating can be reached from,
+      and US2 puts the way to clear it here.
+    -->
+    <section class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+      <h1 class="text-xl font-semibold text-chalk-50">This title is no longer available</h1>
+      <p class="text-chalk-300">It may have left the catalog since you rated it.</p>
+      <a
+        class="touch-target mt-2 inline-flex items-center rounded-full bg-accent-500 px-6 font-medium text-white"
+        routerLink="/watchlist"
+      >
+        Back to my watchlist
+      </a>
+    </section>
+  }
+</main>

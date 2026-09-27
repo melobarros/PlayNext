@@ -34,6 +34,16 @@
    * The namespace is `--aspect-*`, matching Tailwind's own `--aspect-video`.
    */
   --aspect-poster: 2 / 3;
+
+  /*
+   * The navigation shell's height (003). One token rather than the same number
+   * written into three files: the nav sets its own height with it, the shell
+   * pads the content by it so nothing ends underneath, and the deck's action
+   * bar sticks `bottom-nav` so it sits *above* the nav rather than behind it.
+   * Those three have to agree, and a token is the difference between agreeing
+   * by construction and agreeing because everyone remembered.
+   */
+  --spacing-nav: 4rem;
 }
 
 /*

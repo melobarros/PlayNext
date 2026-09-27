@@ -8,35 +8,12 @@
       </p>
     </header>
 
-    <section class="mt-8">
-      <h2 class="text-xs font-semibold tracking-[0.2em] text-chalk-500 uppercase">
-        Where to watch
-      </h2>
-
-      @if (waysToWatch().length > 0) {
-        <ul class="mt-3 flex flex-col gap-2">
-          @for (way of waysToWatch(); track way.url) {
-            <!--
-              The provider's own URL, opened away from the app: in a standalone
-              PWA there is no browser chrome, so a same-tab navigation would
-              leave the visitor with no way back (constitution II).
-            -->
-            <li>
-              <a
-                class="touch-target flex items-center justify-center rounded-full bg-accent-500 px-6 font-semibold text-white"
-                [href]="way.url"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {{ way.name }}
-              </a>
-            </li>
-          }
-        </ul>
-      } @else {
-        <p class="mt-3 text-sm text-chalk-300">Not on your services right now.</p>
-      }
-    </section>
+    <!--
+      The block lives in `shared/` because 003's detail view needs the identical
+      thing from the same catalog field (research.md D11). The host carries the
+      spacing, the block carries the links.
+    -->
+    <app-ways-to-watch class="mt-8" [availability]="availability()" />
 
     <!--
       Only when a trailer exists (US2 scenario 4). An ordinary link, never an

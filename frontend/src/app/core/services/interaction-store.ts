@@ -130,6 +130,29 @@ export class InteractionStore {
     this.write(document);
   }
 
+  /**
+   * Removes a rating, returning the title to unrated (003 FR-005).
+   *
+   * **`history` is deliberately untouched.** The watching log records what
+   * happened, not what the visitor currently thinks, so a title they watched
+   * and later unrated keeps its entry (003 FR-008). Removal is the absence of a
+   * rating, not the erasure of a decision that was made — and that is why this
+   * is not implemented as "clear this title".
+   *
+   * Removing a title that was never rated is a no-op rather than an error: the
+   * caller is stating a desired end state, and that state already holds.
+   *
+   * Absence is the whole mechanism. There is no tombstone value, because the
+   * six-state vocabulary is the constitution's ubiquitous language and adding a
+   * seventh to say "no rating" would be a contract change to express something
+   * an absent key already expresses (research.md D2).
+   */
+  remove(titleId: string): void {
+    const document = this.read();
+    delete document.interactions[titleId];
+    this.write(document);
+  }
+
   clear(): void {
     this.memoryFallback = null;
     try {

@@ -66,6 +66,67 @@ export function isExcluding(state: InteractionState): boolean {
   return EXCLUDING_STATES.includes(state);
 }
 
+/** Where a recorded rating can be found again (003 FR-003). */
+export type WatchlistSurface = 'wantToWatch' | 'loved' | 'disliked' | 'history';
+
+interface WatchlistSurfaceDefinition {
+  id: WatchlistSurface;
+  /** The visitor-facing name of the tab or screen. */
+  label: string;
+  /** Every state this surface lists. */
+  states: readonly InteractionState[];
+  /**
+   * `tab` renders in the watchlist's tab strip; `log` is the watching-history
+   * screen, which is a separate destination rather than a fourth tab.
+   */
+  kind: 'tab' | 'log';
+}
+
+/**
+ * **Which surface each state appears on.** The one table the tabs, the re-rate
+ * control and the empty-state logic all read, so they cannot disagree
+ * (research.md D3).
+ *
+ * Two rows reconcile a vocabulary of six states with a product that offers
+ * three tabs. `liked` sits with `loved`, which is how the PRD already described
+ * the Loved tab. `notInterested` sits with `disliked`, which the clarification
+ * of 2026-09-26 settled: leaving it out made a rating the visitor could record
+ * and then never find again — a dead end, which the constitution's Principle II
+ * forbids. Each entry still carries its own label, so a merged tab is never
+ * ambiguous about which of the two it is.
+ *
+ * `watchingNow` appears in no tab by design (003 FR-004): it is set only by the
+ * deck's Watch Now action. Its surface is the history, which is why the history
+ * is part of this table rather than a fourth state bucket invented elsewhere.
+ *
+ * **The invariant this table must never break**: every state in
+ * `INTERACTION_STATES` appears here exactly once. A state with no surface is
+ * stored and then invisible, and `interaction.spec.ts` fails if one is added
+ * without a home.
+ */
+export const WATCHLIST_SURFACES: readonly WatchlistSurfaceDefinition[] = [
+  { id: 'wantToWatch', label: 'Want to Watch', states: ['wantToWatch'], kind: 'tab' },
+  { id: 'loved', label: 'Loved', states: ['loved', 'liked'], kind: 'tab' },
+  { id: 'disliked', label: 'Disliked', states: ['disliked', 'notInterested'], kind: 'tab' },
+  { id: 'history', label: 'History', states: ['watchingNow'], kind: 'log' },
+];
+
+/** The three surfaces the watchlist renders as tabs, in tab-strip order. */
+export const WATCHLIST_TABS: readonly WatchlistSurfaceDefinition[] = WATCHLIST_SURFACES.filter(
+  (surface) => surface.kind === 'tab',
+);
+
+/** The surface a state is listed on. Total by construction — see the table. */
+export function surfaceFor(state: InteractionState): WatchlistSurface {
+  const surface = WATCHLIST_SURFACES.find((candidate) => candidate.states.includes(state));
+
+  // Unreachable while the invariant above holds; throwing beats returning a
+  // plausible default that would hide a state from the visitor.
+  if (surface === undefined) throw new Error(`No watchlist surface for state "${state}"`);
+
+  return surface.id;
+}
+
 /**
  * One rating. Re-rating replaces it — one entry per title, by construction.
  *

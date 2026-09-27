@@ -1,0 +1,31 @@
+<section>
+  <h2 class="text-xs font-semibold tracking-[0.2em] text-chalk-500 uppercase">Where to watch</h2>
+
+  @if (links().length > 0) {
+    <ul class="mt-3 flex flex-col gap-2">
+      @for (link of links(); track link.url) {
+        <!--
+          The provider's own URL, opened away from the app: in a standalone PWA
+          there is no browser chrome, so a same-tab navigation would leave the
+          visitor with no way back (constitution II).
+        -->
+        <li>
+          <a
+            class="touch-target flex items-center justify-center rounded-full bg-accent-500 px-6 font-semibold text-white"
+            [href]="link.url"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {{ link.name }}
+          </a>
+        </li>
+      }
+    </ul>
+  } @else {
+    <!--
+      "Not on your services" is a degrade, not a failure: the title is still
+      worth deciding on, and this is the same answer the card gives.
+    -->
+    <p class="mt-3 text-sm text-chalk-300">Not on your services right now.</p>
+  }
+</section>

@@ -1,4 +1,12 @@
-<main class="mx-auto flex min-h-dvh max-w-md flex-col px-5 pt-6">
+<!--
+  `100dvh - the nav` rather than `min-h-dvh`: the shell reserves the nav's
+  height below this, so asking for the full viewport here would make every
+  screen 64px taller than the screen and scroll a little for no reason. The
+  arithmetic is the shell's contract, stated once in `--spacing-nav`.
+-->
+<main
+  class="mx-auto flex min-h-[calc(100dvh-var(--spacing-nav))] max-w-md flex-col px-5 pt-6"
+>
   <!--
     The notices are in the flow, above the card, and a line of small text each
     (FR-017). They are the whole reason the deck can be honest about degraded
@@ -40,13 +48,18 @@
     <!--
       Sticky, so no action ever scrolls out of reach on a long card (FR-017).
 
+      `bottom-nav`, not `bottom-0`: the shell's nav is fixed to the viewport
+      bottom, so a bar pinned at 0 would be behind it — visible to the DOM and
+      not to the visitor, which is the worst version of this bug. Offsetting by
+      the nav's own height puts the bar directly above it.
+
       The `<footer>` is here rather than inside `app-actions` because `sticky`
       only works against a tall scrolling ancestor: an element that is exactly
       its own wrapper's height has nowhere to stick. The shell owns placement,
       the action bar owns the buttons.
     -->
     <footer
-      class="sticky bottom-0 mt-auto border-t border-ink-800 bg-ink-950/95 px-5 py-4 backdrop-blur"
+      class="sticky bottom-nav mt-auto border-t border-ink-800 bg-ink-950/95 px-5 py-4 backdrop-blur"
     >
       <app-actions (ratingChosen)="onRating($event)" (watchNow)="onWatchNow()" (skipped)="skip()" />
     </footer>
