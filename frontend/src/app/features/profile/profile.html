@@ -1,0 +1,120 @@
+<main class="mx-auto flex min-h-[calc(100dvh-var(--spacing-nav))] max-w-md flex-col px-5 pt-6 pb-8">
+  <h1 class="text-2xl font-semibold text-chalk-50">Profile</h1>
+  <p class="mt-1 text-sm text-chalk-500">
+    Save your ratings, watchlist and history to an account, and they follow you to any device.
+  </p>
+
+  <!--
+    Real tab semantics, as the watchlist's tabs are: the two modes are one
+    surface with two settings, and a screen reader should hear "tab, 1 of 2,
+    selected". Both tabs point at the same panel because that is literally what
+    they have — one form whose labels change.
+  -->
+  <div
+    role="tablist"
+    aria-label="Create an account or sign in"
+    class="mt-5 flex gap-1 rounded-full border border-ink-700 bg-ink-900 p-1"
+  >
+    @for (option of modes; track option.id) {
+      <button
+        type="button"
+        role="tab"
+        [id]="'profile-mode-' + option.id"
+        aria-controls="profile-form"
+        [attr.aria-selected]="mode() === option.id"
+        [class.bg-ink-700]="mode() === option.id"
+        [class.text-chalk-50]="mode() === option.id"
+        [class.text-chalk-500]="mode() !== option.id"
+        [class.hover:text-chalk-300]="mode() !== option.id"
+        class="touch-target flex flex-1 items-center justify-center rounded-full px-4 text-sm font-medium transition-colors"
+        (click)="select(option.id)"
+      >
+        {{ option.label }}
+      </button>
+    }
+  </div>
+
+  <form
+    id="profile-form"
+    [attr.aria-labelledby]="'profile-mode-' + mode()"
+    class="mt-5 flex flex-col gap-4"
+    (submit)="submit($event)"
+  >
+    <label class="flex flex-col gap-1.5">
+      <span class="text-sm font-medium text-chalk-300">Email</span>
+      <!--
+        `[value]` plus `(input)` rather than a forms module: the repo has no
+        form library, and adding one for two fields would be a second pattern
+        for a concern that has never needed the first (constitution VII).
+      -->
+      <input
+        type="email"
+        name="email"
+        autocomplete="email"
+        required
+        class="touch-target rounded-xl border border-ink-700 bg-ink-900 px-4 text-chalk-50 placeholder:text-chalk-600"
+        placeholder="you@example.com"
+        [value]="email()"
+        (input)="onEmail($any($event.target).value)"
+      />
+    </label>
+
+    <label class="flex flex-col gap-1.5">
+      <span class="text-sm font-medium text-chalk-300">Password</span>
+      <!--
+        `type="password"` and nothing that changes it: FR-010 says the password
+        MUST be hidden while entered, and a reveal toggle is the usual way that
+        quietly stops being true. `autocomplete` follows the mode, so a password
+        manager offers to save a new one when creating and to fill the existing
+        one when signing in.
+      -->
+      <input
+        type="password"
+        name="password"
+        [attr.autocomplete]="isSignUp() ? 'new-password' : 'current-password'"
+        required
+        class="touch-target rounded-xl border border-ink-700 bg-ink-900 px-4 text-chalk-50"
+        [value]="password()"
+        (input)="onPassword($any($event.target).value)"
+      />
+    </label>
+
+    <!--
+      `role="alert"` so the message is announced rather than only drawn — a
+      refusal a screen reader never reads is a refusal the visitor has to guess
+      at from a form that did nothing.
+    -->
+    @if (notice(); as message) {
+      <p role="alert" class="rounded-lg bg-ink-800 px-3 py-2 text-sm text-chalk-300">
+        {{ message }}
+      </p>
+    }
+
+    <button
+      type="submit"
+      class="touch-target flex items-center justify-center rounded-full bg-accent-500 px-6 font-medium text-white transition-opacity disabled:opacity-60"
+      [disabled]="busy()"
+    >
+      {{ isSignUp() ? 'Create account' : 'Sign in' }}
+    </button>
+  </form>
+
+  <div class="mt-5 flex items-center gap-3">
+    <span class="h-px flex-1 bg-ink-800"></span>
+    <span class="text-xs text-chalk-600">or</span>
+    <span class="h-px flex-1 bg-ink-800"></span>
+  </div>
+
+  <!--
+    Offered in both modes (FR-002): Google is a way in whether or not an
+    account exists, and FR-009 is exactly the case where it finds one. Its
+    handler is T045's — see `signInWithGoogle`.
+  -->
+  <button
+    type="button"
+    class="touch-target mt-5 flex items-center justify-center rounded-full border border-ink-600 px-6 font-medium text-chalk-300"
+    (click)="signInWithGoogle()"
+  >
+    Continue with Google
+  </button>
+</main>

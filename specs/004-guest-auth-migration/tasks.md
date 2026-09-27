@@ -68,17 +68,17 @@ Web app + API per plan.md: `backend/src/PlayNext.{Domain,Application,Infrastruct
 
 - [x] T017 [P] [US1] Write red gated integration tests in `backend/tests/PlayNext.Api.IntegrationTests/AuthTests.cs` (run when the Postgres connection string is set): register with a seeded guest document → response state equals the device state exactly (SC-001); register with no guest data → empty account; duplicate email → 409 offering sign-in (FR-008)
 - [x] T018 [P] [US1] Write red frontend tests in `frontend/src/app/core/services/auth.service.spec.ts`: register/login/google call the contract endpoints with the guest document attached; the session marker is written to `playnext:session`; **no token ever appears in LocalStorage** (research D6)
-- [ ] T022 [P] [US1] Write red tests in `frontend/src/app/features/profile/profile.spec.ts`: Sign up / Sign in modes, email + password fields with the password hidden while typed (FR-010), the Google button on both modes, generic friendly error messages, touch targets ≥44px at 360px (FR-018), and the Profile link present in the shell nav
-- [ ] T023 [P] [US1] Write red tests in `frontend/src/app/features/match-found/match-found.spec.ts`: the nudge renders after a Watch Now lock-in, is dismissible, stays dismissed for the session (sessionStorage, research D11), and never blocks Start New Loop (US1 scenario 5, FR-001)
+- [x] T022 [P] [US1] Write red tests in `frontend/src/app/features/profile/profile.spec.ts`: Sign up / Sign in modes, email + password fields with the password hidden while typed (FR-010), the Google button on both modes, generic friendly error messages, touch targets ≥44px at 360px (FR-018), and the Profile link present in the shell nav
+- [x] T023 [P] [US1] Write red tests in `frontend/src/app/features/match-found/match-found.spec.ts`: the nudge renders after a Watch Now lock-in, is dismissible, stays dismissed for the session (sessionStorage, research D11), and never blocks Start New Loop (US1 scenario 5, FR-001)
 
 ### Implementation for User Story 1
 
 - [x] T019 [US1] Implement the auth use cases in `backend/src/PlayNext.Application/UseCases/` (Register, Login, GoogleSignIn — all funnel the optional guest payload through `MergeService` over the empty/new account) to turn T016 green
 - [x] T020 [US1] Implement the auth endpoints in `backend/src/PlayNext.Api/Endpoints/AuthEndpoints.cs` per contracts/api.md: POST /auth/register, /auth/login, /auth/google, /auth/refresh, /auth/logout — the session envelope (access token in body, refresh token as httpOnly cookie, canonical state) to turn T017 green
 - [x] T021 [US1] Implement `frontend/src/app/core/models/session.ts` and `frontend/src/app/core/services/auth.service.ts` (register/login/google calls, silent refresh, session marker read/write, tokens in memory only) to turn T018 green
-- [ ] T024 [US1] Implement the Profile feature in `frontend/src/app/features/profile/` (profile.ts, profile.html), add its route in `frontend/src/app/app.routes.ts`, and add Profile as the third nav destination in `frontend/src/app/features/shell/` to turn T022 green
-- [ ] T025 [US1] Implement the dismissible nudge in `frontend/src/app/features/match-found/` (match-found.ts, match-found.html) to turn T023 green
-- [ ] T026 [US1] Wire the Profile forms to AuthService end-to-end: capture the guest documents (`playnext:interactions` + `playnext:quiz-state` per contracts), attach them to the auth call, and write the returned canonical state back to LocalStorage as the device cache (research D3/D7, US1 scenarios 1–3)
+- [x] T024 [US1] Implement the Profile feature in `frontend/src/app/features/profile/` (profile.ts, profile.html), add its route in `frontend/src/app/app.routes.ts`, and add Profile as the third nav destination in `frontend/src/app/features/shell/` to turn T022 green
+- [x] T025 [US1] Implement the dismissible nudge in `frontend/src/app/features/match-found/` (match-found.ts, match-found.html) to turn T023 green
+- [x] T026 [US1] Wire the Profile forms to AuthService end-to-end: capture the guest documents (`playnext:interactions` + `playnext:quiz-state` per contracts), attach them to the auth call, and write the returned canonical state back to LocalStorage as the device cache (research D3/D7, US1 scenarios 1–3)
 
 **Checkpoint**: User Story 1 fully functional — a guest registers and loses nothing; the second-device sign-in pulls the account state.
 
@@ -94,13 +94,13 @@ Web app + API per plan.md: `backend/src/PlayNext.{Domain,Application,Infrastruct
 
 - [ ] T027 [P] [US2] Write red tests in `frontend/src/app/core/services/sync.service.spec.ts`: a signed-in write pushes to the API; a network failure appends to `playnext:sync-pending` and the local write still applies; replay on reconnect clears the queue only on a confirmed 200; a 400 is surfaced, not retried forever (contracts/device-storage.md failure semantics)
 - [ ] T028 [P] [US2] Write red tests in `frontend/src/app/core/services/interaction-store.spec.ts` and the quiz store spec: while signed in, `record`/`recordWatch`/`remove` and quiz writes notify the sync sink with the changed items; while a guest, no sink notification fires (research D9)
-- [ ] T031 [P] [US2] Write red application tests in `backend/tests/PlayNext.Application.Tests/SyncUseCaseTests.cs`: a partial sync body upserts only the given items (omitted = untouched); conflicts resolve newest-wins; an unknown `state` is a 400; history pairs are idempotent
+- [x] T031 [P] [US2] Write red application tests in `backend/tests/PlayNext.Application.Tests/SyncUseCaseTests.cs`: a partial sync body upserts only the given items (omitted = untouched); conflicts resolve newest-wins; an unknown `state` is a 400; history pairs are idempotent
 
 ### Implementation for User Story 2
 
 - [ ] T029 [US2] Implement `frontend/src/app/core/models/sync.ts` and `frontend/src/app/core/services/sync.service.ts` (the pending queue per contracts/device-storage.md, replay, cache write-back from the canonical response) to turn T027 green
 - [ ] T030 [US2] Wire the sync sink into `frontend/src/app/core/services/interaction-store.ts` and the quiz store: an optional observer notified with changed items after every successful local write, subscribed by SyncService while a session is active (research D9) to turn T028 green
-- [ ] T032 [US2] Implement the state endpoints in `backend/src/PlayNext.Api/Endpoints/StateEndpoints.cs` + use cases: GET /me/state and POST /me/sync — the single write endpoint for live pushes, offline replay, and migrations (contracts/api.md) — to turn T031 green
+- [x] T032 [US2] Implement the state endpoints in `backend/src/PlayNext.Api/Endpoints/StateEndpoints.cs` + use cases: GET /me/state and POST /me/sync — the single write endpoint for live pushes, offline replay, and migrations (contracts/api.md) — to turn T031 green
 - [ ] T033 [US2] Implement boot restore in `frontend/src/app/`: on start, if `playnext:session` exists, silent refresh via cookie; on success pull GET /me/state into the LocalStorage cache; on online failure drop to signed-out guest mode with cached data intact and the Profile inviting sign-in; on offline failure enter signed-in offline mode (offline notice + queue, FR-017, research D12); tests in a boot spec
 
 **Checkpoint**: User Stories 1 AND 2 both work — signed-in data is portable and offline-tolerant.
@@ -120,7 +120,7 @@ Web app + API per plan.md: `backend/src/PlayNext.{Domain,Application,Infrastruct
 ### Implementation for User Story 3
 
 - [ ] T035 [US3] Implement sign-in and Google guest-document capture + canonical write-back in `frontend/src/app/core/services/auth.service.ts` (reusing T026's plumbing — one code path, not two) to turn T034 green
-- [ ] T036 [US3] Extend the gated integration suite in `backend/tests/PlayNext.Api.IntegrationTests/MigrationTests.cs` for US3 scenarios 1–3 end-to-end: sign-in with a conflicting title resolves newest-wins; unique titles on both sides survive; newer preferences win (the merge itself is T007's domain tests — this exercises it through the endpoint)
+- [ ] T036 [US3] Extend the gated integration suite in `backend/tests/PlayNext.Api.IntegrationTests/MigrationTests.cs` for US3 scenarios 1–3 end-to-end: sign-in with a conflicting title resolves newest-wins; unique titles on both sides survive; newer preferences win (the merge itself is T007's domain tests — this exercises it through the endpoint). **Assert newest-wins by re-reading the account in a later session, never off the merging call's own response** — the merge is computed in memory, so that response is identical whether or not the write reached PostgreSQL. The conflicting-rating and newer-quiz cases now exist in `AuthTests.cs`; keep this file for scenarios 1–3 proper. Also cover the removals delete path (FR-006) once T032 lands: a removal newer than the stored rating must leave no row behind, and the title must not reappear in a later read
 
 **Checkpoint**: All user stories now independently functional — both migration paths (register and sign-in) are lossless.
 

@@ -153,6 +153,22 @@ export class InteractionStore {
     this.write(document);
   }
 
+  /**
+   * Replaces the whole document with the account's canonical copy (research D7).
+   *
+   * The one write here that does not start from `read()`. Every other method is
+   * a read-modify-write of the device's own document, because the device is the
+   * only author — but once a session exists the server has merged both sides,
+   * so its copy is the answer and copying it in is a replacement of the local
+   * document rather than an edit to it.
+   *
+   * `schemaVersion` and `updatedAt` stay the store's own: they describe this
+   * device's document, not the account's.
+   */
+  replace(interactions: Record<string, Interaction>, history: WatchHistoryEntry[]): void {
+    this.write({ ...emptyInteractionDocument(), interactions, history });
+  }
+
   clear(): void {
     this.memoryFallback = null;
     try {

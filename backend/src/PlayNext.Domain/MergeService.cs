@@ -19,6 +19,8 @@ namespace PlayNext.Domain;
 ///   <item>An exact timestamp tie goes to the <b>account</b> — a deterministic
 ///   tie-break, because "whichever the framework enumerated first" is not a
 ///   rule (constitution VI: reproducible from the same inputs).</item>
+///   <item>A removal is a claim on a title with a time on it, so it wins or
+///   loses against the account's rating by that same comparison (FR-006).</item>
 ///   <item>The watching log is a union that never duplicates an entry and never
 ///   removes one, which is what makes a retried migration idempotent.</item>
 ///   <item>Preferences are whole-document newest-wins, never field-merged.</item>
@@ -37,20 +39,37 @@ public static class MergeService
     /// </remarks>
     public static AccountState Merge(AccountState account, AccountState incoming)
     {
+        // The result carries no removals: they have been applied, and the
+        // canonical state is what the account holds *now*. Returning the
+        // instructions would invite a caller to apply them a second time.
         return new AccountState(
-            MergeInteractions(account.Interactions, incoming.Interactions),
+            MergeInteractions(account.Interactions, incoming.Interactions, incoming.Removals),
             MergeHistory(account.History, incoming.History),
             MergePreferences(account.Preferences, incoming.Preferences));
     }
 
     /// <summary>
-    /// Union with newest-wins. The comparison is strictly greater, which is the
-    /// whole of the tie rule: an equal timestamp leaves the account's record in
-    /// place (research D4).
+    /// Union with newest-wins, then the incoming side's removals applied by the
+    /// same comparison.
     /// </summary>
+    /// <remarks>
+    /// Ratings and removals are deliberately resolved by one rule rather than
+    /// two. A removal is a claim about a title with a time on it, exactly as a
+    /// rating is, so "the newer claim wins, an exact tie goes to the account"
+    /// settles both — and a concurrent device's newer re-rate survives a
+    /// removal that arrives after it (FR-017). The comparison is strictly
+    /// greater, which is the whole of the tie rule (research D4).
+    ///
+    /// Removals are applied second. A well-formed body never names one title in
+    /// both collections — contracts/api.md rejects that with a 400, and the
+    /// client folds its queue in order before sending — so for anything this
+    /// service actually receives, the order is unobservable. Applying them last
+    /// is the deterministic answer for input that reaches it another way.
+    /// </remarks>
     private static Dictionary<string, InteractionRecord> MergeInteractions(
         IReadOnlyDictionary<string, InteractionRecord> account,
-        IReadOnlyDictionary<string, InteractionRecord> incoming)
+        IReadOnlyDictionary<string, InteractionRecord> incoming,
+        IReadOnlyDictionary<string, DateTimeOffset> removals)
     {
         var merged = new Dictionary<string, InteractionRecord>(account, StringComparer.Ordinal);
 
@@ -59,6 +78,17 @@ public static class MergeService
             if (!merged.TryGetValue(titleId, out var existing) || candidate.UpdatedAt > existing.UpdatedAt)
             {
                 merged[titleId] = candidate;
+            }
+        }
+
+        foreach (var (titleId, removedAt) in removals)
+        {
+            // Nothing to do when the account has no rating: a removal is
+            // idempotent by construction, which is what makes replaying a queue
+            // safe (FR-007).
+            if (merged.TryGetValue(titleId, out var existing) && removedAt > existing.UpdatedAt)
+            {
+                merged.Remove(titleId);
             }
         }
 

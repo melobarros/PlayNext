@@ -21,9 +21,10 @@ public class GuestStateValidatorTests
     private static GuestStatePayload Document(
         Dictionary<string, InteractionPayload>? interactions = null,
         List<HistoryPayload>? history = null,
-        PreferencePayload? preferences = null)
+        PreferencePayload? preferences = null,
+        List<RemovalPayload>? removals = null)
     {
-        return new GuestStatePayload(interactions, history, preferences);
+        return new GuestStatePayload(interactions, history, preferences, removals);
     }
 
     private static PreferencePayload Preferences(string updatedAt = ValidTimestamp)
@@ -178,6 +179,83 @@ public class GuestStateValidatorTests
 
             Assert.Contains(outcome.Errors, error => error.Contains("arrival"));
             Assert.Contains(outcome.Errors, error => error.Contains("get-out"));
+        }
+    }
+
+    /// <summary>
+    /// FR-006: a removal arrives as a claim about a title with a time on it,
+    /// so the server can resolve it against the account's rating by the same
+    /// newest-wins rule as everything else (contracts/api.md).
+    /// </summary>
+    public class RemovalsAreValidated
+    {
+        [Fact]
+        public void A_removal_becomes_a_timestamped_claim()
+        {
+            var outcome = GuestStateValidator.Validate(
+                Document(removals: [new RemovalPayload("hereditary", ValidTimestamp)]));
+
+            Assert.True(outcome.IsValid, string.Join("; ", outcome.Errors));
+            Assert.Equal(
+                new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero),
+                outcome.Value!.Removals["hereditary"]);
+        }
+
+        [Fact]
+        public void A_document_of_only_removals_is_a_change_not_a_pull()
+        {
+            // The mirror of "no collections means pull only". Reading a body
+            // that names only removals as an empty request would silently drop
+            // an unrating, which is the failure FR-006 exists to prevent.
+            var outcome = GuestStateValidator.Validate(
+                Document(removals: [new RemovalPayload("hereditary", ValidTimestamp)]));
+
+            Assert.True(outcome.IsValid);
+            Assert.Single(outcome.Value!.Removals);
+        }
+
+        [Theory]
+        [InlineData("not-a-date")]
+        [InlineData("")]
+        [InlineData(null)]
+        public void A_non_parseable_removal_timestamp_rejects_the_document(string? updatedAt)
+        {
+            var outcome = GuestStateValidator.Validate(
+                Document(
+                    new() { ["arrival"] = new("loved", ValidTimestamp) },
+                    removals: [new RemovalPayload("hereditary", updatedAt)]));
+
+            // Refused whole, like every other bad field: a document accepted in
+            // part would drop a rating without telling anyone.
+            Assert.False(outcome.IsValid);
+            Assert.Null(outcome.Value);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("   ")]
+        [InlineData(null)]
+        public void An_empty_removal_title_id_is_rejected(string? titleId)
+        {
+            var outcome = GuestStateValidator.Validate(
+                Document(removals: [new RemovalPayload(titleId, ValidTimestamp)]));
+
+            Assert.False(outcome.IsValid);
+        }
+
+        [Fact]
+        public void A_title_named_in_both_collections_rejects_the_document()
+        {
+            // Competing claims about one title. A body making both has already
+            // lost the ordering that would settle it, so the server refuses
+            // rather than picking a winner (contracts/api.md).
+            var outcome = GuestStateValidator.Validate(
+                Document(
+                    new() { ["hereditary"] = new("disliked", ValidTimestamp) },
+                    removals: [new RemovalPayload("hereditary", ValidTimestamp)]));
+
+            Assert.False(outcome.IsValid);
+            Assert.Contains("hereditary", string.Join("; ", outcome.Errors));
         }
     }
 

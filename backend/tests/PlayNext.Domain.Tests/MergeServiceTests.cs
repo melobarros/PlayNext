@@ -21,7 +21,8 @@ public class MergeServiceTests
     private static AccountState StateWith(
         (string TitleId, InteractionState State, DateTimeOffset At)[] interactions,
         (string TitleId, DateTimeOffset At)[]? history = null,
-        PreferenceRecord? preferences = null)
+        PreferenceRecord? preferences = null,
+        (string TitleId, DateTimeOffset At)[]? removals = null)
     {
         return new AccountState(
             interactions.ToDictionary(
@@ -29,7 +30,11 @@ public class MergeServiceTests
                 entry => new InteractionRecord(entry.State, entry.At),
                 StringComparer.Ordinal),
             (history ?? []).Select(entry => new WatchHistoryEntry(entry.TitleId, entry.At)).ToList(),
-            preferences);
+            preferences,
+            (removals ?? []).ToDictionary(
+                entry => entry.TitleId,
+                entry => entry.At,
+                StringComparer.Ordinal));
     }
 
     private static PreferenceRecord PreferencesAt(DateTimeOffset updatedAt, string genre)
@@ -160,6 +165,111 @@ public class MergeServiceTests
             var merged = MergeService.Merge(account, device);
 
             Assert.Equal("horror", merged.Preferences!.Genre.Values[0]);
+        }
+    }
+
+    /// <summary>
+    /// FR-006 names removals among the changes made while signed in that must
+    /// reach the account. They resolve against the account's rating through the
+    /// same newest-wins comparison every other record uses — which is the whole
+    /// reason a removal carries an <c>updatedAt</c> rather than being a bare
+    /// "delete this" (contracts/api.md, data-model.md).
+    /// </summary>
+    public class Removals
+    {
+        [Fact]
+        public void A_removal_newer_than_the_accounts_rating_drops_it()
+        {
+            var account = StateWith([("hereditary", InteractionState.Disliked, Older)]);
+            var device = StateWith([], removals: [("hereditary", Newer)]);
+
+            var merged = MergeService.Merge(account, device);
+
+            Assert.False(merged.Interactions.ContainsKey("hereditary"));
+        }
+
+        [Fact]
+        public void A_removal_older_than_the_accounts_rating_loses_to_it()
+        {
+            // The case data-model.md names: another device re-rated the title
+            // after this one removed it, so the re-rate survives the removal
+            // arriving late.
+            var account = StateWith([("hereditary", InteractionState.Loved, Newer)]);
+            var device = StateWith([], removals: [("hereditary", Older)]);
+
+            var merged = MergeService.Merge(account, device);
+
+            Assert.Equal(InteractionState.Loved, merged.Interactions["hereditary"].State);
+        }
+
+        [Fact]
+        public void An_exact_tie_keeps_the_accounts_rating()
+        {
+            // The same determinism rule as every other record (research D4):
+            // equal timestamps favour the account, so the outcome cannot turn
+            // on which side the framework happened to enumerate first.
+            var account = StateWith([("hereditary", InteractionState.Disliked, Older)]);
+            var device = StateWith([], removals: [("hereditary", Older)]);
+
+            var merged = MergeService.Merge(account, device);
+
+            Assert.True(merged.Interactions.ContainsKey("hereditary"));
+        }
+
+        [Fact]
+        public void Removing_a_title_the_account_never_rated_is_a_no_op()
+        {
+            // What makes a replayed queue idempotent (FR-007): the second
+            // delivery of a removal finds nothing to do, and says nothing.
+            var merged = MergeService.Merge(
+                AccountState.Empty,
+                StateWith([], removals: [("hereditary", Newer)]));
+
+            Assert.Empty(merged.Interactions);
+        }
+
+        [Fact]
+        public void A_removal_does_not_touch_the_watching_log()
+        {
+            // 002 FR-008: the log records what happened, not what the visitor
+            // currently thinks — the same reason `remove` leaves history alone
+            // on the device.
+            var account = StateWith(
+                [("hereditary", InteractionState.Loved, Older)],
+                history: [("hereditary", Older)]);
+
+            var merged = MergeService.Merge(
+                account,
+                StateWith([], removals: [("hereditary", Newer)]));
+
+            Assert.Single(merged.History);
+        }
+
+        [Fact]
+        public void The_merged_state_carries_no_removals()
+        {
+            // A removal is an instruction, not state. The canonical state is
+            // what the account holds *now*, and handing the operation back
+            // would invite a client to apply it a second time.
+            var merged = MergeService.Merge(
+                StateWith([("hereditary", InteractionState.Disliked, Older)]),
+                StateWith([], removals: [("hereditary", Newer)]));
+
+            Assert.Empty(merged.Removals);
+        }
+
+        [Fact]
+        public void A_removal_leaves_the_account_it_was_merged_into_untouched()
+        {
+            // The purity guarantee the whole migration rests on: an interrupted
+            // merge leaves the device's last copy authoritative (FR-007).
+            var account = StateWith([("hereditary", InteractionState.Disliked, Older)]);
+            var device = StateWith([], removals: [("hereditary", Newer)]);
+
+            MergeService.Merge(account, device);
+
+            Assert.True(account.Interactions.ContainsKey("hereditary"));
+            Assert.Single(device.Removals);
         }
     }
 

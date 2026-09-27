@@ -22,6 +22,9 @@ mean "untouched"** — the sync body may be partial):
   "interactions": {
     "arrival":   { "state": "loved",       "updatedAt": "2026-09-27T10:00:00Z" }
   },
+  "removals": [
+    { "titleId": "hereditary", "updatedAt": "2026-09-27T10:02:00Z" }
+  ],
   "history": [
     { "titleId": "arrival", "chosenAt": "2026-09-27T10:05:00Z" }
   ],
@@ -44,6 +47,29 @@ Rules (from the 001/002 frozen contracts and the merge rule in
 - `interactions` keys are `titleId`s; one rating per title.
 - A sync body containing no collections at all is valid and means "pull
   only" — it returns the account state unchanged.
+- A title MUST NOT appear in both `interactions` and `removals`, else `400`:
+  the two are competing claims about one title and a body that makes both is
+  asking the server to guess which the visitor meant.
+
+### Why `removals` is a collection of its own
+
+FR-006 names removals among the changes made while signed in that must reach
+the account, and research D2 rules out the obvious alternative: a rating is
+removed by *absence*, and there is no seventh "unrated" state to send instead.
+Absence cannot carry a timestamp, and without one a removal cannot take part in
+newest-wins — so `removals` carries `updatedAt` explicitly and is compared
+against the account's rating exactly as two ratings are. A removal older than
+the account's rating loses to it, which is what lets a concurrent device's
+newer re-rate survive a replayed removal.
+
+`removals` is meaningful only on `POST /me/sync`. The auth paths' `guest`
+payload never carries it, and that is a real boundary rather than an
+oversight: a device's stored document expresses a removal as the title's
+absence, and absence has no timestamp to compare. So a rating removed while
+signed out, on a device that then signs in to an account still holding that
+rating, keeps the account's rating. The union rule decides it, the account's
+action was deliberate, and inventing a timestamp for an absence would be
+guessing at when the visitor changed their mind.
 
 ## Auth
 

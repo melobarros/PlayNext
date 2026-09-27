@@ -58,6 +58,18 @@ public sealed class AuthTests : IClassFixture<AuthApiFactory>
         };
     }
 
+    /// <summary>
+    /// The canonical state out of a session response, asserting the call itself
+    /// succeeded first — a 500 body has no <c>state</c> to read, and letting that
+    /// surface as a null-dereference would hide the status code that explains it.
+    /// </summary>
+    private static async Task<JsonObject> StateOf(HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        return JsonNode.Parse(await response.Content.ReadAsStringAsync())!["state"]!.AsObject();
+    }
+
     [GatedFact]
     public async Task A_guest_document_survives_registration_exactly()
     {
@@ -285,6 +297,113 @@ public sealed class AuthTests : IClassFixture<AuthApiFactory>
         Assert.Equal(2, interactions.Count);
         Assert.Equal("loved", interactions["arrival"]!["state"]!.GetValue<string>());
         Assert.Equal("disliked", interactions["hereditary"]!["state"]!.GetValue<string>());
+    }
+
+    [GatedFact]
+    public async Task A_newer_rating_from_a_second_device_replaces_the_stored_one()
+    {
+        // FR-017: a concurrent device's newer re-rate survives. The merge
+        // computes that in memory, so the *response* to the merging call cannot
+        // show it — both a written and an unwritten update answer "loved". The
+        // claim under test is that the account changed, which only a later read
+        // can settle, so this asks a third device with nothing to merge.
+        //
+        // That third read is the whole point of the test. The union case needs
+        // no such care (nothing has to be updated for a title to appear), which
+        // is why an update could go unwritten with the suite still green.
+        var email = NewEmail();
+
+        await _api.CreateClient().PostAsJsonAsync("/api/auth/register", new JsonObject
+        {
+            ["email"] = email,
+            ["password"] = "Correct-Horse-9!",
+            ["guest"] = new JsonObject
+            {
+                ["interactions"] = new JsonObject
+                {
+                    ["arrival"] = new JsonObject { ["state"] = "disliked", ["updatedAt"] = "2026-09-27T10:00:00Z" },
+                },
+            },
+        });
+
+        var merged = await _api.CreateClient().PostAsJsonAsync("/api/auth/login", new JsonObject
+        {
+            ["email"] = email,
+            ["password"] = "Correct-Horse-9!",
+            ["guest"] = new JsonObject
+            {
+                ["interactions"] = new JsonObject
+                {
+                    ["arrival"] = new JsonObject { ["state"] = "loved", ["updatedAt"] = "2026-09-27T10:05:00Z" },
+                },
+            },
+        });
+
+        Assert.Equal("loved", (await StateOf(merged))["interactions"]!["arrival"]!["state"]!.GetValue<string>());
+
+        var reread = await _api.CreateClient().PostAsJsonAsync("/api/auth/login", new JsonObject
+        {
+            ["email"] = email,
+            ["password"] = "Correct-Horse-9!",
+        });
+
+        Assert.Equal("loved", (await StateOf(reread))["interactions"]!["arrival"]!["state"]!.GetValue<string>());
+    }
+
+    [GatedFact]
+    public async Task A_newer_quiz_from_a_second_device_replaces_the_stored_one()
+    {
+        // The same claim as the ratings test above, on the one document the
+        // merge replaces whole rather than record by record (research D4).
+        //
+        // Preferences are the quieter of the two failures. A rating that did not
+        // save makes a title reappear in the deck, which someone eventually
+        // notices; a quiz that did not save is still a perfectly well-formed
+        // document, so the account keeps answering with the previous visitor's
+        // answers and every reader downstream is satisfied.
+        var email = NewEmail();
+
+        await _api.CreateClient().PostAsJsonAsync("/api/auth/register", new JsonObject
+        {
+            ["email"] = email,
+            ["password"] = "Correct-Horse-9!",
+            ["guest"] = new JsonObject { ["preferences"] = Quiz("movie", "2026-09-27T09:00:00Z") },
+        });
+
+        var merged = await _api.CreateClient().PostAsJsonAsync("/api/auth/login", new JsonObject
+        {
+            ["email"] = email,
+            ["password"] = "Correct-Horse-9!",
+            ["guest"] = new JsonObject { ["preferences"] = Quiz("tv", "2026-09-27T09:30:00Z") },
+        });
+
+        Assert.Equal("tv", MediaTypeOf(await StateOf(merged)));
+
+        var reread = await _api.CreateClient().PostAsJsonAsync("/api/auth/login", new JsonObject
+        {
+            ["email"] = email,
+            ["password"] = "Correct-Horse-9!",
+        });
+
+        Assert.Equal("tv", MediaTypeOf(await StateOf(reread)));
+    }
+
+    private static JsonObject Quiz(string mediaType, string updatedAt)
+    {
+        return new JsonObject
+        {
+            ["mediaType"] = new JsonObject { ["values"] = new JsonArray(mediaType), ["any"] = false },
+            ["genre"] = new JsonObject { ["values"] = new JsonArray("sci-fi"), ["any"] = false },
+            ["provider"] = new JsonObject { ["values"] = new JsonArray(), ["any"] = true },
+            ["includeUnownedProviders"] = false,
+            ["completedAt"] = updatedAt,
+            ["updatedAt"] = updatedAt,
+        };
+    }
+
+    private static string MediaTypeOf(JsonObject state)
+    {
+        return state["preferences"]!["mediaType"]!["values"]![0]!.GetValue<string>();
     }
 
     [GatedFact]

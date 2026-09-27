@@ -1,5 +1,5 @@
 import { Interaction, InteractionDocument, WatchHistoryEntry } from './interaction';
-import { Preference } from './quiz';
+import { Preference, QUIZ_STEP_COUNT, QuizState } from './quiz';
 
 /**
  * The wire shapes for account state and the guest payload
@@ -108,5 +108,42 @@ export function toPreferenceDocument(state: {
     includeUnownedProviders: state.includeUnownedProviders,
     completedAt: state.completedAt,
     updatedAt: state.updatedAt,
+  };
+}
+
+/**
+ * The canonical state's preferences as the device's quiz document, or `null`.
+ *
+ * The inverse of `toPreferenceDocument`, and the reason it has to exist: the
+ * account stores a `Preference` — the answers, and nothing about the journey
+ * to them — while the device's key holds a versioned `QuizState` that 001's
+ * validator rejects without a `status` and a `step`. Handing the account's
+ * shape straight to `PreferenceStore.write` would store a document that reads
+ * back as "never took the quiz", quietly emptying the deck for a visitor who
+ * just signed in.
+ *
+ * A completed quiz is at its last step by definition, so `step` is not
+ * something the account lost — it follows from `status`.
+ *
+ * `schemaVersion` is written as a literal rather than read from
+ * `QUIZ_STATE_SCHEMA_VERSION` so that this file stays a model and does not
+ * import a service (Principle VII). It is not a looser check for it: the field
+ * is typed `1`, so bumping the contract breaks this line at compile time.
+ */
+export function toQuizState(
+  preferences: PreferenceDocument | null | undefined,
+): QuizState | null {
+  if (!preferences) return null;
+
+  return {
+    schemaVersion: 1,
+    status: 'completed',
+    step: QUIZ_STEP_COUNT,
+    mediaType: preferences.mediaType,
+    genre: preferences.genre,
+    provider: preferences.provider,
+    includeUnownedProviders: preferences.includeUnownedProviders,
+    completedAt: preferences.completedAt,
+    updatedAt: preferences.updatedAt,
   };
 }

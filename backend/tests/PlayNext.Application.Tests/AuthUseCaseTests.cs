@@ -36,7 +36,7 @@ public class AuthUseCaseTests
     {
         public FakeAccountStore Accounts { get; } = new();
 
-        public FakeAccountStateRepository States { get; } = new();
+        public InMemoryAccountStateRepository States { get; } = new();
 
         public FakeSessionStore Sessions { get; } = new();
 
@@ -126,32 +126,6 @@ public class AuthUseCaseTests
             string newPassword,
             CancellationToken cancellationToken)
             => Task.FromResult(true);
-    }
-
-    /// <summary>
-    /// The repository fake runs the real <see cref="MergeService"/>. A stubbed
-    /// merge would make the losslessness assertions below test the stub.
-    /// </summary>
-    private sealed class FakeAccountStateRepository : IAccountStateRepository
-    {
-        private readonly Dictionary<Guid, AccountState> _byUser = [];
-
-        public Task<AccountState> GetAsync(Guid userId, CancellationToken cancellationToken)
-            => Task.FromResult(_byUser.GetValueOrDefault(userId, AccountState.Empty));
-
-        public Task<AccountState> MergeIntoAccountAsync(
-            Guid userId,
-            AccountState incoming,
-            CancellationToken cancellationToken)
-        {
-            var merged = MergeService.Merge(_byUser.GetValueOrDefault(userId, AccountState.Empty), incoming);
-
-            // A merge that changed nothing stores nothing — the same "nothing is
-            // written unless the merge succeeds" shape the real transaction has.
-            _byUser[userId] = merged;
-
-            return Task.FromResult(merged);
-        }
     }
 
     private sealed class FakeSessionStore : ISessionStore

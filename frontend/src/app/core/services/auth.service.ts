@@ -1,13 +1,19 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { computed, inject, Injectable, InjectionToken, signal } from '@angular/core';
 import { catchError, map, Observable, of, tap } from 'rxjs';
-import { GuestStatePayload, toGuestState, toPreferenceDocument } from '../models/account-state';
+import {
+  AccountState,
+  GuestStatePayload,
+  toGuestState,
+  toPreferenceDocument,
+} from '../models/account-state';
 import {
   createSessionDocument,
   isValidSessionDocument,
   SESSION_STORAGE_KEY,
   SessionDocument,
 } from '../models/session';
+import { AccountCache } from './account-cache';
 import { InteractionStore } from './interaction-store';
 import { PreferenceStore } from './preference-store';
 
@@ -37,7 +43,7 @@ interface SessionResponse {
   userId: string;
   email: string;
   accessToken: string;
-  state: unknown;
+  state: AccountState;
 }
 
 /** The refresh endpoint's response: a new access token, and nothing else. */
@@ -102,7 +108,7 @@ function reasonFor(error: HttpErrorResponse): AuthFailureReason {
 /**
  * The client half of auth (feature 004).
  *
- * Three responsibilities, and it is worth naming them because they are what
+ * Four responsibilities, and it is worth naming them because they are what
  * the tests pin:
  *
  * 1. **Attach the guest document** to every way in, so the merge happens on
@@ -113,11 +119,14 @@ function reasonFor(error: HttpErrorResponse): AuthFailureReason {
  *    handled instead by the refresh cookie.
  * 3. **Keep the marker that says a session exists** — so boot knows to try a
  *    silent refresh without any script ever reading a credential.
+ * 4. **Cache the canonical state** the server returns, through `AccountCache`,
+ *    so 001–003's read paths see the merge without knowing auth exists.
  *
- * The device's 001/002 documents are never cleared here. Once a session is
- * live they are the *cache* of the account state (research D7), and clearing
- * them at sign-in would drop the visitor's data in the window before the
- * server's copy arrives.
+ * The device's 001/002 documents are never *emptied* by signing in. Once a
+ * session is live they are the *cache* of the account state (research D7), and
+ * blanking them as the request is sent would drop the visitor's data in the
+ * window before the server's copy arrives. What replaces them is the merge
+ * itself, once it comes back — the cache is brought up to date, not cleared.
  */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -125,6 +134,7 @@ export class AuthService {
   private readonly baseUrl = inject(API_BASE_URL);
   private readonly interactions = inject(InteractionStore);
   private readonly preferences = inject(PreferenceStore);
+  private readonly cache = inject(AccountCache);
 
   /** Used when LocalStorage is unavailable (blocked or private browsing). */
   private memoryFallback: string | null = null;
@@ -219,9 +229,19 @@ export class AuthService {
     );
   }
 
+  /**
+   * Takes the server's word for what the account now holds.
+   *
+   * The token and the marker come first, because they *are* the session and the
+   * session is real the moment the server says so. The cache write is the
+   * device catching up with a merge that has already happened, so a payload
+   * this client cannot read costs the cache and nothing else
+   * (contracts/device-storage.md failure semantics).
+   */
   private accept(response: SessionResponse): void {
     this.token.set(response.accessToken);
     this.writeMarker(createSessionDocument(response.userId, response.email));
+    this.cache.write(response.state);
   }
 
   private explain(error: unknown): AuthOutcome {

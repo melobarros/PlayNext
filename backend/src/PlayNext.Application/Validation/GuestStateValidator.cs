@@ -60,6 +60,35 @@ public static class GuestStateValidator
             interactions[titleId] = new InteractionRecord(state, updatedAt);
         }
 
+        var removals = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+
+        foreach (var removal in payload.Removals ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(removal.TitleId))
+            {
+                errors.Add("A removal has an empty title id.");
+                continue;
+            }
+
+            if (!TryParseTimestamp(removal.UpdatedAt, out var removedAt))
+            {
+                errors.Add($"Removal of '{removal.TitleId}' has an unreadable updatedAt '{removal.UpdatedAt}'.");
+                continue;
+            }
+
+            // A title in both collections is two competing claims with no
+            // ordering left to settle them: the client folds its queue in
+            // order, so a body making both never came from a correct one
+            // (contracts/api.md).
+            if (interactions.ContainsKey(removal.TitleId))
+            {
+                errors.Add($"'{removal.TitleId}' is both rated and removed in the same document.");
+                continue;
+            }
+
+            removals[removal.TitleId] = removedAt;
+        }
+
         var history = new List<WatchHistoryEntry>();
 
         foreach (var entry in payload.History ?? [])
@@ -85,7 +114,8 @@ public static class GuestStateValidator
         // document would drop a rating without telling anyone.
         return errors.Count > 0
             ? ValidationOutcome<AccountState>.Invalid(errors)
-            : ValidationOutcome<AccountState>.Valid(new AccountState(interactions, history, preferences));
+            : ValidationOutcome<AccountState>.Valid(
+                new AccountState(interactions, history, preferences, removals));
     }
 
     private static readonly IReadOnlyDictionary<string, InteractionPayload> EmptyInteractions =

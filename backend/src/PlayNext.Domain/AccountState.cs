@@ -45,12 +45,21 @@ public sealed record PreferenceRecord(
 /// server-side data, which is what lets migration be a merge of two values of
 /// one type rather than a translation between two models.
 ///
+/// The one asymmetry is <see cref="Removals"/>: a removal is an *instruction*
+/// about a rating rather than a rating, so it is meaningful only on the
+/// incoming side, and the merge's output never carries one. It lives here
+/// rather than in a type of its own because everything else about the two sides
+/// is identical, and splitting the type would mean writing the merge twice.
+///
 /// Immutable by construction — every collection is copied on the way in, so a
 /// caller cannot mutate a state it handed to the merge. The merge is pure and
 /// this is what makes it so.
 /// </summary>
 public sealed class AccountState
 {
+    private static readonly IReadOnlyDictionary<string, DateTimeOffset> NoRemovals =
+        new Dictionary<string, DateTimeOffset>();
+
     /// <summary>An account that has never been used: nothing rated, nothing watched, no quiz.</summary>
     public static readonly AccountState Empty =
         new(new Dictionary<string, InteractionRecord>(), [], null);
@@ -58,11 +67,15 @@ public sealed class AccountState
     public AccountState(
         IReadOnlyDictionary<string, InteractionRecord> interactions,
         IReadOnlyList<WatchHistoryEntry> history,
-        PreferenceRecord? preferences)
+        PreferenceRecord? preferences,
+        IReadOnlyDictionary<string, DateTimeOffset>? removals = null)
     {
         Interactions = new Dictionary<string, InteractionRecord>(interactions, StringComparer.Ordinal);
         History = [.. history];
         Preferences = preferences;
+        Removals = removals is null
+            ? NoRemovals
+            : new Dictionary<string, DateTimeOffset>(removals, StringComparer.Ordinal);
     }
 
     /// <summary>Ratings, keyed by title id. One rating per title, by construction.</summary>
@@ -73,6 +86,19 @@ public sealed class AccountState
 
     /// <summary>The completed quiz, or <c>null</c> for a visitor who never finished one.</summary>
     public PreferenceRecord? Preferences { get; }
+
+    /// <summary>
+    /// Titles the incoming side asked to unrate, each with the moment it asked
+    /// (FR-006). Empty on an account's stored state, and empty on every merge
+    /// result — see the class remarks.
+    /// </summary>
+    /// <remarks>
+    /// The timestamp is what lets a removal be compared with the account's
+    /// rating by the same newest-wins rule as everything else. A bare "delete
+    /// this" could only ever win or always lose, and neither is right when two
+    /// devices disagree about a title.
+    /// </remarks>
+    public IReadOnlyDictionary<string, DateTimeOffset> Removals { get; }
 
     /// <summary>
     /// The title ids the deck must not suggest (002's Feedback Loop invariant:

@@ -139,6 +139,7 @@ builder.Services.AddScoped<IAccountStore, IdentityAccountStore>();
 builder.Services.AddScoped<IAccountStateRepository, AccountStateRepository>();
 builder.Services.AddScoped<ISessionStore, SessionStore>();
 builder.Services.AddScoped<AuthUseCases>();
+builder.Services.AddScoped<StateUseCases>();
 
 // Singletons: no state beyond immutable options. TokenService holds an options
 // snapshot and a clock; GoogleTokenVerifier holds a configuration manager that
@@ -191,6 +192,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapAuthEndpoints();
+app.MapStateEndpoints();
 
 app.Run();
 

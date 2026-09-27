@@ -114,12 +114,32 @@ for each (titleId, incoming) in incoming.interactions:
     else if incoming.updatedAt > existing.updatedAt → keep incoming   (newest wins)
     else                           → keep existing            (account wins ties, D4)
 
+for each (titleId, removedAt) in incoming.removals:      (FR-006)
+    existing = account.interactions[titleId]
+    if existing is null            → nothing to do          (idempotent)
+    else if removedAt > existing.updatedAt → drop the rating  (newest wins)
+    else                           → keep existing          (account wins ties, D4)
+
 history = account.history ∪ { incoming.history pairs not already present by
           (titleId, chosenAt) }                              (append-only, idempotent)
 
 preferences = the whole preference document with the newer updatedAt
               (account wins ties)
 ```
+
+Ratings and removals are resolved against each other by the *same* comparison,
+which is the point of giving a removal an explicit `updatedAt`: it is a claim
+about a title with a time on it, exactly as a rating is, so newest-wins needs
+no second rule. The merged state carries no removals — they are applied, not
+stored, and the canonical state a client receives is what the account holds
+*now*.
+
+A correct client never sends one title in both collections: the offline queue
+is folded in FIFO order before it becomes a body, so a later operation on a
+title replaces the earlier one. The server still rejects the combination
+(`400`, [`contracts/api.md`](./contracts/api.md)) rather than picking a
+winner, because a body making both claims has already lost the ordering that
+would settle it.
 
 Every property the spec's US3/SC-005 scenarios assert falls out of this:
 distinct titles on both sides are all kept; conflicting titles resolve to the

@@ -10,13 +10,31 @@ namespace PlayNext.Application.Contracts;
 /// *validation* outcome — which is the thing the 002 contract insists on
 /// rejecting loudly rather than skipping.
 /// </summary>
+/// <summary>
+/// The body of <c>POST /me/sync</c>, and the <c>guest</c> document the auth
+/// endpoints carry.
+/// </summary>
+/// <param name="Removals">
+/// Titles the caller is unrating, each with the moment it decided (FR-006).
+/// Only ever populated on the sync path: a device's stored document expresses a
+/// removal as the title's absence, and absence carries no timestamp to compare,
+/// so a guest payload has nothing to put here (contracts/api.md).
+/// </param>
 public sealed record GuestStatePayload(
     IReadOnlyDictionary<string, InteractionPayload>? Interactions,
     IReadOnlyList<HistoryPayload>? History,
-    PreferencePayload? Preferences);
+    PreferencePayload? Preferences,
+    IReadOnlyList<RemovalPayload>? Removals = null);
 
 /// <summary>One rating, as sent. <paramref name="TitleId"/> is the map key.</summary>
 public sealed record InteractionPayload(string? State, string? UpdatedAt);
+
+/// <summary>
+/// One unrating, as sent. A title id rather than a map key, because unlike a
+/// rating this is a claim that stands on its own rather than a slot being
+/// filled.
+/// </summary>
+public sealed record RemovalPayload(string? TitleId, string? UpdatedAt);
 
 /// <summary>One watching-log entry, as sent.</summary>
 public sealed record HistoryPayload(string? TitleId, string? ChosenAt);

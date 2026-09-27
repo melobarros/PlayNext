@@ -18,9 +18,9 @@ public sealed class AccountStateRepository(AppDbContext db) : IAccountStateRepos
     public async Task<AccountState> GetAsync(Guid userId, CancellationToken cancellationToken)
     {
         return Compose(
-            await LoadInteractionsAsync(userId, cancellationToken),
+            await LoadInteractionsAsync(userId, forWrite: false, cancellationToken),
             await LoadHistoryAsync(userId, cancellationToken),
-            await LoadPreferenceAsync(userId, cancellationToken));
+            await LoadPreferenceAsync(userId, forWrite: false, cancellationToken));
     }
 
     /// <summary>
@@ -44,9 +44,9 @@ public sealed class AccountStateRepository(AppDbContext db) : IAccountStateRepos
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-        var storedInteractions = await LoadInteractionsAsync(userId, cancellationToken);
+        var storedInteractions = await LoadInteractionsAsync(userId, forWrite: true, cancellationToken);
         var storedHistory = await LoadHistoryAsync(userId, cancellationToken);
-        var storedPreference = await LoadPreferenceAsync(userId, cancellationToken);
+        var storedPreference = await LoadPreferenceAsync(userId, forWrite: true, cancellationToken);
 
         var merged = MergeService.Merge(
             Compose(storedInteractions, storedHistory, storedPreference),
@@ -62,14 +62,33 @@ public sealed class AccountStateRepository(AppDbContext db) : IAccountStateRepos
         return merged;
     }
 
-    private Task<List<UserInteraction>> LoadInteractionsAsync(Guid userId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Loads the account's ratings, tracked when the caller means to write them
+    /// back.
+    ///
+    /// <paramref name="forWrite"/> is not a performance knob. It is the
+    /// difference between a write and an assignment EF never hears about: the
+    /// apply steps below change the rows they are handed, and a row loaded with
+    /// <c>AsNoTracking</c> is not in the change tracker, so mutating it saves
+    /// nothing at all. The failure is silent — the merge result the caller
+    /// returns is correct either way — which is why it is decided here, at the
+    /// one place that knows whether a write follows, rather than left to each
+    /// mutation site to remember.
+    /// </summary>
+    private Task<List<UserInteraction>> LoadInteractionsAsync(
+        Guid userId,
+        bool forWrite,
+        CancellationToken cancellationToken)
     {
-        return db.Interactions
-            .AsNoTracking()
-            .Where(interaction => interaction.UserId == userId)
-            .ToListAsync(cancellationToken);
+        var query = db.Interactions.Where(interaction => interaction.UserId == userId);
+
+        return (forWrite ? query : query.AsNoTracking()).ToListAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// The watching log, always untracked: it is append-only, so the apply step
+    /// inserts and never mutates a loaded row (<see cref="ApplyHistory"/>).
+    /// </summary>
     private Task<List<UserWatchHistoryEntry>> LoadHistoryAsync(Guid userId, CancellationToken cancellationToken)
     {
         return db.WatchHistory
@@ -78,11 +97,15 @@ public sealed class AccountStateRepository(AppDbContext db) : IAccountStateRepos
             .ToListAsync(cancellationToken);
     }
 
-    private Task<UserPreference?> LoadPreferenceAsync(Guid userId, CancellationToken cancellationToken)
+    /// <summary>Tracked for the same reason as <see cref="LoadInteractionsAsync"/>: the merge can replace the stored quiz (research D4).</summary>
+    private Task<UserPreference?> LoadPreferenceAsync(
+        Guid userId,
+        bool forWrite,
+        CancellationToken cancellationToken)
     {
-        return db.Preferences
-            .AsNoTracking()
-            .FirstOrDefaultAsync(preference => preference.UserId == userId, cancellationToken);
+        var query = db.Preferences.Where(preference => preference.UserId == userId);
+
+        return (forWrite ? query : query.AsNoTracking()).FirstOrDefaultAsync(cancellationToken);
     }
 
     private static AccountState Compose(
@@ -108,13 +131,13 @@ public sealed class AccountStateRepository(AppDbContext db) : IAccountStateRepos
     }
 
     /// <summary>
-    /// Writes only the ratings the merge actually changed.
+    /// Writes the ratings the merge changed: inserted, replaced, or dropped.
     ///
-    /// There is no delete branch, and its absence is the merge rule rather than
-    /// an omission: the result is a union, so a title the account already had is
-    /// still in <paramref name="merged"/> and a title only the account had
-    /// cannot be missing from it. Nothing this method could delete would ever
-    /// be meant to go.
+    /// The result is a union, so a title the account already had is still in
+    /// <paramref name="merged"/> and a title only the account had cannot be
+    /// missing from it. The one way a stored rating leaves is a removal that
+    /// outranks it (FR-006), which is why this is the only collection here with
+    /// a delete branch.
     /// </summary>
     private void ApplyInteractions(Guid userId, IReadOnlyList<UserInteraction> stored, AccountState merged)
     {
@@ -141,6 +164,14 @@ public sealed class AccountStateRepository(AppDbContext db) : IAccountStateRepos
                 row.UpdatedAt = record.UpdatedAt;
             }
         }
+
+        // Rows are found by diffing rather than by reading `merged.Removals`:
+        // the merge has already applied them, so what survives is an absence,
+        // and an absence is only visible by comparison.
+        foreach (var stale in stored.Where(row => !merged.Interactions.ContainsKey(row.TitleId)))
+        {
+            db.Interactions.Remove(stale);
+        }
     }
 
     /// <summary>
@@ -149,7 +180,8 @@ public sealed class AccountStateRepository(AppDbContext db) : IAccountStateRepos
     /// The guard is applied here rather than left to the unique index: a
     /// rejected insert would fail the whole <c>SaveChanges</c> and roll back a
     /// migration that was otherwise fine, which is a harsh way to treat a
-    /// retry. Append-only, so like the ratings there is nothing to delete.
+    /// retry. Append-only: unlike the ratings an entry is never replaced or
+    /// withdrawn, so this method only ever inserts.
     /// </summary>
     private void ApplyHistory(Guid userId, IReadOnlyList<UserWatchHistoryEntry> stored, AccountState merged)
     {

@@ -5,6 +5,7 @@ import {
   TestRequest,
 } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { AccountState } from '../models/account-state';
 import { INTERACTION_STORAGE_KEY } from '../models/interaction';
 import { QuizState } from '../models/quiz';
 import { SESSION_SCHEMA_VERSION, SESSION_STORAGE_KEY } from '../models/session';
@@ -380,21 +381,155 @@ describe('AuthService', () => {
     });
   });
 
-  describe('storage it must not touch', () => {
-    it('leaves the guest documents alone on sign-in, because they become the cache', () => {
+  describe('the device cache it writes back (research D3/D7)', () => {
+    /** The canonical state as the API returns it, after merging the guest in. */
+    function canonicalState(overrides: Partial<AccountState> = {}): AccountState {
+      return {
+        interactions: { arrival: { state: 'loved', updatedAt: '2026-09-27T10:00:00.000Z' } },
+        history: [{ titleId: 'arrival', chosenAt: '2026-09-27T10:00:00.000Z' }],
+        preferences: {
+          mediaType: { values: ['movie'], any: false },
+          genre: { values: ['sci-fi'], any: false },
+          provider: { values: [], any: true },
+          includeUnownedProviders: false,
+          completedAt: '2026-09-27T09:00:00.000Z',
+          updatedAt: '2026-09-27T09:00:00.000Z',
+        },
+        ...overrides,
+      };
+    }
+
+    it('takes the server copy as the cache, not just the ratings it sent', () => {
+      // The device rated one title; the account already had another. The
+      // server merges the two and returns the whole, so the cache ends up
+      // holding a title the device never had — which is what shows the write
+      // is the server's copy rather than an echo of the local document.
+      interactions.record('dune', 'liked');
+
+      service.register('visitor@example.com', 'Correct-Horse-9!').subscribe();
+      grantSession(
+        http.expectOne('/api/auth/register'),
+        canonicalState({
+          interactions: {
+            arrival: { state: 'loved', updatedAt: '2026-09-27T10:00:00.000Z' },
+            dune: { state: 'liked', updatedAt: '2026-09-27T10:05:00.000Z' },
+          },
+        }),
+      );
+
+      const cached = interactions.read().interactions;
+
+      expect(cached['arrival'].state).toBe('loved');
+      expect(cached['dune'].state).toBe('liked');
+    });
+
+    it('lets the account win an argument about a title both sides have rated', () => {
+      // research D4's newest-wins has already been applied by the server, so
+      // whatever comes back is the answer. A device that kept its own value
+      // would disagree with the account about a title it just finished
+      // syncing, which is the one thing a cache must never do.
+      interactions.record('arrival', 'disliked');
+
+      service.register('visitor@example.com', 'Correct-Horse-9!').subscribe();
+      grantSession(
+        http.expectOne('/api/auth/register'),
+        canonicalState({
+          interactions: {
+            arrival: { state: 'loved', updatedAt: '2026-09-27T11:00:00.000Z' },
+          },
+        }),
+      );
+
+      expect(interactions.read().interactions['arrival'].state).toBe('loved');
+    });
+
+    it('replaces the watching history rather than appending to it', () => {
+      interactions.recordWatch('dune');
+
+      service.register('visitor@example.com', 'Correct-Horse-9!').subscribe();
+      grantSession(http.expectOne('/api/auth/register'), canonicalState());
+
+      // The server already merged the device's entry in. Appending would
+      // duplicate it — `(titleId, chosenAt)` is the history's identity
+      // (research D4), so the copy that arrives is the whole list.
+      expect(interactions.read().history).toEqual([
+        { titleId: 'arrival', chosenAt: '2026-09-27T10:00:00.000Z' },
+      ]);
+    });
+
+    it('restores the quiz as a completed document the deck can read', () => {
+      // The account stores a `Preference` — no `status`, no `step`, no schema
+      // version. The device's key holds a `QuizState`, and 001's validator
+      // rejects anything missing them, so the write-back has to rebuild the
+      // wrapper. Getting that wrong reads back as "never took the quiz", which
+      // would empty the deck for a visitor who just signed in.
+      //
+      // The device's answers are deliberately different from the account's:
+      // identical fixtures would let the leftover document pass for the
+      // restored one, and the test would prove nothing.
+      preferences.write(
+        completedQuizState({
+          mediaType: { values: ['tv'], any: false },
+          genre: { values: [], any: true },
+        }),
+      );
+
+      service.register('visitor@example.com', 'Correct-Horse-9!').subscribe();
+      grantSession(http.expectOne('/api/auth/register'), canonicalState());
+
+      const restored = preferences.read();
+
+      expect(restored?.status).toBe('completed');
+      expect(restored?.step).toBe(3);
+      expect(restored?.mediaType).toEqual({ values: ['movie'], any: false });
+      expect(restored?.genre).toEqual({ values: ['sci-fi'], any: false });
+    });
+
+    it('clears the quiz when the account has none, so the cache holds one answer', () => {
+      preferences.write(completedQuizState());
+
+      service.register('visitor@example.com', 'Correct-Horse-9!').subscribe();
+      grantSession(http.expectOne('/api/auth/register'), canonicalState({ preferences: null }));
+
+      // `null` is the account saying it never completed the quiz. Keeping the
+      // device's copy would leave two answers to a question the account has
+      // already answered (Principle IV) — and the deck would rank against a
+      // preference the account does not have.
+      expect(preferences.read()).toBeNull();
+    });
+
+    it('does not touch the cache while the request is in flight (research D7)', () => {
+      // The reason the guest documents survive sign-in at all: clearing them
+      // as the request is sent would drop the visitor's data in the window
+      // before the server's copy arrives.
       interactions.record('arrival', 'loved');
       preferences.write(completedQuizState());
 
-      const before = localStorage.getItem(INTERACTION_STORAGE_KEY);
+      const ratingsBefore = localStorage.getItem(INTERACTION_STORAGE_KEY);
+      const quizBefore = localStorage.getItem(QUIZ_STATE_STORAGE_KEY);
 
       service.register('visitor@example.com', 'Correct-Horse-9!').subscribe();
-      grantSession(http.expectOne('/api/auth/register'));
 
-      // research D7: after sign-in these keys are the account's cache. Clearing
-      // them here would drop the visitor's data in the window before the
-      // server's copy arrives.
-      expect(localStorage.getItem(INTERACTION_STORAGE_KEY)).toBe(before);
-      expect(localStorage.getItem(QUIZ_STATE_STORAGE_KEY)).not.toBeNull();
+      expect(localStorage.getItem(INTERACTION_STORAGE_KEY)).toBe(ratingsBefore);
+      expect(localStorage.getItem(QUIZ_STATE_STORAGE_KEY)).toBe(quizBefore);
+
+      grantSession(http.expectOne('/api/auth/register'), canonicalState());
+    });
+
+    it('survives a canonical state that does not match the contract', () => {
+      interactions.record('arrival', 'loved');
+
+      service.register('visitor@example.com', 'Correct-Horse-9!').subscribe();
+      grantSession(
+        http.expectOne('/api/auth/register'),
+        { interactions: null } as unknown as AccountState,
+      );
+
+      // The stores validate on read and fail safe, so a payload the client
+      // cannot make sense of costs the cache and nothing else. The session is
+      // the server's answer and stands on its own.
+      expect(service.isSignedIn()).toBe(true);
+      expect(interactions.read().interactions).toEqual({});
     });
   });
 });
