@@ -3,30 +3,20 @@
   [attr.aria-labelledby]="'card-title-' + title().id"
 >
   <!--
-    Poster art, or the CSS-only placeholder when there is none or it failed
-    (FR-016). The placeholder makes no request, so it cannot fail in the same
-    conditions that broke the poster. `fetchpriority` is high because this is
-    the one card on screen (FR-002) — the shell preloads the *next* one only.
+    Poster art, or a placeholder that cannot fail (FR-016). The fallback lives
+    in the shared `<app-poster>` so the watchlist row gets the identical
+    behaviour rather than a second copy of it (research.md D11).
+
+    `priority` is on because this is the one card on screen (FR-002) — the shell
+    preloads the *next* one only, and a list of rows must not all claim it.
+    The placeholder names the media type, which fits at card scale.
   -->
-  @if (posterSrc(); as src) {
-    <img
-      class="aspect-poster w-full object-cover"
-      [src]="src"
-      [alt]="posterAlt()"
-      fetchpriority="high"
-      (error)="onPosterError()"
-    />
-  } @else {
-    <div
-      class="aspect-poster flex w-full items-center justify-center bg-linear-to-br from-ink-800 to-ink-700"
-      role="img"
-      [attr.aria-label]="posterAlt()"
-    >
-      <span class="text-3xl font-semibold tracking-wide text-ink-600">
-        {{ mediaTypeLabel() }}
-      </span>
-    </div>
-  }
+  <app-poster
+    [src]="title().posterUrl"
+    [alt]="posterAlt()"
+    [placeholderText]="mediaTypeLabel()"
+    [priority]="true"
+  />
 
   <div class="flex flex-1 flex-col gap-3 p-5">
     <div class="flex items-start justify-between gap-3">

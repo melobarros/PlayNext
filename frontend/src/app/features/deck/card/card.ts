@@ -1,7 +1,10 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, inject, input } from '@angular/core';
 import { MediaTitle } from '../../../core/models/media-title';
 import { MEDIA_TYPE_LABELS } from '../../../core/models/quiz';
 import { QuizOptionsService } from '../../../core/services/quiz-options.service';
+import { displayNames } from '../../../shared/display-names';
+import { artworkAlt, Poster } from '../../../shared/poster/poster';
+import { formatRating, formatRuntime } from '../../../shared/title-facts';
 
 /**
  * One recommendation card (FR-003).
@@ -19,14 +22,9 @@ import { QuizOptionsService } from '../../../core/services/quiz-options.service'
  *    a data fault, and printing it raw would put `a-defunct-service` in front
  *    of the visitor (data-model.md: ignored, not fatal).
  * 2. A missing *or* failed poster falls back to a placeholder and the card
- *    stays fully readable (FR-016).
- *
- * The placeholder is deliberately **not** a fallback image. A second request
- * would fail for the same reason the first one did, and offline it would fail
- * too — which is exactly the scenario FR-015 asks the deck to survive. So the
- * fallback is a CSS-only block that cannot itself fail, and it carries the same
- * accessible name the poster would have had, so the card describes itself
- * identically whether or not the artwork arrived.
+ *    stays fully readable (FR-016). That behaviour now lives in the shared
+ *    `<app-poster>`, because the watchlist row needs exactly the same thing
+ *    (research.md D11) — the card hands it a URL and gets on with its layout.
  *
  * Providers are named but not linked here. The direct links to the services
  * are Match Found's job (FR-008, US2): a link on the card would be a way to
@@ -34,15 +32,13 @@ import { QuizOptionsService } from '../../../core/services/quiz-options.service'
  */
 @Component({
   selector: 'app-card',
+  imports: [Poster],
   templateUrl: './card.html',
 })
 export class Card {
   private readonly options = inject(QuizOptionsService);
 
   readonly title = input.required<MediaTitle>();
-
-  /** Set when the browser reports the poster could not be loaded (FR-016). */
-  private readonly posterFailed = signal(false);
 
   /** Genre and provider ids are dense; these are the lookup tables for them. */
   private readonly genreNames = new Map(
@@ -55,9 +51,14 @@ export class Card {
 
   protected readonly mediaTypeLabel = computed(() => MEDIA_TYPE_LABELS[this.title().mediaType]);
 
-  /** One decimal, always: the numbers should line up card to card. */
-  protected readonly rating = computed(() => this.title().rating.toFixed(1));
+  /**
+   * One decimal, always: the numbers should line up card to card. The rule
+   * lives in `shared/title-facts.ts` because the detail view writes the same
+   * number (research.md D11).
+   */
+  protected readonly rating = computed(() => formatRating(this.title().rating));
 
+  /** As the visitor would say it, or `null` so the template omits the row. */
   protected readonly runtime = computed(() => formatRuntime(this.title().runtimeMinutes));
 
   protected readonly genreLabels = computed(() =>
@@ -73,51 +74,6 @@ export class Card {
 
   protected readonly hasSynopsis = computed(() => this.title().synopsis.trim().length > 0);
 
-  /** The poster to render, or `null` to render the placeholder instead. */
-  protected readonly posterSrc = computed<string | null>(() => {
-    const url = this.title().posterUrl;
-    return url === undefined || this.posterFailed() ? null : url;
-  });
-
   /** The description of the artwork, identical with and without it. */
-  protected readonly posterAlt = computed(() => `${this.title().title} poster`);
-
-  protected onPosterError(): void {
-    this.posterFailed.set(true);
-  }
-}
-
-/**
- * Ids resolved to display names.
- *
- * Unknown ids are dropped rather than passed through, and a name that appears
- * twice is listed once — the same provider reached through two availability
- * entries is one badge, not two.
- */
-function displayNames(ids: readonly string[], namesById: ReadonlyMap<string, string>): string[] {
-  const names: string[] = [];
-
-  for (const id of ids) {
-    const name = namesById.get(id);
-    if (name !== undefined && !names.includes(name)) names.push(name);
-  }
-
-  return names;
-}
-
-/**
- * Minutes as a visitor would say them: `166` → `'2h 46m'`, `45` → `'45 min'`.
- *
- * Returns `null` — not `'0 min'` or `'NaN'` — for an absent or nonsensical
- * value, which is what lets the template leave the row out cleanly. The
- * guard matters because this field arrives from the API in Milestone 2.
- */
-function formatRuntime(minutes: number | undefined): string | null {
-  if (minutes === undefined || !Number.isFinite(minutes) || minutes <= 0) return null;
-
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-
-  if (hours === 0) return `${rest} min`;
-  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+  protected readonly posterAlt = computed(() => artworkAlt(this.title()));
 }

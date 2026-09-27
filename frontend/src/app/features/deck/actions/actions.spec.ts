@@ -278,13 +278,18 @@ describe('deck action bar', () => {
       }
     });
 
-    it('sticks to the bottom so no action scrolls out of reach', () => {
+    it('sticks above the nav so no action scrolls out of reach (FR-017)', () => {
+      // 003 moved the deck inside the navigation shell, so the viewport bottom
+      // is no longer free: the nav is fixed there. Pinning the bar at
+      // `bottom-0` would tuck it behind the nav — still in the DOM, still in
+      // the accessibility tree, and gone as far as the visitor is concerned.
+      // The offset is the nav's own height, so the two cannot disagree.
       build();
 
       const bar = root.querySelector('footer');
 
       expect(bar?.classList.contains('sticky')).toBe(true);
-      expect(bar?.classList.contains('bottom-0')).toBe(true);
+      expect(bar?.classList.contains('bottom-nav')).toBe(true);
     });
 
     it('disappears with the card when the loop ends', () => {

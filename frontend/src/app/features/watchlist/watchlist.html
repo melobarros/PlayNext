@@ -1,0 +1,106 @@
+<main
+  class="mx-auto flex min-h-[calc(100dvh-var(--spacing-nav))] max-w-md flex-col px-5 pt-6 pb-8"
+>
+  <!--
+    The deck's treatment, reused rather than reinvented: in the flow, above the
+    list, one line of small text each, and never in place of the content. FR-012
+    asks for the list *and* the notice, and a notice that replaced the list
+    would satisfy the wording while losing the requirement.
+  -->
+  @if (usingCachedTitles()) {
+    <p class="mb-3 rounded-lg bg-ink-800 px-3 py-2 text-xs text-chalk-300" role="status">
+      Couldn't reach the catalog. Showing saved results.
+    </p>
+  }
+  @if (isOffline()) {
+    <p class="mb-3 rounded-lg bg-ink-800 px-3 py-2 text-xs text-chalk-300" role="status">
+      You're offline. Your saved list is still here.
+    </p>
+  }
+
+  <div class="flex items-center justify-between gap-3">
+    <h1 class="text-2xl font-semibold text-chalk-50">Watchlist</h1>
+
+    <!--
+      The only way to the history. `watchingNow` lives in no tab (FR-004), so
+      the history is where a locked-in title is listed, and the nav is
+      deliberately two destinations because the history belongs to the
+      watchlist rather than beside it. Rendered above the tabs and outside the
+      empty state for that reason: the visitor who tapped Watch Now and rated
+      nothing else lands on an empty watchlist, which is exactly the screen that
+      must not hide their history from them.
+    -->
+    <a
+      class="touch-target inline-flex shrink-0 items-center text-sm font-medium text-accent-400"
+      routerLink="/watchlist/history"
+    >
+      Watching history
+    </a>
+  </div>
+
+  <!--
+    Real tab semantics rather than styled links: a screen reader should hear
+    "tab, 2 of 3, selected", and the arrow-key behaviour comes with the roles.
+    The strip is a fixed three, even when a tab is empty, so an empty list is
+    still a screen the visitor can navigate (FR-010).
+  -->
+  <div
+    role="tablist"
+    aria-label="Watchlist tabs"
+    class="mt-4 flex gap-1 rounded-full border border-ink-700 bg-ink-900 p-1"
+  >
+    @for (tab of tabs; track tab.id) {
+      <button
+        type="button"
+        role="tab"
+        [id]="'watchlist-tab-' + tab.id"
+        [attr.aria-controls]="'watchlist-panel-' + tab.id"
+        [attr.aria-selected]="active() === tab.id"
+        [class.bg-ink-700]="active() === tab.id"
+        [class.text-chalk-50]="active() === tab.id"
+        [class.text-chalk-500]="active() !== tab.id"
+        [class.hover:text-chalk-300]="active() !== tab.id"
+        class="touch-target flex flex-1 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-medium transition-colors"
+        (click)="select(tab.id)"
+      >
+        {{ tab.label }}
+        <span
+          class="rounded-full bg-ink-950 px-2 text-xs font-semibold"
+          [attr.aria-label]="countOf(tab.id) + ' titles'"
+        >
+          {{ countOf(tab.id) }}
+        </span>
+      </button>
+    }
+  </div>
+
+  <ul
+    role="tabpanel"
+    [id]="'watchlist-panel-' + active()"
+    [attr.aria-labelledby]="'watchlist-tab-' + active()"
+    class="mt-4 flex flex-col gap-3"
+  >
+    @for (entry of entries(); track entry.titleId) {
+      <li>
+        <app-entry [entry]="entry" />
+      </li>
+    } @empty {
+      <!--
+        "Never a dead end" applies to an empty screen as much as to a broken
+        control: the visitor who has rated nothing needs a way to start, not a
+        blank panel to interpret (FR-010).
+      -->
+      <li class="rounded-2xl border border-dashed border-ink-700 p-6 text-center">
+        <p class="text-sm text-chalk-300">
+          Nothing here yet. Rate cards in the deck and they will show up in this tab.
+        </p>
+        <a
+          class="touch-target mt-4 inline-flex items-center rounded-full bg-accent-500 px-6 font-medium text-white"
+          routerLink="/deck"
+        >
+          Go to the deck
+        </a>
+      </li>
+    }
+  </ul>
+</main>

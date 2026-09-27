@@ -1,0 +1,39 @@
+<!--
+  One anchor around the whole row: the tap target is the row, not a word inside
+  it (constitution I). The address is a path, not navigation state, so the back
+  button and a refresh both land on the same title (research.md D10).
+-->
+<a
+  class="touch-target flex items-center gap-3 rounded-2xl border border-ink-700 bg-ink-900 p-3"
+  [routerLink]="['/watchlist/title', entry().titleId]"
+>
+  <!--
+    Thumbnail scale, so no `placeholderText` — a word at this size is not
+    readable, and the row names the title right beside it. `priority` stays off:
+    a list of twenty rows must not all claim the one image worth fetching first
+    (002 research.md D6).
+  -->
+  <app-poster class="block w-14 shrink-0" [src]="entry().title?.posterUrl" [alt]="posterAlt()" />
+
+  <div class="min-w-0 flex-1">
+    <h3 class="truncate font-semibold text-chalk-50">{{ name() }}</h3>
+
+    <p class="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-chalk-500">
+      @if (releaseYear(); as year) {
+        <span>{{ year }}</span>
+      }
+      <!--
+        The entry's *own* state, never its tab's. Liked and Loved share a tab,
+        and so do Disliked and Not Interested, so the tab name is the one thing
+        this row must not repeat back (FR-001).
+      -->
+      <span class="rounded-full bg-ink-800 px-2 py-0.5 text-xs font-medium text-accent-400">
+        {{ entry().stateLabel }}
+      </span>
+    </p>
+
+    @if (availabilityLabel(); as availability) {
+      <p class="mt-1 truncate text-xs text-chalk-500">{{ availability }}</p>
+    }
+  </div>
+</a>

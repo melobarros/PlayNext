@@ -10,14 +10,16 @@ PlayNext is a mobile-first, decision-making web app that helps you instantly fin
 |---------|--------|
 | **Quick Onboarding Quiz** — filter by media type, genre, and the services you actually have | ✅ 001 |
 | **Swipeable Recommendation Deck** — one decision at a time, with synopsis, rating, and where to watch | ✅ 002 |
-| **Instant Ratings** — *Loved*, *Liked*, *Disliked*, *Want to Watch*, *Not Interested*, recorded as you decide | ✅ recorded in 002; the screen to review them is 003 |
+| **Instant Ratings** — *Loved*, *Liked*, *Disliked*, *Want to Watch*, *Not Interested*, recorded as you decide | ✅ 002 |
+| **Watchlist & history** — three tabs over your ratings, a title's details, re-rate or remove, and a log of everything you chose to watch | ✅ 003 |
 | **Guest browsing** — no account, nothing leaves the device | ✅ 001 |
 | **Account migration** — sign up later without losing what you told us | ⏳ 004 |
 | **Real catalog** — TMDB titles, JustWatch availability, cached server-side | ⏳ Milestone 2 |
 
-Two gaps between this list and what runs today: the quiz has no **language**
-filter yet (001 filters on media type, genre, and providers), and the catalog is
-a small bundled sample rather than TMDB.
+Three gaps between this list and what runs today: the quiz has no **language**
+filter yet (001 filters on media type, genre, and providers), the catalog is a
+small bundled sample rather than TMDB, and there is no backend — everything
+above is the Angular client on LocalStorage.
 
 ### 🛠️ Tech Stack
 - **Frontend:** Angular 22, Tailwind CSS v4, Vitest — running today

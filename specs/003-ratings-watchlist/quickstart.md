@@ -119,6 +119,22 @@ implementation):
 14. **Scale (FR-011, SC-005)**: paste a 500-entry interactions document into
     LocalStorage → the tabs render and stay smooth to scroll.
 
+## Verification status
+
+Recorded honestly, because a walkthrough nobody ran is not evidence.
+
+| Step | Requirement | Status |
+|------|-------------|--------|
+| 1–9, 11 | US1–US3 behaviours, empty states, poster fallback | **Covered by the test suite** (446 tests) rather than by hand. Each has a named test; the mapping is in `tasks.md`. |
+| 13 | FR-013 / SC-007 at 360px with touch emulation (T029 in `tasks.md`) | **NOT RUN.** Needs a real browser with touch emulation. Not verifiable in this environment. |
+| 14 | FR-011 / SC-005's render half, 500 entries (T028) | **NOT RUN.** jsdom has no layout engine, so no test can answer it, and no browser was available. The *logic* half is covered by `watchlist-logic/entries.spec.ts`. |
+| — | 002's FR-017 / SC-008 (the deck's action bar) | **NOT VERIFIED.** T010 moved the action bar; 002's passing result cannot be inherited. Must be re-run with step 13. |
+
+`npm run build` succeeds — 263.22 kB raw / 70.70 kB transfer initial, against
+002's 256.99 kB / 69.10 kB. The three new screens land in lazy chunks
+(`watchlist` 5.90 kB, `detail` 6.56 kB, `history` 2.69 kB raw), so the initial
+bundle grew by 6.23 kB raw for the shell and the shared pieces.
+
 ## Expected outcomes
 
 - **SC-001, SC-002, SC-003, SC-004** are enforced by the critical-path tests.

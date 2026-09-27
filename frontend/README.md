@@ -32,7 +32,9 @@ npm start          # ng serve → http://localhost:4200
 ```
 
 The app opens on the quiz the first time, and on the deck once the quiz has been
-answered. `npm run watch` builds continuously instead.
+answered. `npm run watch` builds continuously instead. From there the bottom nav
+reaches the deck and the watchlist; a title's details, and the watching history,
+are one tap further in.
 
 ## Test
 
@@ -69,9 +71,11 @@ npx http-server dist/playnext/browser   # any static server works
 ```
 src/app/
   app-boot.ts              entry hop: reads saved state, forwards to quiz or deck
-  app.routes.ts            '' → boot, /quiz, /deck, /deck/match/:titleId
+  app.routes.ts            '' → boot, /quiz, then the shell's children
+  shell/                   the frame: bottom nav + outlet (FR-013, 003)
   core/models/             domain types + the static quiz and catalog data
   core/services/           stores (LocalStorage), quiz options, catalog, connectivity
+  shared/                  presentational pieces used by more than one feature
   features/quiz/
     quiz-logic/            pure rules — validation, transitions, retake
     steps/                 the three quiz screens + shared choice chips
@@ -82,19 +86,54 @@ src/app/
     actions/               the rating bar; reports taps, holds no state
     empty-state/           why there is no card, and the way out of it (FR-014)
     match-found/           where the chosen title lands (FR-008)
+  features/watchlist/
+    watchlist-logic/       pure rules — grouping, ordering, catalog lookup, dates
+    entry/                 one watchlist row; presentation only
+    detail/                the shared title view + re-rate + remove
+    history/               the watching-history list (US3)
 ```
 
-### The `deck-logic/` convention
+### Two tiers of route
+
+`''` (the entry hop) and `/quiz` sit **outside** the shell; everything else is a
+child of it. A route's tier *is* whether it has a bottom nav, so the shell spec
+navigates real URLs rather than mounting the component.
+
+`/watchlist/title/:titleId` carries the `title/` segment for a reason: without
+it the route would be `/watchlist/:titleId` and `/watchlist/history` would be
+shadowed by whichever was declared first. A path shape that cannot collide beats
+an ordering everyone has to remember, and `history.spec.ts` asserts the address
+opens the history rather than a detail view for a title called "history".
+
+### The `*-logic/` convention
 
 Everything under `features/*/[name]-logic/` is plain TypeScript: no Angular
-imports, no DOM, no storage. `deck-session.ts` (loop transitions), `recommend.ts`
-(ranking and scoring), and `swipe.ts` (gesture verdicts) are functions over
-values, which is why their specs need no TestBed and why the swipe rules can be
-tested without synthesising a gesture.
+imports, no DOM, no storage. `quiz-logic/`, `deck-logic/` (`deck-session.ts`,
+`recommend.ts`, `swipe.ts`) and `watchlist-logic/` (`entries.ts` for grouping,
+ordering and lookup; `dates.ts` for the history's date rule) are functions over
+values, which is why their specs need no TestBed.
 
 Components keep the parts that genuinely need a runtime — reading stores,
 handling pointer events, navigating. `deck.ts` is the only file that knows about
 Angular, storage, and gestures at once.
+
+### The `shared/` convention
+
+`src/app/shared/` holds presentational components and formatting helpers used by
+**more than one feature**. `core/` is state and contracts; a shared component is
+neither, which is why the poster does not live in `features/deck/card/` where it
+started.
+
+The rule that admits a member is a *second* caller, not a plausible one (YAGNI):
+`poster/` (the card and every watchlist row), `ways-to-watch/` (Match Found and
+the detail view), `display-names.ts` (provider and genre ids → names, on three
+screens), and `title-facts.ts` (`formatRating` / `formatRuntime`, in the card
+and the detail view). Each was extracted when the duplicate appeared, and the
+extraction kept the original spec green without editing it — which is the check
+that it moved a behaviour rather than changing one.
+
+The history's date format is **not** here. It has one caller, so it lives in
+`watchlist-logic/dates.ts` until a second one exists.
 
 ### Where state lives
 
@@ -103,16 +142,29 @@ Everything lives in LocalStorage, one versioned JSON document per key:
 | Key | Holds | Durability |
 |-----|-------|------------|
 | `playnext:quiz-state` | the guest's quiz answers | **Frozen contract.** Shared with the deck (002), the watchlist (003), and the account migration (004) — see [`../specs/001-onboarding-quiz/contracts/preference-storage.md`](../specs/001-onboarding-quiz/contracts/preference-storage.md) before changing it. |
-| `playnext:interactions` | ratings, watchlist signals, watch history | Durable guest data. Survives re-taking the quiz: the answers change, what you already told us about a title does not. |
+| `playnext:interactions` | ratings and the watch history | **Frozen contract.** One rating per title (keyed by title id), plus an append-only log of Watch Now decisions — see [`../specs/002-recommendation-deck/contracts/interaction-storage.md`](../specs/002-recommendation-deck/contracts/interaction-storage.md) and [`../specs/003-ratings-watchlist/contracts/watchlist-storage.md`](../specs/003-ratings-watchlist/contracts/watchlist-storage.md). Survives re-taking the quiz: the answers change, what you already told us about a title does not. |
 | `playnext:deck-session` | which titles this loop has already shown | Throwaway. Re-take the quiz and the loop starts over (FR-014). |
 
 An unreadable document, or one written by a newer schema version, is treated as
 a first visit and cleared rather than repaired.
 
-The current card is **derived, never stored**
-([research D5](../specs/002-recommendation-deck/research.md)). Ranking is
+**Removing a rating touches `interactions` only.** The watch history is a log of
+what happened, not of what you currently think, so a title you watched and later
+unrated keeps its entry (003 FR-008).
+
+The watchlist is a **derived view**: no fourth storage key, nothing cached. The
+tabs, their counts and the history are computed from the interaction document
+plus the catalog every time either changes, so a tab badge cannot disagree with
+the rows beneath it. The same holds for the deck's current card, which is
+**derived, never stored**
+([research D5](../specs/002-recommendation-deck/research.md)): ranking is
 deterministic (FR-011), so recomputing after a reload lands on the same card
 without a cursor to persist and desynchronise.
+
+Streaming links are resolved from the catalog **at render time**, never read
+back from anything saved. A saved link would be a snapshot of availability at
+the moment of rating, and a dead deep link in your own watchlist is worse than
+one that reflects today's truth.
 
 ### Testing gestures in jsdom
 
@@ -154,6 +206,9 @@ least 44px tall (the `touch-target` utility).
 - Recommendation deck: [`spec.md`](../specs/002-recommendation-deck/spec.md) ·
   [walkthrough](../specs/002-recommendation-deck/quickstart.md) ·
   [scoring rules](../specs/002-recommendation-deck/contracts/recommendation-engine.md)
+- Ratings & watchlist: [`spec.md`](../specs/003-ratings-watchlist/spec.md) ·
+  [walkthrough](../specs/003-ratings-watchlist/quickstart.md) ·
+  [storage contract](../specs/003-ratings-watchlist/contracts/watchlist-storage.md)
 - Project principles: [`../.specify/memory/constitution.md`](../.specify/memory/constitution.md)
 
 ---

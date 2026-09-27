@@ -1,0 +1,37 @@
+<!--
+  The wrapper exists only to reserve the nav's height. `data-nav-clearance` is
+  the hook the shell spec reads, so a screen cannot quietly lose the space.
+-->
+<div class="pb-nav" data-nav-clearance>
+  <router-outlet />
+</div>
+
+<!--
+  `fixed` rather than a flex child, because the deck's own action bar sticks to
+  the bottom of the viewport (FR-017) and would otherwise have to fight this
+  for the same edge. Fixed here, sticky there, with the deck's offset set to
+  this nav's height.
+-->
+<nav
+  aria-label="Main"
+  class="fixed inset-x-0 bottom-0 z-10 h-nav border-t border-ink-800 bg-ink-950/95 backdrop-blur"
+>
+  <ul class="mx-auto flex h-full max-w-md">
+    @for (destination of destinations; track destination.path) {
+      <li class="flex flex-1">
+        <!--
+          `routerLinkActive` without `exact`, so the deck stays lit on Match
+          Found and the watchlist stays lit on a title's details — both are
+          still that tab, and unlighting them would read as having left it.
+        -->
+        <a
+          class="touch-target flex flex-1 items-center justify-center text-sm font-medium text-chalk-500 transition-colors hover:text-chalk-300"
+          [routerLink]="destination.path"
+          routerLinkActive="text-accent-400"
+        >
+          {{ destination.label }}
+        </a>
+      </li>
+    }
+  </ul>
+</nav>

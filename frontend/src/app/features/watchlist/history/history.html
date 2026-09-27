@@ -1,0 +1,72 @@
+<main
+  class="mx-auto flex min-h-[calc(100dvh-var(--spacing-nav))] max-w-md flex-col px-5 pt-6 pb-8"
+>
+  <h1 class="text-2xl font-semibold text-chalk-50">Watching history</h1>
+
+  <ul class="mt-4 flex flex-col gap-3">
+    @for (row of rows(); track row.key) {
+      <li>
+        <!--
+          One anchor around the whole row: the tap target is the row, not a word
+          inside it (constitution I). The address is a path, not navigation
+          state, so the back button and a refresh both land on the same title
+          (research.md D10).
+
+          `row.key` is the entry's position in the append-only log rather than
+          its title id: the same title can be watched twice, and tracking the id
+          would collapse two rows into one without a word of warning.
+        -->
+        <a
+          data-history-entry
+          class="touch-target flex items-center gap-3 rounded-2xl border border-ink-700 bg-ink-900 p-3"
+          [routerLink]="['/watchlist/title', row.titleId]"
+        >
+          <!-- Thumbnail scale, so no `placeholderText` — a word at this size is
+               unreadable, and the row names the title right beside it. -->
+          <app-poster class="block w-14 shrink-0" [src]="row.title?.posterUrl" [alt]="posterAlt(row)" />
+
+          <div class="min-w-0 flex-1">
+            @if (row.name; as name) {
+              <h3 class="truncate font-semibold text-chalk-50">{{ name }}</h3>
+            } @else {
+              <!--
+                The title left the catalog between being watched and being
+                reopened (research.md D10). The row stays: a decision the
+                visitor can see is one they can open and clear, and dropping it
+                would strand the rating with no way back.
+              -->
+              <h3 class="truncate font-semibold text-chalk-50">Unavailable title</h3>
+            }
+
+            <!--
+              When, not what — there is deliberately no state here. The surface
+              *is* the state, and the only label the vocabulary offers for it is
+              the action verb "Watch Now", which read back as a record says the
+              visitor asked for it just now (T022).
+            -->
+            <p class="mt-0.5 text-sm text-chalk-500">
+              Chosen {{ row.chosenAtLabel }}
+            </p>
+          </div>
+        </a>
+      </li>
+    } @empty {
+      <!--
+        "Never a dead end" applies to an empty screen as much as to a broken
+        control: the visitor who has never locked in a choice needs a way to
+        start, not a blank panel to interpret (FR-010).
+      -->
+      <li class="rounded-2xl border border-dashed border-ink-700 p-6 text-center">
+        <p class="text-sm text-chalk-300">
+          Nothing here yet. When you pick something to watch from the deck, it will show up here.
+        </p>
+        <a
+          class="touch-target mt-4 inline-flex items-center rounded-full bg-accent-500 px-6 font-medium text-white"
+          routerLink="/deck"
+        >
+          Go to the deck
+        </a>
+      </li>
+    }
+  </ul>
+</main>

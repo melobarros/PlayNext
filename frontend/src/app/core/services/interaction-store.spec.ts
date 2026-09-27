@@ -147,6 +147,79 @@ describe('InteractionStore', () => {
     });
   });
 
+  describe('removing a rating (003 FR-005)', () => {
+    it('deletes the entry, returning the title to unrated', () => {
+      store.record('arrival', 'loved');
+      store.record('inception', 'liked');
+
+      store.remove('arrival');
+
+      // Absent means unrated, which is what makes the deck treat it as
+      // eligible again (003 FR-007) with no extra bookkeeping.
+      expect(store.read().interactions['arrival']).toBeUndefined();
+      expect(Object.keys(store.read().interactions)).toEqual(['inception']);
+    });
+
+    it('does not touch the watching history (003 FR-008)', () => {
+      // The history is a log of what happened, not of what the visitor
+      // currently thinks. This is the guarantee most at risk from a removal
+      // implemented as "clear this title".
+      store.recordWatch('arrival');
+      store.record('inception', 'liked');
+
+      store.remove('arrival');
+
+      const document = store.read();
+      expect(document.history).toEqual([{ titleId: 'arrival', chosenAt: expect.any(String) }]);
+      expect(document.interactions['arrival']).toBeUndefined();
+      expect(document.interactions['inception'].state).toBe('liked');
+    });
+
+    it('is a no-op for a title that was never rated, not an error', () => {
+      store.record('inception', 'liked');
+
+      expect(() => store.remove('never-rated')).not.toThrow();
+
+      expect(Object.keys(store.read().interactions)).toEqual(['inception']);
+    });
+
+    it('refreshes updatedAt like every other write', () => {
+      store.record('arrival', 'loved');
+      localStorage.setItem(
+        INTERACTION_STORAGE_KEY,
+        JSON.stringify({ ...store.read(), updatedAt: '2020-01-01T00:00:00.000Z' }),
+      );
+
+      store.remove('arrival');
+
+      expect(store.read().updatedAt).not.toBe('2020-01-01T00:00:00.000Z');
+    });
+
+    it('writes a document the validator still accepts', () => {
+      // Read back through a *fresh* store, so the shape is re-validated rather
+      // than served from a memory fallback. A removal that produced a document
+      // 002 would reject would silently wipe every other rating.
+      store.record('arrival', 'loved');
+      store.record('inception', 'liked');
+
+      store.remove('arrival');
+
+      const reread = new InteractionStore().read();
+      expect(reread.interactions['inception'].state).toBe('liked');
+      expect(Object.keys(reread.interactions)).toEqual(['inception']);
+    });
+
+    it('leaves nothing behind for a re-rating to disagree with', () => {
+      store.record('arrival', 'disliked');
+      store.remove('arrival');
+      store.record('arrival', 'loved');
+
+      const document = store.read();
+      expect(Object.keys(document.interactions)).toEqual(['arrival']);
+      expect(document.interactions['arrival'].state).toBe('loved');
+    });
+  });
+
   describe('write semantics', () => {
     it('refreshes updatedAt on every write (004 last-write-wins input)', () => {
       localStorage.setItem(

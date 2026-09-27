@@ -1,0 +1,19 @@
+@if (artworkUrl(); as url) {
+  <img
+    class="aspect-poster w-full object-cover"
+    [src]="url"
+    [alt]="alt()"
+    [attr.fetchpriority]="priority() ? 'high' : null"
+    (error)="onError()"
+  />
+} @else {
+  <div
+    class="aspect-poster flex w-full items-center justify-center bg-linear-to-br from-ink-800 to-ink-700"
+    role="img"
+    [attr.aria-label]="alt()"
+  >
+    @if (placeholderText(); as label) {
+      <span class="text-3xl font-semibold tracking-wide text-ink-600">{{ label }}</span>
+    }
+  </div>
+}
