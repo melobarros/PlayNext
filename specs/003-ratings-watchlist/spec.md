@@ -23,6 +23,17 @@
   the entry stays even if the visitor re-rates the title later; the current
   rating is shown on the watchlist tabs.
 
+### Session 2026-09-26
+
+- Q: How should "Not Interested" titles be handled so the visitor can get
+  one back? → A: The Disliked tab shows both Disliked and Not Interested
+  entries, each labelled with its real state. This mirrors the Loved tab
+  already holding Liked.
+- Q: Should the bottom navigation be visible on the deck, or stay out of
+  the way? → A: Always visible, on every main screen. The deck yields
+  roughly 56px of card height in exchange for one consistent navigation
+  pattern and a single tap to the watchlist from anywhere.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Visitor browses their rated titles in a tabbed watchlist (Priority: P1)
@@ -48,9 +59,11 @@ tab with its details; refresh and confirm nothing is lost.
 1. **Given** a visitor rated a title Want to Watch in the deck, **When**
    they open the Watchlist, **Then** that title appears in the Want to
    Watch tab with poster, title, year, and streaming availability.
-2. **Given** a visitor rated titles Loved and Disliked, **When** they view
-   the Watchlist, **Then** each title appears in the matching tab, and a
-   Liked title appears in the Loved tab.
+2. **Given** a visitor rated titles Loved, Liked, Disliked, and Not
+   Interested, **When** they view the Watchlist, **Then** the Liked title
+   appears in the Loved tab, the Disliked and Not Interested titles both
+   appear in the Disliked tab, and each entry is labelled with its own state
+   so the two are told apart.
 3. **Given** a watchlist entry, **When** the visitor taps it, **Then** the
    title's details open with its streaming links.
 4. **Given** a visitor with saved ratings, **When** they refresh the page
@@ -141,6 +154,11 @@ confirm the links are still correct.
 - What happens if the visitor rates from the deck and re-rates from the
   watchlist in quick succession? The last action wins; no duplicates are
   created.
+- What happens when a visitor marks a title Not Interested — from the deck
+  or the watchlist? It appears in the Disliked tab, labelled "Not
+  Interested". It is never silently hidden, so the visitor can always find
+  it and change their mind; "Not Interested" and "remove" stay visibly
+  different because one keeps excluding the title and the other does not.
 
 ## Requirements *(mandatory)*
 
@@ -148,13 +166,17 @@ confirm the links are still correct.
 
 - **FR-001**: The Watchlist MUST organize ratings into three tabs: Want to
   Watch, Loved, and Disliked. The Loved tab MUST also include titles rated
-  Liked.
+  Liked, and the Disliked tab MUST also include titles rated Not Interested;
+  each entry MUST be labelled with its own state, so a merged tab is never
+  ambiguous.
 - **FR-002**: Each entry MUST show poster, title, year, rating state, and
   streaming availability.
 - **FR-003**: Every rating recorded in the deck (Loved, Liked, Disliked,
-  Want to Watch, Not Interested, Watching Now) MUST be stored; the watchlist
-  shows Loved and Liked under the Loved tab, Want to Watch and Disliked
-  under their own tabs, plus the watching history.
+  Want to Watch, Not Interested, Watching Now) MUST be stored and MUST be
+  visible somewhere in the watchlist or history — no recorded rating may be
+  unreachable. The watchlist shows Loved and Liked under the Loved tab,
+  Want to Watch under its own tab, Disliked and Not Interested under the
+  Disliked tab, plus the watching history.
 - **FR-004**: The visitor MUST be able to change a title's rating to any of
   the other five states (Loved, Liked, Disliked, Want to Watch, Not
   Interested) from the watchlist; "Watching Now" is set only by the deck's
@@ -179,8 +201,9 @@ confirm the links are still correct.
 - **FR-012**: While offline, already-saved lists MUST remain viewable with
   an offline notice.
 - **FR-013**: The Watchlist MUST be reachable from the app's bottom
-  navigation and remain fully usable at 360px viewport width with touch
-  targets of at least 44px, in dark high-contrast styling.
+  navigation, which MUST be visible on every main screen including the deck,
+  and the Watchlist MUST remain fully usable at 360px viewport width with
+  touch targets of at least 44px, in dark high-contrast styling.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -214,8 +237,9 @@ confirm the links are still correct.
 ## Assumptions
 
 - Tabs: Want to Watch, Loved, Disliked — with the Loved tab also showing
-  Liked titles. "Not Interested" ratings are recorded and used by the
-  deck's exclusions but are not listed.
+  Liked titles and the Disliked tab also showing Not Interested titles. Every
+  recorded state is listed somewhere, so any rating the visitor makes can be
+  found and changed again; nothing is written to storage and then hidden.
 - The deck spec (002) owns the rating buttons and card advancing; this spec
   owns persistence, the watchlist and history views, re-rating, and the
   exclusion contract with the deck.
