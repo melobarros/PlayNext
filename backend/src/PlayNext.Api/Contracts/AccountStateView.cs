@@ -71,13 +71,28 @@ public sealed record AccountStateView(
 }
 
 /// <summary>
-/// What a successful sign-in returns: the access token and the canonical state.
+/// What a successful sign-in returns: who is signed in, the access token, and
+/// the canonical state.
 ///
 /// The refresh token is deliberately not here. It travels only as an httpOnly
 /// cookie, so it never reaches script — which is what makes an XSS unable to
 /// walk away with a long-lived credential (research D6).
 /// </summary>
-public sealed record SessionResponse(string AccessToken, AccountStateView State);
+/// <param name="UserId">
+/// The device's session marker records the signed-in account
+/// (contracts/device-storage.md), so the client needs the id. It is not a
+/// secret — the caller holds a token for this user — and it is returned as a
+/// string because that is what a JSON client stores.
+/// </param>
+/// <param name="Email">
+/// The marker's display field. The client cannot supply it on the Google path,
+/// where the address is chosen inside Google's own sheet.
+/// </param>
+public sealed record SessionResponse(
+    string UserId,
+    string Email,
+    string AccessToken,
+    AccountStateView State);
 
 /// <summary>The refresh endpoint's response: a new access token, and nothing else.</summary>
 public sealed record RefreshResponse(string AccessToken);

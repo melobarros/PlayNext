@@ -56,7 +56,22 @@ public enum AuthStatus
 /// once; the API writes it to an httpOnly cookie and never to the body. It is
 /// not stored anywhere else — the server keeps only its hash.
 /// </summary>
+/// <param name="UserId">
+/// Here because the device's session marker records who is signed in
+/// (contracts/device-storage.md), and the alternative was worse: the client
+/// would have to decode its own access token to recover a value the server
+/// already has, and a marker built from a claim inside a 15-minute credential
+/// would break silently the day that claim changed.
+/// </param>
+/// <param name="Email">
+/// Here for the same reason as <paramref name="UserId"/>, and it is not
+/// redundant with the request: a Google sign-in never sees the address — the
+/// visitor picked an account in Google's chooser and the client only ever held
+/// an ID token — yet the marker stores an email to display.
+/// </param>
 public sealed record SessionEnvelope(
+    Guid UserId,
+    string Email,
     string AccessToken,
     string RefreshToken,
     DateTimeOffset RefreshExpiresAt,

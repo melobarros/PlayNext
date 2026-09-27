@@ -207,6 +207,8 @@ public sealed class AuthUseCases(
         await sessions.StoreAsync(account.Id, refresh.Hash, expiresAt, cancellationToken);
 
         return new SessionEnvelope(
+            account.Id,
+            account.Email,
             tokens.CreateAccessToken(account.Id, account.Email),
             refresh.Value,
             expiresAt,

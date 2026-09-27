@@ -60,10 +60,20 @@ The session response is the same envelope for all three ways in:
 
 ```jsonc
 {
+  "userId": "<server GUID — the device's session marker records it>",
+  "email": "<the marker's display field>",
   "accessToken": "<15-minute JWT — client keeps in memory only>",
   "state": { /* the canonical merged account state, same shape as GET /me/state */ }
 }
 ```
+
+`userId` and `email` are here because
+[`device-storage.md`](./device-storage.md)'s `playnext:session` records who is
+signed in. Returning them beats the alternative — making the client decode its
+own access token to recover two values the server already has — and it keeps
+the marker independent of a credential that expires in fifteen minutes. The
+email is not redundant with the request body: on the Google path the address is
+chosen inside Google's own sheet, so the client never sees it.
 
 The refresh token arrives as an **httpOnly cookie** (SameSite=Strict locally;
 `None; Secure` in production), never in the body, never readable by script.

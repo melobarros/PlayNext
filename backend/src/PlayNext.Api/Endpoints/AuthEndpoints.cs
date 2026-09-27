@@ -200,7 +200,11 @@ public static class AuthEndpoints
                 session.RefreshToken,
                 cookies.Create(session.RefreshExpiresAt));
 
-            return Results.Ok(new SessionResponse(session.AccessToken, AccountStateView.From(session.State)));
+            return Results.Ok(new SessionResponse(
+                session.UserId.ToString(),
+                session.Email,
+                session.AccessToken,
+                AccountStateView.From(session.State)));
         }
 
         return result.Status switch
