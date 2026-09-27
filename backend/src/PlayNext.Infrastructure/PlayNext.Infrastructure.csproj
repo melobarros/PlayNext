@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    The ASP.NET Core shared framework, for Identity's UserManager / IPasswordHasher
+    and the authentication handlers. This layer is where framework-specific
+    persistence and identity live; the Domain and Application layers stay free of
+    it (constitution VII — dependencies point inward, and the inner two rings do
+    not reference ASP.NET Core at all).
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!--
+    Pinned to the 9.0.x line deliberately: this machine has the .NET 9 SDK, and
+    the 10.x packages target net10.0 only. Versions are pinned rather than
+    floated so a restore cannot silently change the build.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" Version="9.0.20" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.20" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="9.0.20" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlayNext.Application\PlayNext.Application.csproj" />
+  </ItemGroup>
+
+</Project>
