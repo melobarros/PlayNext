@@ -30,7 +30,7 @@ describe('SessionBoot', () => {
   let interactions: InteractionStore;
 
   const USER_ID = '0e7d2c41-9f3a-4b8e-a1c6-5d0f9e2b3a11';
-  const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEifQ.signature-part';
+  const ACCESS_TOKEN = 'test-access-token-not-a-credential';
   const EARLIER = '2026-09-27T10:00:00.000Z';
 
   /**

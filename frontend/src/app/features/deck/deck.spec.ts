@@ -712,7 +712,7 @@ describe('deck shell', () => {
       request.flush({
         userId: '0e7d2c41-9f3a-4b8e-a1c6-5d0f9e2b3a11',
         email: 'visitor@example.com',
-        accessToken: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEifQ.signature-part',
+        accessToken: 'test-access-token-not-a-credential',
         state: merged,
       });
 

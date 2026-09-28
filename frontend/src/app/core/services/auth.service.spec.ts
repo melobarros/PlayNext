@@ -32,8 +32,18 @@ describe('AuthService', () => {
   let interactions: InteractionStore;
   let preferences: PreferenceStore;
 
-  /** A JWT-shaped token, so a substring search for it in LocalStorage is meaningful. */
-  const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEifQ.signature-part';
+  /**
+   * A distinctive token value, so a substring search for it in LocalStorage is
+   * meaningful.
+   *
+   * Deliberately **not** JWT-shaped. Nothing decodes it — the tests compare it
+   * and put it in a `Bearer` header — so the shape bought nothing and cost
+   * something: a literal that looks like a real token is reported as a leaked
+   * credential by secret scanners on every pull request that touches this file.
+   * The value only has to be unmistakable, and this one cannot be mistaken for
+   * anything a server would issue.
+   */
+  const ACCESS_TOKEN = 'test-access-token-not-a-credential';
   const REFRESH_TOKEN = 'refresh-token-value-that-must-stay-in-the-cookie';
   const USER_ID = '0e7d2c41-9f3a-4b8e-a1c6-5d0f9e2b3a11';
 
@@ -549,7 +559,7 @@ describe('AuthService', () => {
    */
   describe('the session interceptor', () => {
     /** What the refresh returns in place of the token `grantSession` handed out. */
-    const RENEWED = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEifQ.second-token';
+    const RENEWED = 'test-renewed-access-token-not-a-credential';
 
     const CACHED = {
       interactions: { arrival: { state: 'loved', updatedAt: '2026-09-27T10:00:00.000Z' } },
