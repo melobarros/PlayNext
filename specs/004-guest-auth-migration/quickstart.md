@@ -144,8 +144,8 @@ Recorded honestly, because a walkthrough nobody ran is not evidence.
 
 | Step | Requirement | Status |
 |------|-------------|--------|
-| 1–12 | US1–US4 behaviours above | **NOT RUN** — this guide ships with the plan, before implementation. |
-| — | Automated suite (merge, lockout, queue, stores) | **NOT RUN** — tests are written red-green during `/speckit-implement`. |
+| 1–12 | US1–US4 behaviours above | **NOT RUN** — implementation is complete, but no one has driven these by hand yet (T046). |
+| — | Automated suite (merge, lockout, queue, stores) | **PASS** — 2026-09-28: backend 147/147 (28 domain, 76 application, 43 gated integration against local Postgres — **0 skipped**, so the schema and connection string were real) and frontend 579/579 across 36 files; production build clean. |
 
 ## Expected outcomes
 
