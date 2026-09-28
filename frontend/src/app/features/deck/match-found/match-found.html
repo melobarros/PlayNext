@@ -30,6 +30,42 @@
       </a>
     }
 
+    <!--
+      The account nudge (US1 scenario 5, FR-001). In the flow, above the way
+      out, and never in front of it: "the start-new-loop action is not blocked
+      by it" is the scenario's own wording, and a modal or an overlay would
+      satisfy "a nudge appears" while breaking exactly that clause.
+
+      Only after a Watch Now lock-in, only for a guest, and only once per
+      session — see `showNudge`.
+    -->
+    @if (showNudge()) {
+      <aside
+        data-account-nudge
+        class="mt-6 rounded-2xl border border-ink-700 bg-ink-900 p-4 text-center"
+      >
+        <p class="text-sm text-chalk-300">
+          Keep this one. With an account, your ratings, watchlist and history follow you to any
+          device.
+        </p>
+        <div class="mt-3 flex gap-2">
+          <a
+            class="touch-target flex flex-1 items-center justify-center rounded-full bg-accent-500 px-5 text-sm font-medium text-white"
+            routerLink="/profile"
+          >
+            Create an account
+          </a>
+          <button
+            type="button"
+            class="touch-target flex items-center justify-center rounded-full border border-ink-700 px-5 text-sm font-medium text-chalk-300"
+            (click)="dismissNudge()"
+          >
+            Dismiss
+          </button>
+        </div>
+      </aside>
+    }
+
     <button
       type="button"
       class="touch-target mt-auto flex items-center justify-center rounded-full border border-ink-700 px-6 font-medium text-chalk-300"

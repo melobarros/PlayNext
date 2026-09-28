@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { inject, Injectable } from '@angular/core';
 import {
   emptyInteractionDocument,
   INTERACTION_SCHEMA_VERSION,
@@ -9,6 +9,7 @@ import {
   InteractionState,
   WatchHistoryEntry,
 } from '../models/interaction';
+import { WriteSink } from './write-sink';
 
 /** ISO-8601 enough for our purposes: a string a `Date` can actually parse. */
 function isIsoString(value: unknown): value is string {
@@ -78,6 +79,8 @@ export function isValidInteractionDocument(value: unknown): value is Interaction
  */
 @Injectable({ providedIn: 'root' })
 export class InteractionStore {
+  private readonly sink = inject(WriteSink);
+
   /** Used when LocalStorage is unavailable (blocked or private browsing). */
   private memoryFallback: string | null = null;
 
@@ -105,11 +108,23 @@ export class InteractionStore {
     return emptyInteractionDocument();
   }
 
-  /** Records a rating, replacing any previous one for that title (003 FR-006). */
+  /**
+   * Records a rating, replacing any previous one for that title (003 FR-006).
+   *
+   * The timestamp is taken once, and the same value goes to the document and
+   * to the sink. Two calls to `new Date()` would put a slightly earlier time on
+   * the stored rating than on the change being pushed, and the server settles
+   * conflicts by exactly that field — so a device could lose a race it should
+   * have won by a few milliseconds of clock drift inside one method.
+   */
   record(titleId: string, state: InteractionState): void {
+    const updatedAt = new Date().toISOString();
     const document = this.read();
-    document.interactions[titleId] = { state, updatedAt: new Date().toISOString() };
+
+    document.interactions[titleId] = { state, updatedAt };
     this.write(document);
+
+    this.sink.notify({ kind: 'rate', titleId, state, updatedAt });
   }
 
   /**
@@ -128,6 +143,13 @@ export class InteractionStore {
     document.history.push({ titleId, chosenAt: now });
 
     this.write(document);
+
+    // Announced as the same two halves, for the same reason they are written
+    // together: the account needs both the `watchingNow` rating the watchlist
+    // reads and the log entry history is made of, and one without the other is
+    // a decision only half recorded.
+    this.sink.notify({ kind: 'rate', titleId, state: 'watchingNow', updatedAt: now });
+    this.sink.notify({ kind: 'history', titleId, chosenAt: now });
   }
 
   /**
@@ -151,6 +173,34 @@ export class InteractionStore {
     const document = this.read();
     delete document.interactions[titleId];
     this.write(document);
+
+    // A time is manufactured here because the device has none to offer: on the
+    // device a removal *is* the absence this line just created, and absence
+    // carries no clock. The server needs one to weigh the removal against the
+    // account's rating (api.md) — without it, a removal replayed from a stale
+    // queue could only ever win or always lose, and neither is right when a
+    // second device re-rated the title in between.
+    //
+    // Announced even when nothing was removed. That looks like a no-op and is
+    // one *locally*, but the claim being made — "unrated as of now" — is about
+    // the account, which may be holding a rating this device has never seen.
+    this.sink.notify({ kind: 'remove', titleId, updatedAt: new Date().toISOString() });
+  }
+
+  /**
+   * Replaces the whole document with the account's canonical copy (research D7).
+   *
+   * The one write here that does not start from `read()`. Every other method is
+   * a read-modify-write of the device's own document, because the device is the
+   * only author — but once a session exists the server has merged both sides,
+   * so its copy is the answer and copying it in is a replacement of the local
+   * document rather than an edit to it.
+   *
+   * `schemaVersion` and `updatedAt` stay the store's own: they describe this
+   * device's document, not the account's.
+   */
+  replace(interactions: Record<string, Interaction>, history: WatchHistoryEntry[]): void {
+    this.write({ ...emptyInteractionDocument(), interactions, history });
   }
 
   clear(): void {

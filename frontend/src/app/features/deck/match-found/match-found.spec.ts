@@ -1,9 +1,14 @@
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { Observable, of } from 'rxjs';
 import { DECK_SESSION_STORAGE_KEY } from '../../../core/models/deck-session';
 import { MediaTitle } from '../../../core/models/media-title';
+import { SESSION_SCHEMA_VERSION, SESSION_STORAGE_KEY } from '../../../core/models/session';
 import { CatalogService } from '../../../core/services/catalog.service';
+import { InteractionStore } from '../../../core/services/interaction-store';
+import { ACCOUNT_NUDGE_STORAGE_KEY } from './account-nudge';
 import { MatchFound } from './match-found';
 
 /**
@@ -59,12 +64,43 @@ class FakeCatalogService {
 describe('match found', () => {
   let fixture: ComponentFixture<MatchFound>;
   let root: HTMLElement;
+  let interactions: InteractionStore;
 
   /** Opens the view for a title id, the way the route does. */
   function build(titleId: string): void {
     fixture = TestBed.createComponent(MatchFound);
     root = fixture.nativeElement as HTMLElement;
     fixture.componentRef.setInput('titleId', titleId);
+    fixture.detectChanges();
+  }
+
+  /** A session marker, written the way a successful sign-in writes it. */
+  function signIn(): void {
+    localStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({
+        schemaVersion: SESSION_SCHEMA_VERSION,
+        userId: '0e7d2c41-9f3a-4b8e-a1c6-5d0f9e2b3a11',
+        email: 'visitor@example.com',
+        signedInAt: '2026-09-27T10:00:00.000Z',
+      }),
+    );
+  }
+
+  /** The account nudge, or null when this visit is not being offered one. */
+  function nudge(): HTMLElement | null {
+    return root.querySelector('[data-account-nudge]');
+  }
+
+  /** Dismisses the nudge the way a visitor does, through its own control. */
+  function dismiss(): void {
+    const button = [...(nudge()?.querySelectorAll('button') ?? [])].find((candidate) =>
+      /dismiss/i.test(candidate.getAttribute('aria-label') ?? candidate.textContent ?? ''),
+    );
+
+    if (!button) throw new Error('The nudge has no dismiss control');
+
+    button.click();
     fixture.detectChanges();
   }
 
@@ -97,12 +133,24 @@ describe('match found', () => {
 
   beforeEach(() => {
     localStorage.clear();
+    // The nudge's dismissal lives here, and jsdom reuses one storage area
+    // across the tests in a file — left alone, one test's dismissal would be
+    // the next test's starting condition.
+    sessionStorage.clear();
+
     TestBed.configureTestingModule({
       providers: [
         provideRouter([{ path: 'deck', children: [] }]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
         { provide: CatalogService, useValue: new FakeCatalogService() },
       ],
     });
+
+    // The component now reads the session, which means it reaches `AuthService`
+    // and therefore `HttpClient`. A signed-out test never sends anything; the
+    // provider is here because injection is not lazy.
+    interactions = TestBed.inject(InteractionStore);
   });
 
   describe('the ways to watch (FR-008, US2 scenario 3)', () => {
@@ -211,6 +259,117 @@ describe('match found', () => {
       tap('Start a new loop');
 
       expect(navigate).toHaveBeenCalledExactlyOnceWith(['/deck']);
+    });
+  });
+
+  describe('the account nudge (US1 scenario 5, FR-001)', () => {
+    // The nudge is scoped to a Watch Now lock-in, so this view has to know one
+    // happened. It reads that from the interaction document rather than from
+    // navigation state, for the same reason everything else here is resolved
+    // from the URL (research.md D10): a mid-decision refresh has to land on the
+    // same screen, nudge included.
+    it('offers account creation after a Watch Now lock-in', () => {
+      interactions.recordWatch('t0');
+
+      build('t0');
+
+      expect(nudge()).not.toBeNull();
+      expect(nudge()?.querySelector('a[href="/profile"]')).not.toBeNull();
+      expect(root.querySelectorAll('[data-account-nudge]')).toHaveLength(1);
+    });
+
+    it('stays away from a title the visitor only rated', () => {
+      // The negative half, without which the test above proves only that some
+      // markup renders. FR-001 attaches the nudge to the lock-in, not to
+      // arriving here.
+      interactions.record('t0', 'loved');
+
+      build('t0');
+
+      expect(nudge()).toBeNull();
+    });
+
+    it('is not offered to someone who already has an account', () => {
+      // Advertising account creation to a signed-in visitor is the app not
+      // knowing who it is talking to.
+      signIn();
+      interactions.recordWatch('t0');
+
+      build('t0');
+
+      expect(nudge()).toBeNull();
+    });
+
+    it('can be dismissed', () => {
+      interactions.recordWatch('t0');
+      build('t0');
+      expect(nudge()).not.toBeNull();
+
+      dismiss();
+
+      expect(nudge()).toBeNull();
+    });
+
+    it('stays dismissed for the rest of the session', () => {
+      // The spec's edge case, and the reason the dismissal is written to
+      // storage at all: a reload mid-session must not start the pitch over.
+      interactions.recordWatch('t0');
+      build('t0');
+      dismiss();
+
+      build('t0');
+
+      expect(nudge()).toBeNull();
+    });
+
+    it('remembers the dismissal in sessionStorage, not LocalStorage (research D11)', () => {
+      // "The rest of the session" is what sessionStorage means exactly — a
+      // reload keeps it, tomorrow does not. LocalStorage would make one tap a
+      // permanent setting.
+      interactions.recordWatch('t0');
+      build('t0');
+      dismiss();
+
+      expect(sessionStorage.getItem(ACCOUNT_NUDGE_STORAGE_KEY)).not.toBeNull();
+      expect(localStorage.getItem(ACCOUNT_NUDGE_STORAGE_KEY)).toBeNull();
+    });
+
+    it('offers itself again in a new session', () => {
+      // The other half of the storage choice: if this failed, LocalStorage
+      // would pass every test above it.
+      interactions.recordWatch('t0');
+      build('t0');
+      dismiss();
+      sessionStorage.clear();
+
+      build('t0');
+
+      expect(nudge()).not.toBeNull();
+    });
+
+    it('never blocks Start a new loop (US1 scenario 5)', () => {
+      interactions.recordWatch('t0');
+      build('t0');
+      const router = TestBed.inject(Router);
+      const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+      expect(nudge()).not.toBeNull();
+
+      tap('Start a new loop');
+
+      expect(navigate).toHaveBeenCalledExactlyOnceWith(['/deck']);
+    });
+
+    it('is an addition to the screen, not a replacement for it', () => {
+      // "MUST never block or delay the core loop" (FR-001). A nudge that
+      // replaced the ways to watch would satisfy "a nudge appears" and lose the
+      // screen the visitor just earned.
+      interactions.recordWatch('t0');
+
+      build('t0');
+
+      expect(linkNamed('Netflix')).toBeDefined();
+      expect(linkNamed('Watch trailer')).toBeDefined();
     });
   });
 

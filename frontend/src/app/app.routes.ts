@@ -77,6 +77,14 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/watchlist/history/history').then((m) => m.WatchHistory),
       },
+      {
+        // Inside the shell because the spec calls the Profile area
+        // "always-available" (FR-001), and `pathMatch: 'full'` so it can never
+        // grow children by prefix the way `watchlist` could not.
+        path: 'profile',
+        pathMatch: 'full',
+        loadComponent: () => import('./features/profile/profile').then((m) => m.Profile),
+      },
     ],
   },
   { path: '**', redirectTo: '' },

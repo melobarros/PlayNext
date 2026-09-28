@@ -27,13 +27,17 @@ export class Shell {
   /**
    * The nav's destinations, in order.
    *
-   * Two, and deliberately not three: the history is reached from the watchlist
-   * rather than the nav, because it is a part of the watchlist rather than a
-   * peer of it. Every entry here is one tap from every screen behind the shell,
-   * which is the whole of SC-006.
+   * Three, and the third is not a peer of the other two: the history is still
+   * reached from the watchlist rather than from here, because it is a part of
+   * the watchlist rather than a destination of its own. Profile earns its place
+   * by being the spec's "always-available" way to an account (FR-001) — the
+   * nudge on Match Found is dismissible, so this is the one route to account
+   * creation that cannot be closed (research.md D11). Every entry here is one
+   * tap from every screen behind the shell, which is the whole of SC-006.
    */
   protected readonly destinations = [
     { path: '/deck', label: 'Deck' },
     { path: '/watchlist', label: 'Watchlist' },
+    { path: '/profile', label: 'Profile' },
   ];
 }

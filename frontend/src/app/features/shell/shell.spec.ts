@@ -1,3 +1,5 @@
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
@@ -22,8 +24,18 @@ describe('app shell', () => {
     // Deck and Match Found read real root services; an empty document is the
     // returning visitor with no ratings, which renders without a catalog.
     localStorage.clear();
+    sessionStorage.clear();
+
     TestBed.configureTestingModule({
-      providers: [provideRouter(routes, withComponentInputBinding())],
+      providers: [
+        provideRouter(routes, withComponentInputBinding()),
+        // Match Found reads the session to decide whether to offer the account
+        // nudge, which means it reaches `AuthService` and therefore
+        // `HttpClient`. Injection is not lazy, so the provider is needed even
+        // though no test here sends anything.
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
     });
   });
 
@@ -90,6 +102,16 @@ describe('app shell', () => {
       const nav = await navAt('/deck');
 
       expect(navTargets(nav as HTMLElement)).toContain('/deck');
+    });
+
+    it('offers Profile, which is the only always-available way to an account (FR-001)', async () => {
+      // The spec calls the Profile area "always-available" and the nudge on
+      // Match Found dismissible, so this is the one route to account creation
+      // that cannot be closed. A nav destination is also the fewest taps on a
+      // phone, which is the placement Principle I asks for.
+      const nav = await navAt('/deck');
+
+      expect(navTargets(nav as HTMLElement)).toContain('/profile');
     });
 
     it('is labelled for a screen reader', async () => {

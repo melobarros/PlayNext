@@ -1,5 +1,7 @@
-import { Injectable } from '@angular/core';
+import { inject, Injectable } from '@angular/core';
+import { toPreferenceDocument } from '../models/account-state';
 import { DimensionChoice, QuizState } from '../models/quiz';
+import { WriteSink } from './write-sink';
 
 /** LocalStorage key for the guest's single persisted quiz document. */
 export const QUIZ_STATE_STORAGE_KEY = 'playnext:quiz-state';
@@ -64,6 +66,8 @@ export function isValidQuizState(value: unknown): value is QuizState {
  */
 @Injectable({ providedIn: 'root' })
 export class PreferenceStore {
+  private readonly sink = inject(WriteSink);
+
   /** Used when LocalStorage is unavailable (blocked or private browsing). */
   private memoryFallback: string | null = null;
 
@@ -84,7 +88,43 @@ export class PreferenceStore {
     return null;
   }
 
+  /**
+   * Saves the quiz, and announces it when there is a finished one to announce.
+   *
+   * The quiz is persisted on every step, so this is called several times per
+   * sitting — but only the **completed** write is announced, because only a
+   * completed quiz is what the account stores. An in-progress document is
+   * device bookkeeping: the deck and the ranking read completed preferences and
+   * nothing else, so uploading half-answered questions would put rows in the
+   * account that nothing can use (data-model.md). Nothing is lost by waiting —
+   * the completed write carries the whole document.
+   */
   write(state: QuizState): void {
+    const document = this.persist(state);
+    const preferences = toPreferenceDocument(document);
+
+    if (preferences !== null) this.sink.notify({ kind: 'preferences', preferences });
+  }
+
+  /**
+   * Writes the account's canonical preferences **without** announcing them.
+   *
+   * The distinction is not cosmetic. `AccountCache` calls this from the handler
+   * for a sync response, and that handler is reached *because* a push
+   * succeeded — so an announcement here would push the merged state straight
+   * back at the server that just sent it, that push would cache and announce
+   * again, and the loop would have no end. `InteractionStore` draws the same
+   * line between `record` and `replace`.
+   *
+   * `updatedAt` is refreshed exactly as `write` refreshes it: the field
+   * describes this device's document, not the account's.
+   */
+  replace(state: QuizState): void {
+    this.persist(state);
+  }
+
+  /** Saves a document, refreshing `updatedAt`. The caller decides whether to announce it. */
+  private persist(state: QuizState): QuizState {
     const document: QuizState = { ...state, updatedAt: new Date().toISOString() };
     const serialized = JSON.stringify(document);
 
@@ -95,6 +135,8 @@ export class PreferenceStore {
       // Non-fatal: keep the latest state in memory so the session continues.
       this.memoryFallback = serialized;
     }
+
+    return document;
   }
 
   clear(): void {
