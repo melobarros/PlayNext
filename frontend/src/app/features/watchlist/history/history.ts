@@ -2,9 +2,10 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { InteractionDocument } from '../../../core/models/interaction';
 import { MediaTitle } from '../../../core/models/media-title';
-import { DEFAULT_REGION } from '../../../core/models/quiz-options.data';
+import { currentRegion } from '../../../core/region';
 import { CatalogService } from '../../../core/services/catalog.service';
 import { InteractionStore } from '../../../core/services/interaction-store';
+import { Attribution } from '../../../shared/attribution/attribution';
 import { artworkAlt, Poster } from '../../../shared/poster/poster';
 import { historyEntries, HistoryEntryView } from '../watchlist-logic/entries';
 import { formatChosenAt } from '../watchlist-logic/dates';
@@ -43,15 +44,15 @@ interface HistoryRow extends HistoryEntryView {
  */
 @Component({
   selector: 'app-watch-history',
-  imports: [Poster, RouterLink],
+  imports: [Attribution, Poster, RouterLink],
   templateUrl: './history.html',
 })
 export class WatchHistory {
   private readonly catalog = inject(CatalogService);
   private readonly interactions = inject(InteractionStore);
 
-  /** Region scopes provider availability, never the title list (CatalogService). */
-  private readonly region = DEFAULT_REGION;
+  /** The device's region (FR-005): scopes availability, never the title list (CatalogService). */
+  private readonly region = currentRegion();
 
   private readonly titles = signal<MediaTitle[]>([]);
 

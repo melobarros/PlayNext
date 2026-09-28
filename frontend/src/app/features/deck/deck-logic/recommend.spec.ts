@@ -1,5 +1,5 @@
 import { Interaction } from '../../../core/models/interaction';
-import { MEDIA_CATALOG } from '../../../core/models/media-catalog.data';
+import { FIXTURE_CATALOG } from '../../../core/models/media-catalog.fixture';
 import { MediaTitle } from '../../../core/models/media-title';
 import { Preference } from '../../../core/models/quiz';
 import { rankTitles } from './recommend';
@@ -191,6 +191,59 @@ describe('rankTitles — hard filters', () => {
       );
 
       expect(result.map((t) => t.id)).toEqual(['on-hulu']);
+    });
+
+    it('matches a retired service to the one that carries its catalog now', () => {
+      // Star+ was discontinued in Latin America and its catalog folded into
+      // Disney+; the server stopped being able to emit a `star-plus` badge at
+      // all. A visitor whose stored preference still says `star-plus` — 001's
+      // storage contract is frozen, so there are such visitors — would
+      // otherwise match nothing, in every genre, with no way to find out why.
+      const catalog = [title('on-disney', { availability: on('disney-plus') })];
+
+      const result = rankTitles(
+        catalog,
+        preference({ provider: { values: ['star-plus'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result.map((t) => t.id)).toEqual(['on-disney']);
+    });
+
+    it('still matches a retired service directly if the server ever reports it', () => {
+      // The alias adds a match; it must not replace the literal one. If a
+      // service were ever un-retired, or a snapshot predating the retirement
+      // were served from a cache, the id would still resolve on its own.
+      const catalog = [title('on-star', { availability: on('star-plus') })];
+
+      const result = rankTitles(
+        catalog,
+        preference({ provider: { values: ['star-plus'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result.map((t) => t.id)).toEqual(['on-star']);
+    });
+
+    it('does not widen a selection to services the visitor did not pick', () => {
+      // The alias is one-directional and per-id. A visitor who picked Disney+
+      // directly is unaffected, and a retired id must not drag in anything
+      // beyond its own successor.
+      const catalog = [
+        title('on-disney', { availability: on('disney-plus') }),
+        title('on-netflix', { availability: on('netflix') }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({ provider: { values: ['star-plus'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result.map((t) => t.id)).toEqual(['on-disney']);
     });
 
     it('drops a title with no availability when services were chosen', () => {
@@ -547,13 +600,13 @@ describe('rankTitles — score and order', () => {
       // (T006): a 10.0 on a handful of votes, against an 8.4 with hundreds of
       // thousands. Weighting is (rating x votes + 6.5 x 500) / (votes + 500),
       // which lands them at 6.53 and 8.40 — a decisive gap, not a rounding one.
-      const loud = MEDIA_CATALOG.find((t) => t.id === 'midnight-static')!;
-      const established = MEDIA_CATALOG.find((t) => t.id === 'your-name')!;
+      const loud = FIXTURE_CATALOG.find((t) => t.id === 'midnight-static')!;
+      const established = FIXTURE_CATALOG.find((t) => t.id === 'your-name')!;
 
       expect(loud.rating).toBeGreaterThan(established.rating);
       expect(loud.voteCount).toBeLessThan(established.voteCount);
 
-      const result = rankTitles(MEDIA_CATALOG, preference(), noInteractions, []);
+      const result = rankTitles(FIXTURE_CATALOG, preference(), noInteractions, []);
 
       expect(result.findIndex((t) => t.id === 'midnight-static')).toBeGreaterThan(
         result.findIndex((t) => t.id === 'your-name'),
@@ -591,9 +644,9 @@ describe('rankTitles — score and order', () => {
     });
 
     it('is deterministic: equal inputs give an identical array, element for element (G3)', () => {
-      const reversed = [...MEDIA_CATALOG].reverse();
+      const reversed = [...FIXTURE_CATALOG].reverse();
 
-      const fromCatalog = rankTitles(MEDIA_CATALOG, preference(), noInteractions, []);
+      const fromCatalog = rankTitles(FIXTURE_CATALOG, preference(), noInteractions, []);
       const fromReversed = rankTitles(reversed, preference(), noInteractions, []);
 
       // Two devices, two arrival orders, one deck — the guarantee FR-011 and
@@ -631,11 +684,11 @@ describe('rankTitles — score and order', () => {
     });
 
     it('returns a new array each call, so a caller cannot corrupt the engine', () => {
-      const first = rankTitles(MEDIA_CATALOG, preference(), noInteractions, []);
+      const first = rankTitles(FIXTURE_CATALOG, preference(), noInteractions, []);
       first.length = 0;
 
-      expect(rankTitles(MEDIA_CATALOG, preference(), noInteractions, []).length).toBe(
-        MEDIA_CATALOG.length,
+      expect(rankTitles(FIXTURE_CATALOG, preference(), noInteractions, []).length).toBe(
+        FIXTURE_CATALOG.length,
       );
     });
   });

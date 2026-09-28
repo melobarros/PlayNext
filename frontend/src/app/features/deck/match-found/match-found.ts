@@ -1,8 +1,8 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { MediaTitle } from '../../../core/models/media-title';
-import { DEFAULT_REGION } from '../../../core/models/quiz-options.data';
 import { MEDIA_TYPE_LABELS } from '../../../core/models/quiz';
+import { currentRegion } from '../../../core/region';
 import { AuthService } from '../../../core/services/auth.service';
 import { CatalogService } from '../../../core/services/catalog.service';
 import { DeckSessionStore } from '../../../core/services/deck-session-store';
@@ -85,7 +85,7 @@ export class MatchFound {
   );
 
   constructor() {
-    this.catalog.loadTitles(DEFAULT_REGION).subscribe((titles) => this.titles.set(titles));
+    this.catalog.loadTitles(currentRegion()).subscribe((titles) => this.titles.set(titles));
   }
 
   /**

@@ -7,10 +7,11 @@ import {
 } from '../../../core/models/interaction';
 import { MediaTitle } from '../../../core/models/media-title';
 import { MEDIA_TYPE_LABELS } from '../../../core/models/quiz';
-import { DEFAULT_REGION } from '../../../core/models/quiz-options.data';
+import { currentRegion } from '../../../core/region';
 import { CatalogService } from '../../../core/services/catalog.service';
 import { InteractionStore } from '../../../core/services/interaction-store';
 import { QuizOptionsService } from '../../../core/services/quiz-options.service';
+import { Attribution } from '../../../shared/attribution/attribution';
 import { displayNames } from '../../../shared/display-names';
 import { artworkAlt, Poster } from '../../../shared/poster/poster';
 import { formatRating, formatRuntime } from '../../../shared/title-facts';
@@ -44,7 +45,7 @@ import { WaysToWatch } from '../../../shared/ways-to-watch/ways-to-watch';
  */
 @Component({
   selector: 'app-detail',
-  imports: [Poster, RouterLink, WaysToWatch],
+  imports: [Attribution, Poster, RouterLink, WaysToWatch],
   templateUrl: './detail.html',
 })
 export class Detail {
@@ -53,8 +54,8 @@ export class Detail {
   private readonly options = inject(QuizOptionsService);
   private readonly router = inject(Router);
 
-  /** Region scopes provider availability, never the title list (CatalogService). */
-  private readonly region = DEFAULT_REGION;
+  /** The device's region (FR-005): scopes availability, never the title list (CatalogService). */
+  private readonly region = currentRegion();
 
   /** The `:titleId` route parameter. */
   readonly titleId = input.required<string>();

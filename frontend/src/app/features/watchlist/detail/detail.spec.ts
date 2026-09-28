@@ -236,7 +236,7 @@ describe('title details', () => {
     it('links to every service the title is on', () => {
       build('arrival');
 
-      expect(streamingNames()).toEqual(['Netflix', 'Max']);
+      expect(streamingNames()).toEqual(['Netflix', 'HBO Max']);
       expect(streamingLinks()[0].getAttribute('href')).toBe('https://www.netflix.com/title/1');
     });
 
@@ -254,7 +254,7 @@ describe('title details', () => {
       // services; a link captured when the rating was made would keep sending
       // the visitor somewhere the title no longer is.
       build('arrival');
-      expect(streamingNames()).toEqual(['Netflix', 'Max']);
+      expect(streamingNames()).toEqual(['Netflix', 'HBO Max']);
 
       setCatalog([{ ...ARRIVAL, availability: [ARRIVAL.availability[0]] }]);
       TestBed.resetTestingModule();

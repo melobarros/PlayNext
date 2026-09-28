@@ -62,6 +62,15 @@
       class="sticky bottom-nav mt-auto border-t border-ink-800 bg-ink-950/95 px-5 py-4 backdrop-blur"
     >
       <app-actions (ratingChosen)="onRating($event)" (watchNow)="onWatchNow()" (skipped)="skip()" />
+
+      <!--
+        The provider's attribution (FR-018, research D13), shared with the other
+        screens that show its data. It rides in the footer because the footer is
+        the only part of this screen that is always in view: a line placed in
+        the flow would sit below the fold the moment a synopsis made the card
+        scroll, which would satisfy a screenshot rather than a visitor.
+      -->
+      <app-attribution class="mt-2 block" />
     </footer>
   } @else {
     <!--

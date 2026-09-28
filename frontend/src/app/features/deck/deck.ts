@@ -4,12 +4,13 @@ import { DeckSession } from '../../core/models/deck-session';
 import { Interaction, InteractionState } from '../../core/models/interaction';
 import { MediaTitle } from '../../core/models/media-title';
 import { Preference } from '../../core/models/quiz';
-import { DEFAULT_REGION } from '../../core/models/quiz-options.data';
+import { currentRegion } from '../../core/region';
 import { CatalogService } from '../../core/services/catalog.service';
 import { Connectivity } from '../../core/services/connectivity';
 import { DeckSessionStore } from '../../core/services/deck-session-store';
 import { InteractionStore } from '../../core/services/interaction-store';
 import { PreferenceStore } from '../../core/services/preference-store';
+import { Attribution } from '../../shared/attribution/attribution';
 import { toPreference } from '../quiz/quiz-logic/quiz-rules';
 import { Actions } from './actions/actions';
 import { Card } from './card/card';
@@ -39,7 +40,7 @@ import { DeckOutcome, EmptyState } from './empty-state/empty-state';
  */
 @Component({
   selector: 'app-deck',
-  imports: [Actions, Card, EmptyState],
+  imports: [Actions, Attribution, Card, EmptyState],
   templateUrl: './deck.html',
 })
 export class Deck {
@@ -50,8 +51,8 @@ export class Deck {
   private readonly sessions = inject(DeckSessionStore);
   private readonly router = inject(Router);
 
-  /** Region scopes provider availability, never the title list (see CatalogService). */
-  private readonly region = DEFAULT_REGION;
+  /** The device's region (FR-005): scopes availability, never the title list (CatalogService). */
+  private readonly region = currentRegion();
 
   /**
    * The answers in force. Declared before `session` on purpose: that

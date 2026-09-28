@@ -158,7 +158,7 @@ describe('match found', () => {
       build('t0');
 
       expect(linkNamed('Netflix')?.getAttribute('href')).toBe('https://www.netflix.com/title/1');
-      expect(linkNamed('Max')?.getAttribute('href')).toBe('https://www.max.com/title/1');
+      expect(linkNamed('HBO Max')?.getAttribute('href')).toBe('https://www.max.com/title/1');
     });
 
     it('names the title the visitor chose', () => {

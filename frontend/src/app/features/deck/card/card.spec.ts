@@ -141,7 +141,9 @@ describe('recommendation card', () => {
       });
 
       expect(text()).toContain('Netflix');
-      expect(text()).toContain('Max');
+      // The full name, not the substring: "Max" alone passes against both the
+      // right label and the one the service stopped using.
+      expect(text()).toContain('HBO Max');
       // Provider ids are an implementation detail, not visitor-facing copy.
       expect(text()).not.toContain('netflix');
     });

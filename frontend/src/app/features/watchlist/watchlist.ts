@@ -6,10 +6,11 @@ import {
   WATCHLIST_TABS,
   WatchlistSurface,
 } from '../../core/models/interaction';
-import { DEFAULT_REGION } from '../../core/models/quiz-options.data';
+import { currentRegion } from '../../core/region';
 import { CatalogService } from '../../core/services/catalog.service';
 import { Connectivity } from '../../core/services/connectivity';
 import { InteractionStore } from '../../core/services/interaction-store';
+import { Attribution } from '../../shared/attribution/attribution';
 import { Entry } from './entry/entry';
 import { groupBySurface, WatchlistEntry, watchlistEntries } from './watchlist-logic/entries';
 
@@ -34,7 +35,7 @@ import { groupBySurface, WatchlistEntry, watchlistEntries } from './watchlist-lo
  */
 @Component({
   selector: 'app-watchlist',
-  imports: [Entry, RouterLink],
+  imports: [Attribution, Entry, RouterLink],
   templateUrl: './watchlist.html',
 })
 export class Watchlist {
@@ -42,8 +43,8 @@ export class Watchlist {
   private readonly connections = inject(Connectivity);
   private readonly interactions = inject(InteractionStore);
 
-  /** Region scopes provider availability, never the title list (CatalogService). */
-  private readonly region = DEFAULT_REGION;
+  /** The device's region (FR-005): scopes availability, never the title list (CatalogService). */
+  private readonly region = currentRegion();
 
   private readonly titles = signal<MediaTitle[]>([]);
 

@@ -1,26 +1,27 @@
 import { TestBed } from '@angular/core/testing';
 import { lastValueFrom, Observable, of, throwError } from 'rxjs';
-import { MEDIA_CATALOG } from '../models/media-catalog.data';
+import { FIXTURE_CATALOG } from '../models/media-catalog.fixture';
 import { MediaTitle } from '../models/media-title';
 import { GENRES, STREAMING_PROVIDERS } from '../models/quiz-options.data';
-import { CATALOG_SOURCE, CatalogService, CatalogSource, localCatalogSource } from './catalog.service';
+import { CATALOG_SOURCE, CatalogService, CatalogSource } from './catalog.service';
 
 /**
  * A catalog source the test can break on demand.
  *
- * This exists because Milestone 1's source **cannot fail on its own**: it
- * answers from a bundled array, so there is no network to drop. Spec 001 left
- * its FR-013 fallback untested for exactly that reason and the UI turned out to
- * be unreachable — so rather than assume the failure can occur, this makes it
- * occur.
+ * This exists because a real source cannot be made to fail from here: the live
+ * one is an HTTP call to our own API, and a spec that wanted a 503 out of it
+ * would have to stand up a server to get one. So the failure is produced
+ * instead of assumed — the cached-copy fallback (FR-013) is the one path in
+ * `CatalogService` that nothing else can reach.
  *
- * It **delegates** to the real source for everything but the failure. A double
- * that answered from `MEDIA_CATALOG` itself would replace the region logic
- * rather than exercise it, and the tests above about narrowing availability
- * would pass while covering nothing.
+ * It answers from the fixture rather than from a hand-rolled pair of titles, so
+ * the catalog flowing through the fallback is the one the ranking specs rank.
+ * A double with a catalog of its own would let the service pass these tests
+ * while doing something the real catalog breaks.
  */
 class ControllableSource implements CatalogSource {
-  private readonly real = localCatalogSource();
+  /** Every region the service asked for, in order — the client's entire region job. */
+  readonly regions: string[] = [];
 
   /** Flip to make the next load fail, the way an unreachable provider would. */
   failing = false;
@@ -30,22 +31,31 @@ class ControllableSource implements CatalogSource {
 
   load(region: string): Observable<MediaTitle[]> {
     this.calls++;
+    this.regions.push(region);
+
     return this.failing
       ? throwError(() => new Error('provider unreachable'))
-      : this.real.load(region);
+      : of(FIXTURE_CATALOG.slice());
   }
 }
 
 /**
- * `CatalogService` is the Milestone 2 API seam (plan.md, constitution IV), so
- * these tests are about the *shape* of the contract as much as its contents:
- * the Observable exists today so that swapping local data for an HTTP call
- * touches no component.
+ * `CatalogService` is what remains of the Milestone 1 seam, and these tests are
+ * about the *shape* of the contract as much as its contents: the source is an
+ * Observable so the deck's loading and fallback flow is real rather than
+ * retrofitted — which is what let the bundled array be replaced by an HTTP call
+ * to our own API (005) without a single component changing.
  *
- * The second half is a data-integrity guard. Nothing else in the codebase
- * checks that the mock catalog's genre and provider ids are still spec 001's,
- * and if they ever drift the filters in `rankTitles` stop matching — silently,
- * with no error anywhere. That failure mode is worth a handful of assertions.
+ * What it deliberately no longer covers is regional behaviour. Narrowing a
+ * catalog to a region, and refusing a region that is not one, moved to the
+ * server along with the catalog (contracts/catalog.md) and is settled there by
+ * the region integration tests. All the client owes on that front is the region
+ * code it derived, handed over unmodified — asserted below.
+ *
+ * The last block is a data-integrity guard on the fixture. Nothing else checks
+ * that its genre and provider ids are still spec 001's, and if they ever drift
+ * the filters in `rankTitles` stop matching — silently, with no error anywhere.
+ * That failure mode is worth a handful of assertions.
  */
 describe('CatalogService', () => {
   let service: CatalogService;
@@ -60,14 +70,14 @@ describe('CatalogService', () => {
   });
 
   describe('loadTitles', () => {
-    it('returns an Observable, not an array (the Milestone 2 seam)', () => {
+    it('returns an Observable, not an array (the seam the swap went through)', () => {
       expect(service.loadTitles('BR')).toBeInstanceOf(Observable);
     });
 
     it('emits the catalog and completes (FR-001)', async () => {
       const titles = await lastValueFrom(service.loadTitles('BR'));
 
-      expect(titles.length).toBe(MEDIA_CATALOG.length);
+      expect(titles.length).toBe(FIXTURE_CATALOG.length);
     });
 
     it('emits the same list for the same region every time (FR-011 input)', async () => {
@@ -77,43 +87,16 @@ describe('CatalogService', () => {
       expect(second.map((title) => title.id)).toEqual(first.map((title) => title.id));
     });
 
-    it('is insensitive to region casing', async () => {
-      const upper = await lastValueFrom(service.loadTitles('BR'));
-      const lower = await lastValueFrom(service.loadTitles('br'));
+    it('names the region on the way out and does not touch it (FR-005)', async () => {
+      // Which titles a region gets — and which regions are refused — is the
+      // server's call now, so the client's whole job is to say the code it
+      // derived. Uppercasing or defaulting it here would quietly put a second
+      // owner on a rule the contract gives one, and a client that started
+      // sending "br" would stop failing loudly.
+      await lastValueFrom(service.loadTitles('BR'));
+      await lastValueFrom(service.loadTitles('US'));
 
-      expect(lower.map((title) => title.id)).toEqual(upper.map((title) => title.id));
-    });
-
-    it('never strands a visitor in a region it knows nothing about', async () => {
-      // Milestone 1 data is region-agnostic, so every region sees the whole
-      // catalog. The rule that matters is "never a dead end" (constitution II):
-      // an unrecognised region must not produce an empty deck.
-      const titles = await lastValueFrom(service.loadTitles('ZZ'));
-
-      expect(titles.length).toBe(MEDIA_CATALOG.length);
-    });
-
-    it('narrows availability to the providers that serve the region (FR-004)', async () => {
-      const us = await lastValueFrom(service.loadTitles('US'));
-      const br = await lastValueFrom(service.loadTitles('BR'));
-
-      const providersIn = (titles: MediaTitle[]) =>
-        new Set(titles.flatMap((title) => title.availability.map((entry) => entry.providerId)));
-
-      // Hulu is US-only in spec 001's provider catalog. A Brazilian visitor
-      // must never be shown a badge for a service the quiz never offered them.
-      expect(providersIn(us).has('hulu')).toBe(true);
-      expect(providersIn(br).has('hulu')).toBe(false);
-      expect(providersIn(br).has('netflix')).toBe(true);
-    });
-
-    it('never drops a title for region reasons — the card degrades, it does not hide', async () => {
-      const us = await lastValueFrom(service.loadTitles('US'));
-      const br = await lastValueFrom(service.loadTitles('BR'));
-
-      // Narrowing availability must not shorten the catalog. Whether a title
-      // is eligible is filter 3's decision, not the catalog's (data-model.md).
-      expect(br.map((title) => title.id)).toEqual(us.map((title) => title.id));
+      expect(source.regions).toEqual(['BR', 'US']);
     });
 
     it('hands out a copy, so a caller cannot reorder the catalog', async () => {
@@ -121,7 +104,7 @@ describe('CatalogService', () => {
       borrowed.length = 0;
 
       const reread = await lastValueFrom(service.loadTitles('BR'));
-      expect(reread.length).toBe(MEDIA_CATALOG.length);
+      expect(reread.length).toBe(FIXTURE_CATALOG.length);
     });
   });
 
@@ -192,13 +175,13 @@ describe('CatalogService', () => {
       borrowed.length = 0;
 
       const reread = await lastValueFrom(service.loadTitles('BR'));
-      expect(reread.length).toBe(MEDIA_CATALOG.length);
+      expect(reread.length).toBe(FIXTURE_CATALOG.length);
     });
   });
 
-  describe('the catalog it serves', () => {
+  describe('the fixture the specs rank against', () => {
     it('gives every title a unique, non-empty id', () => {
-      const ids = MEDIA_CATALOG.map((title) => title.id);
+      const ids = FIXTURE_CATALOG.map((title) => title.id);
 
       expect(ids.every((id) => id.length > 0)).toBe(true);
       expect(new Set(ids).size).toBe(ids.length);
@@ -206,7 +189,7 @@ describe('CatalogService', () => {
 
     it('uses only spec 001 genre ids, so filter 2 can match', () => {
       const known = new Set(GENRES.map((genre) => genre.id));
-      const used = [...new Set(MEDIA_CATALOG.flatMap((title) => title.genres))];
+      const used = [...new Set(FIXTURE_CATALOG.flatMap((title) => title.genres))];
 
       expect(used.filter((id) => !known.has(id))).toEqual([]);
     });
@@ -214,31 +197,31 @@ describe('CatalogService', () => {
     it('uses only spec 001 provider ids, so filter 3 and the badges can match', () => {
       const known = new Set(STREAMING_PROVIDERS.map((provider) => provider.id));
       const used = [
-        ...new Set(MEDIA_CATALOG.flatMap((t) => t.availability.map((a) => a.providerId))),
+        ...new Set(FIXTURE_CATALOG.flatMap((t) => t.availability.map((a) => a.providerId))),
       ];
 
       expect(used.filter((id) => !known.has(id))).toEqual([]);
     });
 
     it('gives every availability entry an absolute link to the official service', () => {
-      const entries = MEDIA_CATALOG.flatMap((title) => title.availability);
+      const entries = FIXTURE_CATALOG.flatMap((title) => title.availability);
 
       expect(entries.every((entry) => entry.deepLinkUrl.startsWith('https://'))).toBe(true);
     });
 
     it('keeps the shapes the later stories exercise (T006 authoring constraints)', () => {
-      const noTrailer = MEDIA_CATALOG.filter((title) => title.trailerUrl === undefined);
-      const noProviders = MEDIA_CATALOG.filter((title) => title.availability.length === 0);
+      const noTrailer = FIXTURE_CATALOG.filter((title) => title.trailerUrl === undefined);
+      const noProviders = FIXTURE_CATALOG.filter((title) => title.availability.length === 0);
 
-      // US2 scenario 4 and filter 3 respectively. Without these in the real
-      // catalog those paths would only ever be covered by fixtures.
+      // US2 scenario 4 and filter 3 respectively. Without these in the fixture
+      // those paths would lose the only catalog-shaped title that reaches them.
       expect(noTrailer.length).toBeGreaterThanOrEqual(3);
       expect(noProviders.length).toBeGreaterThanOrEqual(2);
     });
 
     it('keeps the D7 shrinkage anchors that T014 asserts against', () => {
-      const loud = MEDIA_CATALOG.filter((title) => title.rating === 10);
-      const established = MEDIA_CATALOG.filter((title) => title.rating === 8.4);
+      const loud = FIXTURE_CATALOG.filter((title) => title.rating === 10);
+      const established = FIXTURE_CATALOG.filter((title) => title.rating === 8.4);
 
       // A lone 10.0 from a handful of votes, and a well-established 8.4. The
       // weighting is (rating x votes + 6.5 x 500) / (votes + 500), so these
