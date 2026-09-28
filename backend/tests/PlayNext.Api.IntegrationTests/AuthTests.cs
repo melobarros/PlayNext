@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Hosting;
@@ -439,6 +440,224 @@ public sealed class AuthTests : IClassFixture<AuthApiFactory>
         });
 
         Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+    }
+
+    /// <summary>The password every account in these tests is created with.</summary>
+    private const string Password = "Correct-Horse-9!";
+
+    /// <summary>What a change-password test moves the account to.</summary>
+    private const string NewPassword = "Battery-Staple-7!";
+
+    /// <summary>
+    /// Registers an account and returns a client holding both halves of a
+    /// session: the access token on the header, and the refresh cookie the
+    /// registration set.
+    ///
+    /// One client for both, because the cookie is the client's — a second
+    /// <see cref="WebApplicationFactory{TEntryPoint}.CreateClient"/> would carry
+    /// the token without the cookie, and would then be unable to show that a
+    /// revocation reached the session the token belongs to.
+    /// </summary>
+    private async Task<(HttpClient Client, string Email)> SignedInAsync()
+    {
+        var email = NewEmail();
+        var client = _api.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/auth/register", new JsonObject
+        {
+            ["email"] = email,
+            ["password"] = Password,
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            JsonNode.Parse(await response.Content.ReadAsStringAsync())!["accessToken"]!.GetValue<string>());
+
+        return (client, email);
+    }
+
+    /// <summary>
+    /// Spends the client's refresh cookie (FR-015) and reports only whether the
+    /// server accepted it.
+    ///
+    /// This is how a session is observed from outside. An access token cannot
+    /// answer the question: it is a 15-minute credential that no revocation
+    /// reaches, so a session that was ended and one that was not look identical
+    /// through it until the clock runs out. The cookie is what outlives the
+    /// token, which makes it what "signed in" actually means here.
+    /// </summary>
+    private static async Task<HttpStatusCode> RefreshAsync(HttpClient client)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh");
+
+        // contracts/api.md: the cookie-authenticated endpoints require it, and
+        // a request without it is refused before the cookie is ever read.
+        request.Headers.Add("X-Requested-With", "playnext");
+
+        return (await client.SendAsync(request)).StatusCode;
+    }
+
+    private static JsonObject ChangePassword(string current, string replacement)
+    {
+        return new JsonObject { ["currentPassword"] = current, ["newPassword"] = replacement };
+    }
+
+    [GatedFact]
+    public async Task Changing_the_password_needs_a_session()
+    {
+        // The one endpoint in the auth group behind RequireAuthorization. The
+        // other four are how a visitor gets a session, so requiring one there
+        // would be a closed door; this one changes an account, and there has to
+        // be an account to change (FR-014).
+        //
+        // The body is a valid one, so a refusal here is about the missing token
+        // and cannot be the payload being rejected on its way past.
+        //
+        // The claim is the 401, not the mechanism that produces it, and there
+        // are two: the middleware refuses first, and the handler refuses again
+        // if the token's subject is unreadable. Deleting RequireAuthorization
+        // leaves this test green, which is the correct outcome rather than a
+        // gap — a caller with no session cannot change a password either way,
+        // and the second guard is what keeps that true if the first is ever
+        // relaxed. Asserting on the challenge header instead would pin which
+        // of the two answered, which is not a thing a client can tell apart.
+        var response = await _api.CreateClient()
+            .PostAsJsonAsync("/api/auth/change-password", ChangePassword(Password, NewPassword));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [GatedFact]
+    public async Task Changing_the_password_makes_the_new_one_work_and_the_old_one_stop()
+    {
+        // The end of T037's list, and the one claim in it that no other layer
+        // can settle: against the fake store, "the new password validates on the
+        // next sign-in" would be a test asserting that a stub returns what it
+        // was told to return. Whether a password really changed is a fact about
+        // a hash, and this is the only suite with one.
+        var (client, email) = await SignedInAsync();
+
+        var changed = await client.PostAsJsonAsync(
+            "/api/auth/change-password",
+            ChangePassword(Password, NewPassword));
+
+        Assert.Equal(HttpStatusCode.NoContent, changed.StatusCode);
+
+        var withNew = await SignInAsync(email, NewPassword);
+
+        Assert.Equal(HttpStatusCode.OK, withNew.StatusCode);
+
+        // The load-bearing half. "The new password works" alone would also pass
+        // if the change had *added* a credential instead of replacing one, and
+        // an account with two working passwords is the whole failure this
+        // feature exists to prevent.
+        var withOld = await SignInAsync(email, Password);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, withOld.StatusCode);
+    }
+
+    [GatedFact]
+    public async Task Changing_the_password_ends_every_session_including_the_one_that_asked()
+    {
+        // FR-014's revocation, against real rows rather than a fake's list.
+        //
+        // A password is changed because it may be known to someone else, so
+        // every session it opened has to end — and the session that asked is
+        // the one that must not be spared, because "the one that asked" is
+        // exactly what a thief holding a stolen session would be. The second
+        // client below is that thief: signed in with the same password, on
+        // another device, with its own cookie.
+        var (first, email) = await SignedInAsync();
+
+        var second = _api.CreateClient();
+
+        var secondSignIn = await second.PostAsJsonAsync("/api/auth/login", new JsonObject
+        {
+            ["email"] = email,
+            ["password"] = Password,
+        });
+
+        Assert.Equal(HttpStatusCode.OK, secondSignIn.StatusCode);
+
+        var changed = await first.PostAsJsonAsync(
+            "/api/auth/change-password",
+            ChangePassword(Password, NewPassword));
+
+        Assert.Equal(HttpStatusCode.NoContent, changed.StatusCode);
+
+        // Both, in one test, because either alone is a weaker claim that the
+        // other would hide: revoking only the caller's session passes the first
+        // assertion, and revoking only the others' passes the second.
+        Assert.Equal(HttpStatusCode.Unauthorized, await RefreshAsync(second));
+        Assert.Equal(HttpStatusCode.Unauthorized, await RefreshAsync(first));
+    }
+
+    [GatedFact]
+    public async Task A_wrong_current_password_changes_nothing()
+    {
+        // FR-011, and the half of it that costs a visitor something. A mistyped
+        // current password must be refused *and* must leave the account alone:
+        // revoking on the way to a refusal would sign someone out of every
+        // device they own for a typo.
+        var (client, email) = await SignedInAsync();
+
+        var refused = await client.PostAsJsonAsync(
+            "/api/auth/change-password",
+            ChangePassword("not-the-password", NewPassword));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
+
+        var stillWorks = await SignInAsync(email, Password);
+
+        Assert.Equal(HttpStatusCode.OK, stillWorks.StatusCode);
+
+        // The session that asked is still a session. Asserted on the cookie
+        // rather than on the status code above, which says only that some
+        // credential was accepted.
+        Assert.Equal(HttpStatusCode.OK, await RefreshAsync(client));
+    }
+
+    [GatedFact]
+    public async Task A_rejected_new_password_changes_nothing()
+    {
+        // FR-010 against Identity's real policy. The application suite proves
+        // the use case turns a rejection into its own outcome; what it cannot
+        // show is that the rejection came from the policy rather than from the
+        // fake, and that the account was left untouched by it.
+        var (client, email) = await SignedInAsync();
+
+        var refused = await client.PostAsJsonAsync(
+            "/api/auth/change-password",
+            ChangePassword(Password, "short"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal(
+            "invalid-payload",
+            JsonNode.Parse(await refused.Content.ReadAsStringAsync())!["code"]!.GetValue<string>());
+
+        // Its own answer, not the generic credential refusal: the two lead to
+        // different screens, and telling someone their password was wrong when
+        // the API never looked at it is the confusion this separation avoids.
+        var stillWorks = await SignInAsync(email, Password);
+
+        Assert.Equal(HttpStatusCode.OK, stillWorks.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, await RefreshAsync(client));
+    }
+
+    /// <summary>
+    /// Signs in on a device with nothing to merge, reporting only the status.
+    /// A fresh client each time, so a sign-in test cannot pass on a cookie an
+    /// earlier call in the same test left behind.
+    /// </summary>
+    private Task<HttpResponseMessage> SignInAsync(string email, string password)
+    {
+        return _api.CreateClient().PostAsJsonAsync("/api/auth/login", new JsonObject
+        {
+            ["email"] = email,
+            ["password"] = password,
+        });
     }
 }
 

@@ -54,6 +54,54 @@ describe('Connectivity', () => {
     expect(service.isOffline()).toBe(false);
   });
 
+  /**
+   * The transition, not just the state (FR-017).
+   *
+   * A caller that has to *act* when the connection comes back cannot get that
+   * from `isOnline`: reading a signal says what is true now and nothing about
+   * how it got there. The sync queue is that caller — it holds changes made
+   * while the connection was down, and "the connection is up" is true for every
+   * second the app is running, so acting on the level would mean acting always.
+   */
+  describe('the connection coming back', () => {
+    it('announces the return', () => {
+      let returns = 0;
+      service.cameOnline.subscribe(() => (returns += 1));
+
+      browserReports('offline');
+      browserReports('online');
+
+      expect(returns).toBe(1);
+    });
+
+    it('says nothing when the connection drops', () => {
+      let returns = 0;
+      service.cameOnline.subscribe(() => (returns += 1));
+
+      browserReports('offline');
+
+      // The distinction the queue depends on: dropping is not a moment to try
+      // sending anything, and a subscriber that could not tell the two apart
+      // would spend a request per drop.
+      expect(returns).toBe(0);
+    });
+
+    it('announces every return, not only the first', () => {
+      let returns = 0;
+      service.cameOnline.subscribe(() => (returns += 1));
+
+      browserReports('offline');
+      browserReports('online');
+      browserReports('offline');
+      browserReports('online');
+
+      // Three flaky minutes on a train are three chances to send what is
+      // queued, and a stream that completed after the first would leave the
+      // queue stranded for the rest of the journey.
+      expect(returns).toBe(2);
+    });
+  });
+
   it('stops listening once it is destroyed', () => {
     // A leaked listener would outlive the injector and keep mutating a
     // torn-down service. Root services only die with the app in production, so

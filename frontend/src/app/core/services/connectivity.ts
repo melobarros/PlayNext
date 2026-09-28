@@ -1,4 +1,5 @@
 import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
+import { Observable, Subject } from 'rxjs';
 
 /**
  * Whether the device currently has a connection (FR-015).
@@ -24,8 +25,31 @@ export class Connectivity {
   /** The same fact, read the way the banner needs it. */
   readonly isOffline = computed(() => !this.online());
 
+  private readonly returned = new Subject<void>();
+
+  /**
+   * Fires when the connection comes back (FR-017).
+   *
+   * **The transition, not the state**, and the two are not interchangeable. A
+   * caller that has to *act* on the return cannot use `isOnline`, because
+   * reading a signal says what is true now and nothing about how it got there —
+   * and "the connection is up" is true for every second the app is running, so
+   * acting on the level would mean acting always. Watching the signal through
+   * an effect instead loses a worse thing: a drop and a return that land in one
+   * change-detection pass look like no change at all.
+   *
+   * The browser's event *is* the transition, and it already arrives here, so
+   * this is where it can be handed on without a second listener on the same
+   * event — which would be a second place that has to agree about what the
+   * browser said.
+   */
+  readonly cameOnline: Observable<void> = this.returned.asObservable();
+
   constructor() {
-    const goOnline = () => this.online.set(true);
+    const goOnline = () => {
+      this.online.set(true);
+      this.returned.next();
+    };
     const goOffline = () => this.online.set(false);
 
     window.addEventListener('online', goOnline);
@@ -37,6 +61,7 @@ export class Connectivity {
     inject(DestroyRef).onDestroy(() => {
       window.removeEventListener('online', goOnline);
       window.removeEventListener('offline', goOffline);
+      this.returned.complete();
     });
   }
 }

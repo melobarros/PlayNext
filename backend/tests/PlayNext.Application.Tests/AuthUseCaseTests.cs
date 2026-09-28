@@ -19,161 +19,6 @@ namespace PlayNext.Application.Tests;
 /// </summary>
 public class AuthUseCaseTests
 {
-    private static readonly DateTimeOffset Now = new(2026, 9, 27, 12, 0, 0, TimeSpan.Zero);
-
-    private static GuestStatePayload Guest(params (string TitleId, string State)[] interactions)
-    {
-        return new GuestStatePayload(
-            interactions.ToDictionary(
-                entry => entry.TitleId,
-                entry => new InteractionPayload(entry.State, "2026-09-27T10:00:00Z"),
-                StringComparer.Ordinal),
-            [new HistoryPayload("arrival", "2026-09-27T10:05:00Z")],
-            null);
-    }
-
-    private sealed class Harness
-    {
-        public FakeAccountStore Accounts { get; } = new();
-
-        public InMemoryAccountStateRepository States { get; } = new();
-
-        public FakeSessionStore Sessions { get; } = new();
-
-        public FakeTokenService Tokens { get; } = new();
-
-        public FakeGoogleTokenVerifier Google { get; } = new();
-
-        public AuthUseCases UseCases => new(Accounts, States, Sessions, Tokens, Google, new FixedClock(Now));
-    }
-
-    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
-    {
-        public override DateTimeOffset GetUtcNow() => now;
-    }
-
-    private sealed class FakeAccountStore : IAccountStore
-    {
-        private readonly Dictionary<string, AccountRecord> _byEmail = new(StringComparer.OrdinalIgnoreCase);
-
-        public AccountCreationStatus Creation { get; set; } = AccountCreationStatus.Created;
-
-        public CredentialCheck Check { get; set; } = CredentialCheck.Succeeded;
-
-        public TimeSpan? LockoutRemaining { get; set; }
-
-        public IReadOnlyList<string> RejectionErrors { get; set; } = ["Password is too weak."];
-
-        /// <summary>Set when the account exists before the call, as on a returning sign-in.</summary>
-        public void Seed(string email)
-        {
-            _byEmail[email] = new AccountRecord(Guid.NewGuid(), email);
-        }
-
-        public Task<AccountCreation> CreateAsync(
-            string email,
-            string password,
-            string region,
-            CancellationToken cancellationToken)
-        {
-            if (Creation != AccountCreationStatus.Created)
-            {
-                return Task.FromResult(new AccountCreation(Creation, null, RejectionErrors));
-            }
-
-            var account = new AccountRecord(Guid.NewGuid(), email);
-            _byEmail[email] = account;
-
-            return Task.FromResult(new AccountCreation(AccountCreationStatus.Created, account, []));
-        }
-
-        public Task<CredentialResult> CheckPasswordAsync(
-            string email,
-            string password,
-            CancellationToken cancellationToken)
-        {
-            return Task.FromResult(Check switch
-            {
-                CredentialCheck.Succeeded => new CredentialResult(Check, _byEmail[email], null),
-                CredentialCheck.LockedOut => new CredentialResult(Check, null, LockoutRemaining),
-                _ => new CredentialResult(CredentialCheck.InvalidCredentials, null, null),
-            });
-        }
-
-        public Task<AccountRecord?> FindByEmailAsync(string email, CancellationToken cancellationToken)
-            => Task.FromResult(_byEmail.GetValueOrDefault(email));
-
-        public Task<AccountRecord?> FindByIdAsync(Guid userId, CancellationToken cancellationToken)
-            => Task.FromResult(_byEmail.Values.FirstOrDefault(account => account.Id == userId));
-
-        public Task<AccountRecord> FindOrCreateExternalAsync(
-            string email,
-            string region,
-            CancellationToken cancellationToken)
-        {
-            if (!_byEmail.TryGetValue(email, out var account))
-            {
-                account = new AccountRecord(Guid.NewGuid(), email);
-                _byEmail[email] = account;
-            }
-
-            return Task.FromResult(account);
-        }
-
-        public Task<bool> ChangePasswordAsync(
-            Guid userId,
-            string currentPassword,
-            string newPassword,
-            CancellationToken cancellationToken)
-            => Task.FromResult(true);
-    }
-
-    private sealed class FakeSessionStore : ISessionStore
-    {
-        public List<(Guid UserId, string Hash, DateTimeOffset ExpiresAt)> Stored { get; } = [];
-
-        public List<Guid> RevokedUsers { get; } = [];
-
-        public Task StoreAsync(Guid userId, string tokenHash, DateTimeOffset expiresAt, CancellationToken cancellationToken)
-        {
-            Stored.Add((userId, tokenHash, expiresAt));
-
-            return Task.CompletedTask;
-        }
-
-        public Task<SessionRecord?> FindLiveAsync(string tokenHash, DateTimeOffset now, CancellationToken cancellationToken)
-            => Task.FromResult<SessionRecord?>(null);
-
-        public Task ExtendAsync(Guid sessionId, DateTimeOffset expiresAt, CancellationToken cancellationToken)
-            => Task.CompletedTask;
-
-        public Task RevokeAsync(Guid sessionId, DateTimeOffset revokedAt, CancellationToken cancellationToken)
-            => Task.CompletedTask;
-
-        public Task RevokeAllForUserAsync(Guid userId, DateTimeOffset revokedAt, CancellationToken cancellationToken)
-        {
-            RevokedUsers.Add(userId);
-
-            return Task.CompletedTask;
-        }
-    }
-
-    private sealed class FakeTokenService : ITokenService
-    {
-        public string CreateAccessToken(Guid userId, string email) => $"access-for-{userId}";
-
-        public RefreshToken CreateRefreshToken() => new("raw-refresh-token", "hashed-refresh-token");
-
-        public string HashRefreshToken(string refreshToken) => $"hash-of-{refreshToken}";
-    }
-
-    private sealed class FakeGoogleTokenVerifier : IGoogleTokenVerifier
-    {
-        public GoogleIdentity? Identity { get; set; }
-
-        public Task<GoogleIdentity?> VerifyAsync(string idToken, CancellationToken cancellationToken)
-            => Task.FromResult(Identity);
-    }
 
     public class Registering
     {
@@ -184,7 +29,7 @@ public class AuthUseCaseTests
             var harness = new Harness();
 
             var result = await harness.UseCases.RegisterAsync(
-                new RegisterRequest("visitor@example.com", "Correct-Horse-9!", Guest(("arrival", "loved"))),
+                new RegisterRequest("visitor@example.com", "Correct-Horse-9!", Harness.Guest(("arrival", "loved"))),
                 "BR",
                 CancellationToken.None);
 
@@ -255,7 +100,7 @@ public class AuthUseCaseTests
                 new RegisterRequest(
                     "visitor@example.com",
                     "Correct-Horse-9!",
-                    Guest(("arrival", "adored"))),
+                    Harness.Guest(("arrival", "adored"))),
                 "BR",
                 CancellationToken.None);
 
@@ -277,7 +122,7 @@ public class AuthUseCaseTests
             var stored = Assert.Single(harness.Sessions.Stored);
             Assert.Equal("hashed-refresh-token", stored.Hash);
             Assert.DoesNotContain("raw-refresh-token", stored.Hash);
-            Assert.Equal(Now + AuthUseCases.RefreshLifetime, stored.ExpiresAt);
+            Assert.Equal(Harness.Now + AuthUseCases.RefreshLifetime, stored.ExpiresAt);
             Assert.Equal("access-for-" + stored.UserId, result.Session!.AccessToken);
         }
     }
@@ -294,11 +139,11 @@ public class AuthUseCaseTests
             var account = await harness.Accounts.FindByEmailAsync(
                 "visitor@example.com",
                 CancellationToken.None);
-            var seeded = GuestStateValidator.Validate(Guest(("hereditary", "disliked")));
+            var seeded = GuestStateValidator.Validate(Harness.Guest(("hereditary", "disliked")));
             await harness.States.MergeIntoAccountAsync(account!.Id, seeded.Value!, CancellationToken.None);
 
             var result = await harness.UseCases.SignInAsync(
-                new LoginRequest("visitor@example.com", "Correct-Horse-9!", Guest(("arrival", "loved"))),
+                new LoginRequest("visitor@example.com", "Correct-Horse-9!", Harness.Guest(("arrival", "loved"))),
                 "BR",
                 CancellationToken.None);
 
@@ -356,7 +201,7 @@ public class AuthUseCaseTests
             harness.Google.Identity = new GoogleIdentity("google-sub", "visitor@example.com", EmailVerified: true);
 
             var result = await harness.UseCases.GoogleSignInAsync(
-                new GoogleRequest("google-id-token", Guest(("arrival", "loved"))),
+                new GoogleRequest("google-id-token", Harness.Guest(("arrival", "loved"))),
                 "BR",
                 CancellationToken.None);
 

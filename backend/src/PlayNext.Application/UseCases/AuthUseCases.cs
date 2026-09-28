@@ -185,6 +185,74 @@ public sealed class AuthUseCases(
     }
 
     /// <summary>
+    /// Replaces the account's password, then ends every session it had (FR-014).
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="userId"/> is a parameter of its own rather than a field on
+    /// <see cref="ChangePasswordRequest"/>, and that is the security-relevant
+    /// part of the signature. The account being changed comes from the bearer
+    /// token's <c>sub</c> claim; a request body naming its own account would let
+    /// any signed-in visitor change anyone's password.
+    ///
+    /// The revocation is not a side effect of the change, it is half of it. A
+    /// password is changed because it may be known to someone else, so the
+    /// sessions that were opened with it have to end — all of them, including
+    /// the one that asked, because "the one that asked" is exactly what a thief
+    /// holding a stolen session would be. The visitor's cost is that they sign
+    /// in again on this device too; the alternative is leaving an intruder
+    /// signed in, which is the failure the feature exists to prevent.
+    ///
+    /// Order matters at the edges. Nothing is revoked until the change has
+    /// succeeded — a mistyped current password must not sign a visitor out of
+    /// every device they own — and the change is committed before the
+    /// revocation, so a failure in the second step leaves the credential
+    /// rotated rather than the sessions alive.
+    /// </remarks>
+    public async Task<ChangePasswordResult> ChangePasswordAsync(
+        Guid userId,
+        ChangePasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        bool changed;
+
+        try
+        {
+            // The policy is Identity's, applied inside the store; nothing is
+            // restated here to drift from it. A missing field is an empty
+            // string rather than a null, because Identity throws on null
+            // arguments and a malformed body deserves an ordinary refusal
+            // instead of a 500.
+            changed = await accounts.ChangePasswordAsync(
+                userId,
+                request.CurrentPassword ?? string.Empty,
+                request.NewPassword ?? string.Empty,
+                cancellationToken);
+        }
+        catch (WeakPasswordException rejected)
+        {
+            // Identity's own wording, passed through for the same reason the
+            // sign-in messages are: it is already written for a person to read,
+            // and a second copy of the policy is the copy that goes stale.
+            return ChangePasswordResult.Failure(ChangePasswordStatus.PasswordRejected, [.. rejected.Errors]);
+        }
+
+        if (!changed)
+        {
+            // The same sentence as a failed sign-in, deliberately. This endpoint
+            // is reachable only by someone already holding a session, which is
+            // precisely the position from which a specific answer would be worth
+            // probing for.
+            return ChangePasswordResult.Failure(
+                ChangePasswordStatus.InvalidCredentials,
+                GenericCredentialFailure);
+        }
+
+        await sessions.RevokeAllForUserAsync(userId, clock.GetUtcNow(), cancellationToken);
+
+        return ChangePasswordResult.Success();
+    }
+
+    /// <summary>
     /// What every way in does once the visitor is known: merge, then issue.
     ///
     /// The merge comes first because the session has to describe the account as

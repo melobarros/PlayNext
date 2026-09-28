@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using PlayNext.Api.Contracts;
 using PlayNext.Application.Contracts;
 using PlayNext.Application.UseCases;
@@ -43,7 +42,7 @@ public static class StateEndpoints
         StateUseCases useCases,
         CancellationToken cancellationToken)
     {
-        return CurrentUserId(http) is not { } userId
+        return CurrentUser.Id(http) is not { } userId
             ? Results.Unauthorized()
             : Results.Ok(AccountStateView.From(await useCases.GetAsync(userId, cancellationToken)));
     }
@@ -60,7 +59,7 @@ public static class StateEndpoints
         StateUseCases useCases,
         CancellationToken cancellationToken)
     {
-        if (CurrentUserId(http) is not { } userId)
+        if (CurrentUser.Id(http) is not { } userId)
         {
             return Results.Unauthorized();
         }
@@ -80,20 +79,4 @@ public static class StateEndpoints
             statusCode: StatusCodes.Status400BadRequest);
     }
 
-    /// <summary>
-    /// The authenticated account's id, from the bearer token's subject.
-    ///
-    /// A missing or unparseable subject yields <c>null</c> rather than throwing.
-    /// <c>RequireAuthorization</c> has already refused a request without a valid
-    /// token, so this is unreachable in practice — but a malformed claim is not
-    /// the place to discover that the middleware and this method disagree about
-    /// what "authenticated" means, and answering 401 is the same refusal the
-    /// middleware would have given.
-    /// </summary>
-    private static Guid? CurrentUserId(HttpContext http)
-    {
-        var subject = http.User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-        return Guid.TryParse(subject, out var userId) ? userId : null;
-    }
 }

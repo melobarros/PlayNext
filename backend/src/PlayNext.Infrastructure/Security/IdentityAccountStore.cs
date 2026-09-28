@@ -229,18 +229,3 @@ public sealed class IdentityAccountStore(
         return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 }
-
-/// <summary>
-/// Identity refused the new password on policy grounds (FR-010).
-///
-/// Thrown rather than returned because <see cref="IAccountStore.ChangePasswordAsync"/>
-/// is a <c>bool</c> whose <c>false</c> is spoken for, and because this is a
-/// different conversation with the visitor: "your current password is wrong" and
-/// "choose a stronger one" lead to different screens.
-/// </summary>
-public sealed class WeakPasswordException(IReadOnlyList<string> errors)
-    : Exception("The new password does not satisfy the password policy.")
-{
-    /// <summary>Identity's own messages, already written for a person to read.</summary>
-    public IReadOnlyList<string> Errors { get; } = errors;
-}

@@ -1,7 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { QuizState } from '../models/quiz';
+import { SyncOperation } from '../models/sync';
 import { createInitialQuizState } from '../../features/quiz/quiz-logic/quiz-rules';
 import { PreferenceStore, QUIZ_STATE_STORAGE_KEY } from './preference-store';
+import { WriteSink } from './write-sink';
 
 describe('PreferenceStore', () => {
   let store: PreferenceStore;
@@ -110,6 +112,86 @@ describe('PreferenceStore', () => {
     store.clear();
 
     expect(store.read()).toBeNull();
+  });
+
+  describe('the write sink (research D9)', () => {
+    let sink: WriteSink;
+    let seen: SyncOperation[];
+    let stop: () => void;
+
+    beforeEach(() => {
+      sink = TestBed.inject(WriteSink);
+      seen = [];
+      stop = sink.observe((operation) => seen.push(operation));
+    });
+
+    afterEach(() => stop());
+
+    /** A finished quiz, the only kind the account has any use for. */
+    function completed(completedAt = '2026-09-25T10:05:00.000Z'): QuizState {
+      return {
+        ...createInitialQuizState(completedAt),
+        status: 'completed',
+        step: 3,
+        mediaType: { values: ['movie'], any: false },
+        genre: { values: ['sci-fi'], any: false },
+        provider: { values: ['netflix'], any: false },
+        completedAt,
+      };
+    }
+
+    it('announces a completed quiz in the shape the account stores', () => {
+      store.write(completed());
+
+      // `updatedAt` is the store's own, refreshed on write (the 001 contract),
+      // and it is what travels as the comparator — so it is read back rather
+      // than predicted here.
+      expect(seen).toEqual([
+        {
+          kind: 'preferences',
+          preferences: {
+            mediaType: { values: ['movie'], any: false },
+            genre: { values: ['sci-fi'], any: false },
+            provider: { values: ['netflix'], any: false },
+            includeUnownedProviders: false,
+            completedAt: '2026-09-25T10:05:00.000Z',
+            updatedAt: store.read()!.updatedAt,
+          },
+        },
+      ]);
+    });
+
+    it('says nothing while the quiz is still being answered', () => {
+      const state = createInitialQuizState('2026-09-25T10:00:00.000Z');
+      state.mediaType = { values: ['movie'], any: false };
+      state.step = 2;
+
+      store.write(state);
+
+      // The account holds a *completed* quiz, because that is the only kind
+      // the deck and the ranking can read. Pushing each half-answered step
+      // would put rows in the account that nothing can use — and nothing is
+      // lost by waiting, since the completed write carries the whole document.
+      expect(seen).toEqual([]);
+    });
+
+    it('says nothing when it is the account writing its own preferences back', () => {
+      // The same echo the interaction store guards against: the push's success
+      // handler caches the merged state, and a cache write that announced
+      // itself would sync, cache, announce, and never stop.
+      store.replace(completed());
+
+      expect(seen).toEqual([]);
+    });
+
+    it('says nothing when the document is cleared', () => {
+      store.write(completed());
+      seen.length = 0;
+
+      store.clear();
+
+      expect(seen).toEqual([]);
+    });
   });
 
   it('keeps working when LocalStorage refuses to store (FR-010 best effort)', () => {

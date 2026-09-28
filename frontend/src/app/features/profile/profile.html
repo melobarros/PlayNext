@@ -1,5 +1,92 @@
 <main class="mx-auto flex min-h-[calc(100dvh-var(--spacing-nav))] max-w-md flex-col px-5 pt-6 pb-8">
   <h1 class="text-2xl font-semibold text-chalk-50">Profile</h1>
+
+  <!--
+    The two halves are exclusive. The `@if` is over the session rather than
+    over a local flag, because the session is the server's answer and a second
+    copy of it here is a copy that can disagree with `AuthService` — which is
+    exactly what happens after a password change ends every session.
+  -->
+  @if (session(); as account) {
+    <p class="mt-1 text-sm text-chalk-500">
+      Signed in as <span class="text-chalk-300">{{ account.email }}</span
+      >. Your ratings, watchlist and history are saved to this account.
+    </p>
+
+    <!--
+      Outside the form, because both things below it can produce a message:
+      the change form, and the sign-out warning about changes that never
+      reached the account. One message region for the half, as the guest half
+      has one for its form.
+    -->
+    @if (notice(); as message) {
+      <p role="alert" class="mt-4 rounded-lg bg-ink-800 px-3 py-2 text-sm text-chalk-300">
+        {{ message }}
+      </p>
+    }
+
+    <form class="mt-5 flex flex-col gap-4" (submit)="changePassword($event)">
+      <h2 class="text-sm font-semibold text-chalk-300">Change your password</h2>
+
+      <!--
+        FR-014: the current password is asked for, and it is the whole reason
+        this is a decision the account holder made rather than one anyone
+        holding an open session could make.
+      -->
+      <label class="flex flex-col gap-1.5">
+        <span class="text-sm font-medium text-chalk-300">Current password</span>
+        <input
+          type="password"
+          name="currentPassword"
+          autocomplete="current-password"
+          required
+          class="touch-target rounded-xl border border-ink-700 bg-ink-900 px-4 text-chalk-50"
+          [value]="currentPassword()"
+          (input)="onCurrentPassword($any($event.target).value)"
+        />
+      </label>
+
+      <label class="flex flex-col gap-1.5">
+        <span class="text-sm font-medium text-chalk-300">New password</span>
+        <!--
+          `new-password`, so a password manager offers to generate one instead
+          of filling the old one — which here would be a change to the password
+          the visitor already has.
+        -->
+        <input
+          type="password"
+          name="newPassword"
+          autocomplete="new-password"
+          required
+          class="touch-target rounded-xl border border-ink-700 bg-ink-900 px-4 text-chalk-50"
+          [value]="newPassword()"
+          (input)="onNewPassword($any($event.target).value)"
+        />
+      </label>
+
+      <button
+        type="submit"
+        class="touch-target flex items-center justify-center rounded-full bg-accent-500 px-6 font-medium text-white transition-opacity disabled:opacity-60"
+        [disabled]="busy()"
+      >
+        Change password
+      </button>
+    </form>
+
+    <!--
+      `type="button"`, so it is not the form's submit control: "Sign out" and
+      "Change password" sitting in one form would make Enter in the last field
+      a coin toss between them.
+    -->
+    <button
+      type="button"
+      class="touch-target mt-3 flex items-center justify-center rounded-full border border-ink-600 px-6 font-medium text-chalk-300 transition-opacity disabled:opacity-60"
+      [disabled]="busy()"
+      (click)="signOut()"
+    >
+      Sign out
+    </button>
+  } @else {
   <p class="mt-1 text-sm text-chalk-500">
     Save your ratings, watchlist and history to an account, and they follow you to any device.
   </p>
@@ -117,4 +204,5 @@
   >
     Continue with Google
   </button>
+  }
 </main>

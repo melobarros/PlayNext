@@ -30,6 +30,51 @@ public sealed record GoogleRequest(string? Credential, GuestStatePayload? Guest)
 /// <summary>The body of <c>POST /auth/change-password</c>.</summary>
 public sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);
 
+/// <summary>
+/// Why a password change ended as it did.
+///
+/// Its own enum rather than a reuse of <see cref="AuthStatus"/>, because the two
+/// answer different questions. Every <see cref="AuthStatus"/> is about a session
+/// — one is issued, or it is not — and a password change issues nothing: the
+/// visitor is already signed in, and the whole point is that the sessions they
+/// had stop working (FR-014). Sharing the enum would mean <c>Succeeded</c>
+/// meaning "signed in" in one place and "changed" in another, and the endpoint's
+/// mapping from status to HTTP code would have to guess which.
+/// </summary>
+public enum ChangePasswordStatus
+{
+    /// <summary>Changed, and every session was revoked — the current one included (FR-014).</summary>
+    Succeeded,
+
+    /// <summary>The current password did not match. Generic, like every other credential failure (FR-011).</summary>
+    InvalidCredentials,
+
+    /// <summary>The new password does not satisfy the policy (FR-010). <c>Errors</c> carries Identity's reasons.</summary>
+    PasswordRejected,
+}
+
+/// <summary>
+/// The outcome of a password change: done, or why not.
+/// </summary>
+/// <remarks>
+/// Carries no session, and that is the difference between it and
+/// <see cref="AuthResult"/> rather than an omission. There is nothing to hand
+/// back — the refresh cookie the visitor already had is dead by the time this
+/// returns, so a fresh one would contradict the revocation that just happened.
+/// </remarks>
+public sealed record ChangePasswordResult(ChangePasswordStatus Status, IReadOnlyList<string> Errors)
+{
+    /// <summary>Changed, and the account's sessions ended with it.</summary>
+    public static ChangePasswordResult Success() => new(ChangePasswordStatus.Succeeded, []);
+
+    /// <summary>A refusal carrying a message for the visitor.</summary>
+    public static ChangePasswordResult Failure(ChangePasswordStatus status, params string[] errors)
+        => new(status, errors);
+
+    /// <summary>Whether the password was changed.</summary>
+    public bool Succeeded => Status == ChangePasswordStatus.Succeeded;
+}
+
 /// <summary>Why an auth attempt ended as it did. Maps to the contract's status codes.</summary>
 public enum AuthStatus
 {

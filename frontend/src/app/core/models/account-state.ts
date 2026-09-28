@@ -38,6 +38,17 @@ export interface AccountState {
 }
 
 /**
+ * One unrating, as the API spells it (FR-006).
+ *
+ * A title id rather than a map key, unlike an interaction: a rating is a slot
+ * being filled, while a removal is a claim that stands on its own.
+ */
+export interface RemovalPayload {
+  titleId: string;
+  updatedAt: string;
+}
+
+/**
  * The device's document as the merge's incoming side.
  *
  * Every field is optional: the same shape is the body of `POST /me/sync`,
@@ -48,6 +59,18 @@ export interface GuestStatePayload {
   interactions?: Record<string, Interaction>;
   history?: WatchHistoryEntry[];
   preferences?: PreferenceDocument | null;
+
+  /**
+   * Only ever populated on the sync path, and only by `toSyncBody`.
+   *
+   * The stored device document expresses a removal as the title's *absence*,
+   * and absence carries no timestamp to compare — so a guest document built for
+   * a sign-in has nothing to put here, and `toGuestState` never sets it. Sending
+   * one anyway is not an error the server accepts: a removal is resolved against
+   * the account's rating by time, and "when I decided" is a fact only the live
+   * write knows.
+   */
+  removals?: RemovalPayload[];
 }
 
 /**
@@ -130,9 +153,7 @@ export function toPreferenceDocument(state: {
  * import a service (Principle VII). It is not a looser check for it: the field
  * is typed `1`, so bumping the contract breaks this line at compile time.
  */
-export function toQuizState(
-  preferences: PreferenceDocument | null | undefined,
-): QuizState | null {
+export function toQuizState(preferences: PreferenceDocument | null | undefined): QuizState | null {
   if (!preferences) return null;
 
   return {

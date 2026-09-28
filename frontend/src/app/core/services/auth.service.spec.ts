@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -13,6 +13,7 @@ import { AuthService } from './auth.service';
 import { InteractionStore } from './interaction-store';
 import { PreferenceStore } from './preference-store';
 import { QUIZ_STATE_STORAGE_KEY } from './preference-store';
+import { sessionInterceptor } from './session.interceptor';
 
 /**
  * Contract tests for the client half of `specs/004-guest-auth-migration/contracts/api.md`.
@@ -530,6 +531,239 @@ describe('AuthService', () => {
       // the server's answer and stands on its own.
       expect(service.isSignedIn()).toBe(true);
       expect(interactions.read().interactions).toEqual({});
+    });
+  });
+
+  /**
+   * The interceptor (FR-015, research D12).
+   *
+   * Two jobs, tested apart because they fail apart. **Attaching the token** is
+   * silent when it breaks: `GET /me/state` and `POST /me/sync` would simply go
+   * out unauthenticated, the server would answer 401, and the visitor would be
+   * told their session expired when it never lapsed. **The 401 chain** is the
+   * noisy half — a refresh that is retried for the wrong reason, or not retried
+   * for the right one, is visible only here.
+   *
+   * This block configures its own client, because the outer one has no
+   * interceptor and the interceptor *is* the subject.
+   */
+  describe('the session interceptor', () => {
+    /** What the refresh returns in place of the token `grantSession` handed out. */
+    const RENEWED = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEifQ.second-token';
+
+    const CACHED = {
+      interactions: { arrival: { state: 'loved', updatedAt: '2026-09-27T10:00:00.000Z' } },
+      history: [{ titleId: 'arrival', chosenAt: '2026-09-27T10:00:00.000Z' }],
+      preferences: null,
+    };
+
+    beforeEach(() => {
+      // The outer module is replaced rather than extended: `provideHttpClient`
+      // cannot be configured twice, and a test that left the outer client in
+      // place would drive every request through a chain with no interceptor in
+      // it and pass whatever this file did.
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          provideHttpClient(withInterceptors([sessionInterceptor])),
+          provideHttpClientTesting(),
+        ],
+      });
+
+      service = TestBed.inject(AuthService);
+      http = TestBed.inject(HttpTestingController);
+    });
+
+    /** Signs in for real, so a token exists in memory for the chain to use. */
+    function signInWithToken(): void {
+      service.signIn('visitor@example.com', 'Correct-Horse-9!').subscribe();
+      grantSession(http.expectOne('/api/auth/login'), CACHED);
+    }
+
+    /** Runs an authenticated API request and records how it ended. */
+    function call(url: string): { failed: boolean; error: unknown } {
+      const result = { failed: false, error: undefined as unknown };
+
+      TestBed.inject(HttpClient)
+        .get(url)
+        .subscribe({
+          next: () => undefined,
+          error: (error: unknown) => {
+            result.failed = true;
+            result.error = error;
+          },
+        });
+
+      return result;
+    }
+
+    it('carries the access token on an authenticated request', () => {
+      // The defect this pins was invisible: nothing in the app attached the
+      // token to `/me/state` or `/me/sync`, and no test noticed, because every
+      // spec that made those calls answered them locally.
+      signInWithToken();
+
+      call('/api/me/state');
+
+      const request = http.expectOne('/api/me/state');
+
+      expect(request.request.headers.get('Authorization')).toBe(
+        `Bearer ${ACCESS_TOKEN}`,
+      );
+
+      request.flush({});
+    });
+
+    it('leaves an unauthenticated request alone', () => {
+      // Before any session exists there is no token, and a request that went
+      // looking for one would be reading a signal that is `null` by design.
+      call('/api/me/state');
+
+      const request = http.expectOne('/api/me/state');
+
+      expect(request.request.headers.has('Authorization')).toBe(false);
+
+      request.flush({});
+    });
+
+    it('refreshes once and retries once when the token has expired (FR-015)', () => {
+      signInWithToken();
+
+      call('/api/me/state');
+      http.expectOne('/api/me/state').flush(null, { status: 401, statusText: 'Unauthorized' });
+
+      // The refresh is cookie-authenticated, so it carries the CSRF header and
+      // no bearer — the chain must not try to fix the dead token with itself.
+      const refresh = http.expectOne('/api/auth/refresh');
+
+      expect(refresh.request.method).toBe('POST');
+      expect(refresh.request.headers.get('X-Requested-With')).toBe('playnext');
+      expect(refresh.request.headers.has('Authorization')).toBe(false);
+
+      refresh.flush({ accessToken: RENEWED });
+
+      // The retry is the *same* request with the *new* token: replaying the old
+      // one would 401 again and prove nothing.
+      const retry = http.expectOne('/api/me/state');
+
+      expect(retry.request.headers.get('Authorization')).toBe(
+        `Bearer ${RENEWED}`,
+      );
+
+      retry.flush({ ok: true });
+    });
+
+    it('retries once and then stops, even if the retry is refused too', () => {
+      // The loop hazard. A second lap would mean refreshing against a token the
+      // server issued seconds ago, and it would not terminate on a server that
+      // keeps saying no — the visitor would watch a spinner and a request storm.
+      signInWithToken();
+
+      const result = call('/api/me/state');
+
+      http.expectOne('/api/me/state').flush(null, { status: 401, statusText: 'Unauthorized' });
+      http.expectOne('/api/auth/refresh').flush({ accessToken: RENEWED });
+
+      // The retry fails in its own right.
+      http.expectOne('/api/me/state').flush(null, { status: 401, statusText: 'Unauthorized' });
+
+      http.expectNone('/api/auth/refresh');
+
+      expect(result.failed).toBe(true);
+    });
+
+    it('drops to guest mode with the cached data intact when the refresh is refused', () => {
+      // The spec's expired-session edge case, and the reason `expire` exists
+      // apart from `signOut`: the visitor did not ask to leave, so the session
+      // ends and nothing else does. SC-007's wipe is the *other* path.
+      signInWithToken();
+
+      const result = call('/api/me/state');
+
+      http.expectOne('/api/me/state').flush(null, { status: 401, statusText: 'Unauthorized' });
+      http
+        .expectOne('/api/auth/refresh')
+        .flush({ code: 'invalid-credentials' }, { status: 401, statusText: 'Unauthorized' });
+
+      expect(service.isSignedIn()).toBe(false);
+      expect(readSessionMarker()).toBeNull();
+
+      // Everything the visitor was looking at is still there. A sign-out here
+      // would have wiped it, and they would have lost ratings they never asked
+      // to give up — the dead end Principle II forbids.
+      expect(localStorage.getItem(INTERACTION_STORAGE_KEY)).not.toBeNull();
+      expect(interactions.read().interactions['arrival']?.state).toBe('loved');
+
+      // The original 401 reaches the caller rather than being swallowed: the
+      // request did fail, and whoever asked is the one that knows what to do.
+      expect(result.failed).toBe(true);
+    });
+
+    it('does not end the session when the refresh never reached the server', () => {
+      // `RefreshOutcome` has three values for this. Status 0 is a request that
+      // never arrived, which proves the connection failed and nothing about the
+      // session — reading it as expiry would sign a visitor out for walking
+      // into a lift, and their cached data would be orphaned on a device that
+      // no longer believes it has an account.
+      signInWithToken();
+
+      const result = call('/api/me/state');
+
+      http.expectOne('/api/me/state').flush(null, { status: 401, statusText: 'Unauthorized' });
+      http.expectOne('/api/auth/refresh').error(new ProgressEvent('error'), { status: 0 });
+
+      expect(service.isSignedIn()).toBe(true);
+      expect(readSessionMarker()).not.toBeNull();
+      expect(result.failed).toBe(true);
+    });
+
+    it('leaves a failure that is not an expiry alone', () => {
+      // A 500 is the server having a bad day. Refreshing on it would spend a
+      // rotation — and a rotation the server did not ask for is one the client
+      // did not need.
+      signInWithToken();
+
+      const result = call('/api/me/state');
+
+      http.expectOne('/api/me/state').flush(null, { status: 500, statusText: 'Server Error' });
+
+      http.expectNone('/api/auth/refresh');
+      expect(result.failed).toBe(true);
+    });
+
+    it('does not chain a 401 from an endpoint that establishes a session', () => {
+      // `/auth/login` answering 401 means the password was wrong. Retrying it
+      // would spend a second of the five attempts FR-011 allows, so three wrong
+      // guesses would lock the account while the visitor was told they had two
+      // left. The message would be a lie produced by the retry logic.
+      service.signIn('visitor@example.com', 'wrong-password').subscribe();
+
+      http
+        .expectOne('/api/auth/login')
+        .flush({ code: 'invalid-credentials' }, { status: 401, statusText: 'Unauthorized' });
+
+      http.expectNone('/api/auth/refresh');
+    });
+
+    it('does not chain a 401 from change-password, which carries a token but is not an expiry', () => {
+      // The narrow case, and the one a rule written as "retry authorized
+      // requests" would get wrong: this call *does* have a bearer token, so it
+      // looks exactly like a request whose token ran out. Its 401 is the
+      // server's answer about the current password.
+      signInWithToken();
+
+      service.changePassword('wrong-current', 'Battery-Staple-7!').subscribe();
+
+      const request = http.expectOne('/api/auth/change-password');
+
+      expect(request.request.headers.get('Authorization')).toBe(
+        `Bearer ${ACCESS_TOKEN}`,
+      );
+
+      request.flush({ code: 'invalid-credentials' }, { status: 401, statusText: 'Unauthorized' });
+
+      http.expectNone('/api/auth/refresh');
+      expect(service.isSignedIn()).toBe(true);
     });
   });
 });

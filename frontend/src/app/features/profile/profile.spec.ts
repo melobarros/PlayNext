@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import {
   HttpTestingController,
   provideHttpClientTesting,
@@ -8,6 +8,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { routes } from '../../app.routes';
+import { sessionInterceptor } from '../../core/services/session.interceptor';
 import { Profile } from './profile';
 
 /**
@@ -48,7 +49,15 @@ describe('profile', () => {
 
   function build(): void {
     TestBed.configureTestingModule({
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+      // The interceptor is part of the app under test, not scaffolding: the
+      // token on the change-password request is attached by it and by nothing
+      // else, so a spec that left it out would be testing a client the app
+      // does not have.
+      providers: [
+        provideRouter([]),
+        provideHttpClient(withInterceptors([sessionInterceptor])),
+        provideHttpClientTesting(),
+      ],
     });
 
     fixture = TestBed.createComponent(Profile);
@@ -177,6 +186,103 @@ describe('profile', () => {
   /** Whatever the screen is saying about the last attempt, if anything. */
   function alert(): HTMLElement | null {
     return root.querySelector('[role="alert"]');
+  }
+
+  // --- the signed-in half (US4) -----------------------------------------
+
+  const USER_ID = '0e7d2c41-9f3a-4b8e-a1c6-5d0f9e2b3a11';
+  const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEifQ.signature-part';
+  const NEW_PASSWORD = 'Battery-Staple-7!';
+
+  const EARLIER = '2026-09-27T10:00:00.000Z';
+
+  /** What the server says the account holds — nothing, in most of these tests. */
+  const SIGNED_IN_STATE = { interactions: {}, history: [], preferences: null };
+
+  /**
+   * The four device documents sign-out must remove (SC-007), spelled as
+   * `contracts/device-storage.md` freezes them.
+   *
+   * Literal rather than imported from the models: the key *names* are the
+   * contract, and a test that read them from the constants would follow those
+   * constants anywhere they were renamed to — including to a name no earlier
+   * build's data lives under.
+   */
+  const ACCOUNT_DEVICE_KEYS = [
+    'playnext:interactions',
+    'playnext:quiz-state',
+    'playnext:session',
+    'playnext:sync-pending',
+  ];
+
+  /**
+   * Puts the screen in front of a signed-in visitor the way a visitor gets
+   * there: by signing in.
+   *
+   * Seeding the marker instead would be quicker and would leave the access
+   * token unset — it lives in memory and in no storage key — so every
+   * authenticated request in this block would go out without one and the tests
+   * would be exercising a state the app cannot reach.
+   */
+  function signIn(state: unknown = SIGNED_IN_STATE): void {
+    fill();
+    submit();
+    http.expectOne('/api/auth/register').flush({
+      userId: USER_ID,
+      email: EMAIL,
+      accessToken: ACCESS_TOKEN,
+      state,
+    });
+    fixture.detectChanges();
+  }
+
+  /**
+   * One unsent change, under the contract's own key and document shape.
+   *
+   * Written before anything is injected, because `SyncService` reads the queue
+   * in its constructor — seeding afterwards would produce a service that never
+   * saw it, exactly as seeding the session marker late would.
+   */
+  function queueOfflineChange(): void {
+    localStorage.setItem(
+      'playnext:sync-pending',
+      JSON.stringify({
+        schemaVersion: 1,
+        operations: [
+          { kind: 'rate', titleId: 'arrival', state: 'loved', updatedAt: '2026-09-27T10:00:00.000Z' },
+        ],
+      }),
+    );
+  }
+
+  /**
+   * The control that ends the session, matched on wording because it is the
+   * one control whose label is the whole of how a visitor finds it.
+   *
+   * `/sign out/i` accepts both the plain button and any "sign out anyway"
+   * confirmation, so the flow can warn however it likes without this helper
+   * losing track of it.
+   */
+  function signOutButton(): HTMLButtonElement {
+    const button = buttons().find((candidate) => /sign out/i.test(candidate.textContent ?? ''));
+
+    if (!button) throw new Error('No sign-out control on the signed-in Profile screen');
+
+    return button;
+  }
+
+  /** A password field of the change form, by the `name` the API's body uses. */
+  function passwordField(name: string): HTMLInputElement {
+    const input = root.querySelector<HTMLInputElement>(`input[type="password"][name="${name}"]`);
+
+    if (!input) throw new Error(`No "${name}" field on the Profile screen`);
+
+    return input;
+  }
+
+  function fillChangeForm(): void {
+    type(passwordField('currentPassword'), PASSWORD);
+    type(passwordField('newPassword'), NEW_PASSWORD);
   }
 
   afterEach(() => {
@@ -425,6 +531,279 @@ describe('profile', () => {
     });
   });
 
+  describe('a visitor who is signed in (US4)', () => {
+    it('is shown their account instead of the way in', () => {
+      // The screen's two halves are exclusive. A visitor holding a session has
+      // nothing to do with a sign-up form, and leaving it up invites them to
+      // create a second account for the address they are already using.
+      build();
+      signIn();
+
+      expect(modes()).toHaveLength(0);
+      expect(text()).toContain(EMAIL);
+      expect(signOutButton()).toBeTruthy();
+    });
+
+    it('is offered the way in again once there is no session', () => {
+      // The other direction, so the test above cannot pass because the screen
+      // renders everything and hides nothing.
+      build();
+
+      expect(modes()).toHaveLength(2);
+      expect(buttons().some((button) => /sign out/i.test(button.textContent ?? ''))).toBe(false);
+    });
+
+    describe('signing out (FR-013, SC-007)', () => {
+      it('ends the session on the server', () => {
+        build();
+        signIn();
+
+        signOutButton().click();
+        fixture.detectChanges();
+
+        http.expectOne('/api/auth/logout').flush(null, { status: 204, statusText: 'No Content' });
+        fixture.detectChanges();
+
+        expect(modes()).toHaveLength(2);
+      });
+
+      it('leaves none of the account on the device (SC-007)', () => {
+        // SC-007 is "zero account data remains visible or recoverable", so all
+        // four documents are present and all four are asserted gone. Asserting
+        // only the marker would pass with every rating still on the device —
+        // which on a shared phone is the whole of what the requirement is for.
+        //
+        // The queue is the one document sign-out is given rather than produces,
+        // and it is seeded with a real empty document: `SyncService` reads it at
+        // construction and discards one it cannot parse, so an invalid
+        // placeholder would be gone before sign-out could be blamed for it.
+        localStorage.setItem(
+          'playnext:sync-pending',
+          JSON.stringify({ schemaVersion: 1, operations: [] }),
+        );
+
+        build();
+
+        // Signing in is what writes the other three — the marker, and the two
+        // 001/002 documents the account's copy is cached into. Seeding them
+        // would test this screen against a device state it did not create.
+        signIn({
+          interactions: { arrival: { state: 'loved', updatedAt: EARLIER } },
+          history: [{ titleId: 'arrival', chosenAt: EARLIER }],
+          preferences: {
+            mediaType: { values: ['movie'], any: false },
+            genre: { values: ['horror'], any: false },
+            provider: { values: [], any: true },
+            includeUnownedProviders: false,
+            completedAt: EARLIER,
+            updatedAt: EARLIER,
+          },
+        });
+
+        // The precondition, asserted rather than assumed: a wipe test whose
+        // setup silently left a key unwritten passes for the wrong reason.
+        expect(ACCOUNT_DEVICE_KEYS.filter((key) => localStorage.getItem(key) !== null)).toEqual(
+          ACCOUNT_DEVICE_KEYS,
+        );
+
+        signOutButton().click();
+        fixture.detectChanges();
+        http.expectOne('/api/auth/logout').flush(null, { status: 204, statusText: 'No Content' });
+        fixture.detectChanges();
+
+        for (const key of ACCOUNT_DEVICE_KEYS) expect(localStorage.getItem(key)).toBeNull();
+      });
+
+      it('warns before discarding changes that never reached the account', () => {
+        // Spec edge case: "the app warns that unsynced changes will be lost
+        // before completing the sign-out". Nothing is sent, so the replay is
+        // refused by a connection that is not there — and the visitor is the
+        // one who decides whether that matters.
+        queueOfflineChange();
+        build();
+        signIn();
+
+        signOutButton().click();
+        fixture.detectChanges();
+
+        http.expectOne('/api/me/sync').error(new ProgressEvent('error'), {
+          status: 0,
+          statusText: 'Unknown Error',
+        });
+        fixture.detectChanges();
+
+        expect(alert()).toBeTruthy();
+
+        // Warned, not done. A flow that signed out here would make the warning
+        // a description of something that had already happened.
+        http.expectNone('/api/auth/logout');
+        expect(localStorage.getItem('playnext:sync-pending')).not.toBeNull();
+      });
+
+      it('signs out anyway when the visitor presses again', () => {
+        // The other half of the warning, and the reason it needs a second
+        // press rather than a re-try: the connection is still down, so a flow
+        // that replayed again would warn again, and a visitor with no signal
+        // could never sign out at all — the dead end Principle II forbids.
+        queueOfflineChange();
+        build();
+        signIn();
+
+        signOutButton().click();
+        fixture.detectChanges();
+        http.expectOne('/api/me/sync').error(new ProgressEvent('error'), {
+          status: 0,
+          statusText: 'Unknown Error',
+        });
+        fixture.detectChanges();
+
+        signOutButton().click();
+        fixture.detectChanges();
+
+        http.expectNone('/api/me/sync');
+        http.expectOne('/api/auth/logout').flush(null, { status: 204, statusText: 'No Content' });
+        fixture.detectChanges();
+
+        expect(localStorage.getItem('playnext:sync-pending')).toBeNull();
+        expect(localStorage.getItem('playnext:session')).toBeNull();
+      });
+
+      it('saves what is still pending before letting the visitor leave', () => {
+        // The same edge case's first clause: "the pending changes are saved to
+        // the account first when a connection is available". A visitor who
+        // signed out online should not be shown a warning about changes that
+        // did reach the account.
+        queueOfflineChange();
+        build();
+        signIn();
+
+        signOutButton().click();
+        fixture.detectChanges();
+
+        http.expectOne('/api/me/sync').flush(SIGNED_IN_STATE);
+        fixture.detectChanges();
+
+        expect(alert()).toBeNull();
+        http.expectOne('/api/auth/logout').flush(null, { status: 204, statusText: 'No Content' });
+      });
+
+      it('does not warn when there is nothing pending', () => {
+        // The guard on all of the above: the warning is conditional, so an
+        // implementation that always showed it would fail here rather than
+        // pass every warning test by showing one every time.
+        build();
+        signIn();
+
+        signOutButton().click();
+        fixture.detectChanges();
+
+        http.expectNone('/api/me/sync');
+        expect(alert()).toBeNull();
+        http.expectOne('/api/auth/logout').flush(null, { status: 204, statusText: 'No Content' });
+      });
+    });
+
+    describe('changing the password (FR-014)', () => {
+      it('asks for the current password as well as the new one', () => {
+        // FR-014's "after confirming their current password". Two fields, both
+        // masked: the current one is what makes the change a decision the
+        // account holder made rather than one anyone holding the session made.
+        build();
+        signIn();
+
+        expect(passwordField('currentPassword').type).toBe('password');
+        expect(passwordField('newPassword').type).toBe('password');
+      });
+
+      it('sends the current password with the new one, and the session token', () => {
+        build();
+        signIn();
+        fillChangeForm();
+
+        submit();
+        const request = http.expectOne('/api/auth/change-password');
+
+        expect(request.request.body).toEqual({
+          currentPassword: PASSWORD,
+          newPassword: NEW_PASSWORD,
+        });
+
+        // Bearer-authenticated, so the token has to travel — and the account it
+        // changes comes from that token, never from the body (contracts/api.md).
+        expect(request.request.headers.get('Authorization')).toBe(`Bearer ${ACCESS_TOKEN}`);
+
+        request.flush(null, { status: 204, statusText: 'No Content' });
+      });
+
+      it('ends the session the server has already ended', () => {
+        // FR-014 revokes every session including the one that asked
+        // (contracts/api.md), so a screen that went on claiming to be signed in
+        // would be describing a session that is already dead — and the visitor
+        // would find out at the next silent refresh, with no idea why.
+        build();
+        signIn({
+          interactions: { arrival: { state: 'loved', updatedAt: EARLIER } },
+          history: [],
+          preferences: null,
+        });
+        fillChangeForm();
+
+        submit();
+        http
+          .expectOne('/api/auth/change-password')
+          .flush(null, { status: 204, statusText: 'No Content' });
+        fixture.detectChanges();
+
+        expect(modes()).toHaveLength(2);
+        expect(localStorage.getItem('playnext:session')).toBeNull();
+        expect(alert()?.textContent?.toLowerCase()).toContain('sign in');
+
+        // But not sign-out. The visitor asked to change a password, not to
+        // leave, so the device keeps what it had — the same stance expiry
+        // takes, and the opposite of SC-007. Asserted on the rating rather than
+        // on the key existing: the key is written by every sign-in, so its
+        // presence says nothing, while an emptied account would.
+        const cached = JSON.parse(localStorage.getItem('playnext:interactions') ?? '{}');
+        expect(cached.interactions?.arrival?.state).toBe('loved');
+      });
+
+      it('shows what the server said when the current password is wrong', () => {
+        build();
+        signIn();
+        fillChangeForm();
+
+        submit();
+        refuse(http.expectOne('/api/auth/change-password'));
+
+        expect(alert()?.textContent).toContain(GENERIC_REFUSAL.errors[0]);
+
+        // Nothing happened, so nothing should look as though it did: the
+        // session the server did not end is still the session this screen is
+        // showing (FR-014's revocation is half of a *successful* change).
+        expect(localStorage.getItem('playnext:session')).not.toBeNull();
+        expect(modes()).toHaveLength(0);
+      });
+
+      it('shows the policy when the new password is refused (FR-010)', () => {
+        // 400, its own answer rather than the generic credential refusal: the
+        // two lead to different screens, and "your password was wrong" is a
+        // confusing thing to say when the API never looked at it.
+        build();
+        signIn();
+        fillChangeForm();
+
+        submit();
+        refuse(http.expectOne('/api/auth/change-password'), 400, {
+          code: 'invalid-payload',
+          errors: ['Passwords must have at least one non alphanumeric character.'],
+        });
+
+        expect(alert()?.textContent).toContain('non alphanumeric');
+        expect(localStorage.getItem('playnext:session')).not.toBeNull();
+      });
+    });
+  });
+
   describe('every control as a touch target (FR-018, constitution I)', () => {
     it('gives every control a 44px tap area', () => {
       build();
@@ -445,6 +824,21 @@ describe('profile', () => {
       openMode('Sign in');
 
       for (const control of controls()) {
+        expect(hasTapArea(control)).toBe(true);
+      }
+    });
+
+    it('holds for the signed-in half too (FR-018)', () => {
+      // FR-018 says "all Profile and auth screens", and the change-password
+      // form is one: it is the newest surface on this screen and the one a
+      // visitor reaches on a phone when something has already gone wrong.
+      build();
+      signIn();
+
+      const targets = controls();
+
+      expect(targets.length).toBeGreaterThan(0);
+      for (const control of targets) {
         expect(hasTapArea(control)).toBe(true);
       }
     });
@@ -474,7 +868,7 @@ describe('profile', () => {
       TestBed.configureTestingModule({
         providers: [
           provideRouter(routes, withComponentInputBinding()),
-          provideHttpClient(),
+          provideHttpClient(withInterceptors([sessionInterceptor])),
           provideHttpClientTesting(),
         ],
       });

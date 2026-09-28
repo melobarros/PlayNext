@@ -51,14 +51,27 @@ interface RefreshResponse {
   accessToken: string;
 }
 
+/**
+ * How a silent refresh ended.
+ *
+ * Three answers rather than a boolean, because the caller has to act
+ * differently on each and a boolean cannot tell it which:
+ *
+ * - `refused` — the server said no, so the session is over (FR-015).
+ * - `unreachable` — nothing was said. The request never arrived, or the server
+ *   was failing. This is **not** evidence of expiry, and treating it as such
+ *   would sign a visitor out for having a flaky connection.
+ * - `refreshed` — a new access token, slid the 30-day window.
+ *
+ * Collapsing the first two is the mistake the `Connectivity` service warns
+ * about in its own doc: a failed request proves that one request failed, which
+ * is a different claim.
+ */
+export type RefreshOutcome = 'refreshed' | 'refused' | 'unreachable';
+
 /** Why an attempt failed, in the terms the Profile screen has to explain. */
 export type AuthFailureReason =
-  | 'email-taken'
-  | 'invalid-credentials'
-  | 'locked'
-  | 'invalid-payload'
-  | 'offline'
-  | 'unavailable';
+  'email-taken' | 'invalid-credentials' | 'locked' | 'invalid-payload' | 'offline' | 'unavailable';
 
 /**
  * The result of a sign-in attempt.
@@ -172,36 +185,117 @@ export class AuthService {
    * Exchanges the refresh cookie for a new access token, and slides the
    * 30-day inactivity window (FR-015).
    *
-   * Reports a boolean rather than an outcome: the caller is boot or a retry
-   * after a 401, and both only need to know whether to carry on signed in.
-   * The marker is left alone on failure — whether a failed refresh means
-   * "expired" or "offline" is a decision for the caller that knows, not for
-   * this method to guess (contracts/device-storage.md).
+   * The marker is left alone whatever happens, including on a refusal — this
+   * method establishes *what the server said*, and dropping the marker is a
+   * decision for the caller that knows what it wants to do about it
+   * (contracts/device-storage.md). Boot is that caller, and it distinguishes
+   * the two failures into genuinely different situations: an expired session,
+   * and a visitor on a train.
    */
-  refresh(): Observable<boolean> {
+  refresh(): Observable<RefreshOutcome> {
     return this.http
       .post<RefreshResponse>(`${this.baseUrl}/api/auth/refresh`, null, { headers: CSRF_HEADER })
       .pipe(
         tap((response) => this.token.set(response.accessToken)),
-        map(() => true),
-        catchError(() => of(false)),
+        map((): RefreshOutcome => 'refreshed'),
+        catchError((error: unknown) => of(this.whyNot(error))),
+      );
+  }
+
+  /**
+   * Ends the session because the server would not renew it (FR-015).
+   *
+   * The device's cached data is left exactly as it is, and that is the whole
+   * difference between this and signing out. The visitor did not ask to leave —
+   * their session ran out while they were away. Throwing away ratings they can
+   * still see on screen would be the dead end the constitution forbids, so the
+   * cache stays and the Profile invites them back. Signing out is the opposite
+   * and is handled separately (SC-007); that one wipes.
+   */
+  expire(): void {
+    this.forget();
+  }
+
+  private whyNot(error: unknown): RefreshOutcome {
+    // A refusal is the server saying no: the session is over. Anything else —
+    // status 0 for a request that never arrived, a 5xx from a server having a
+    // bad day — proves only that *this request* failed, and reading it as
+    // expiry would sign a visitor out over a dropped connection.
+    const refused =
+      error instanceof HttpErrorResponse && (error.status === 401 || error.status === 403);
+
+    return refused ? 'refused' : 'unreachable';
+  }
+
+  /**
+   * Replaces the account's password (FR-014).
+   *
+   * The account is the bearer token's, and no header is built here — the
+   * interceptor attaches the token to every call to this API, this one
+   * included. One mechanism, so there is nothing to keep in step.
+   *
+   * **The 401 that a wrong current password produces is the server's answer,
+   * not an expiry**, and this method stays out of the interceptor's chain to
+   * receive it as such: the chain skips `/api/auth/`, so a refusal arrives here
+   * as a plain 401 and `explain` turns it into the message the visitor reads.
+   * Were it chained, a mistyped password would trigger a silent refresh and a
+   * retry, and a visitor who mistyped twice would have spent two of their five
+   * attempts on one guess.
+   *
+   * **A success ends the session locally, and it is not an oversight that the
+   * response carries no session to replace it with.** The server revokes every
+   * session for the account, this one included (`contracts/api.md`), which is
+   * half of what changing a password is for. The access token in memory would
+   * keep working for its remaining minutes and then stop, so a client that
+   * carried on as though nothing had happened would drop the visitor at its
+   * next silent refresh, with nothing on screen to explain it. What is *not*
+   * done here is the wipe sign-out performs: the visitor asked to change a
+   * credential, not to leave, and the cache stays exactly as `expire()` leaves
+   * it.
+   */
+  changePassword(currentPassword: string, newPassword: string): Observable<AuthOutcome> {
+    return this.http
+      .post<void>(`${this.baseUrl}/api/auth/change-password`, { currentPassword, newPassword })
+      .pipe(
+        tap(() => this.forget()),
+        map((): AuthOutcome => ({ ok: true })),
+        catchError((error: unknown) => of(this.explain(error))),
       );
   }
 
   /**
    * Ends the session (SC-007).
    *
-   * The local marker is deleted whether or not the server call succeeds. The
-   * visitor asked to be signed out, and leaving them signed in because the
-   * network was down is the one outcome that is never acceptable — on a shared
-   * device it is also the one that leaks.
+   * The local wipe happens whether or not the server call succeeds. The visitor
+   * asked to be signed out, and leaving them signed in because the network was
+   * down is the one outcome that is never acceptable — on a shared device it is
+   * also the one that leaks.
+   *
+   * **SC-007 is the difference between this and `expire()`.** Expiry drops the
+   * marker and keeps the cache, because the visitor did not ask to leave;
+   * signing out removes the account's data from the device, because they did.
+   * The two paths differ by two calls, which is precisely why they are written
+   * out here rather than sharing a helper: the slip is one-directional and
+   * silent — a sign-out that forgot to wipe leaves the previous visitor's
+   * ratings on a shared phone, and nothing on screen would look wrong.
+   *
+   * The queue is not here. It is `SyncService`'s document and nothing else may
+   * write it (`contracts/device-storage.md`), and that service injects this one,
+   * so reaching back would be a cycle. The sign-out *flow* clears it, one level
+   * up — see `Profile`.
    */
   signOut(): Observable<void> {
-    return this.http.post<void>(`${this.baseUrl}/api/auth/logout`, null, { headers: CSRF_HEADER }).pipe(
-      catchError(() => of(undefined)),
-      tap(() => this.forget()),
-      map(() => undefined),
-    );
+    return this.http
+      .post<void>(`${this.baseUrl}/api/auth/logout`, null, { headers: CSRF_HEADER })
+      .pipe(
+        catchError(() => of(undefined)),
+        tap(() => {
+          this.interactions.clear();
+          this.preferences.clear();
+          this.forget();
+        }),
+        map(() => undefined),
+      );
   }
 
   /** One path in: attach the guest document, then accept or explain. */

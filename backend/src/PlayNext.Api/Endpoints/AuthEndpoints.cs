@@ -40,7 +40,56 @@ public static class AuthEndpoints
         group.MapPost("/refresh", RefreshAsync);
         group.MapPost("/logout", LogoutAsync);
 
+        // The one endpoint in this group that requires a session. The other four
+        // are how a visitor gets one, so requiring it would be a closed door;
+        // this one changes an account, and there has to be an account to change
+        // (FR-014). Bearer-authenticated, so like `/me/*` it carries no
+        // X-Requested-With requirement: a token attached by script is not sent
+        // automatically by a browser, which is the whole of the CSRF story.
+        group.MapPost("/change-password", ChangePasswordAsync).RequireAuthorization();
+
         return routes;
+    }
+
+    /// <summary>
+    /// <c>POST /auth/change-password</c> — FR-014.
+    ///
+    /// The account comes from the token and never from the body, which is the
+    /// only thing this method has to get right: everything else is a translation
+    /// of the use case's outcome.
+    /// </summary>
+    private static async Task<IResult> ChangePasswordAsync(
+        ChangePasswordRequest request,
+        HttpContext http,
+        AuthUseCases useCases,
+        CancellationToken cancellationToken)
+    {
+        if (CurrentUser.Id(http) is not { } userId)
+        {
+            return Results.Unauthorized();
+        }
+
+        var result = await useCases.ChangePasswordAsync(userId, request, cancellationToken);
+
+        return result.Status switch
+        {
+            // No body. There is nothing to hand back — the refresh cookie the
+            // visitor already holds is dead by the time this returns, so
+            // returning a session would contradict the revocation that is half
+            // the point of the endpoint.
+            ChangePasswordStatus.Succeeded => Results.NoContent(),
+
+            // FR-010: the new password did not satisfy the policy. 400 with
+            // Identity's own reasons, which are written for a person to read.
+            ChangePasswordStatus.PasswordRejected => Results.Json(
+                new ErrorResponse("invalid-payload", result.Errors),
+                statusCode: StatusCodes.Status400BadRequest),
+
+            // FR-011: the same generic 401 as every other credential failure.
+            _ => Results.Json(
+                new ErrorResponse("invalid-credentials", result.Errors),
+                statusCode: StatusCodes.Status401Unauthorized),
+        };
     }
 
     private static async Task<IResult> RegisterAsync(

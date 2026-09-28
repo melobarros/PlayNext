@@ -1,13 +1,21 @@
-import { signal } from '@angular/core';
+import { provideHttpClient } from '@angular/common/http';
+import {
+  HttpTestingController,
+  provideHttpClientTesting,
+} from '@angular/common/http/testing';
+import { EnvironmentProviders, Provider, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { Observable, of } from 'rxjs';
+import { AccountState } from '../../core/models/account-state';
 import { Interaction, INTERACTION_STORAGE_KEY } from '../../core/models/interaction';
 import { MediaTitle } from '../../core/models/media-title';
 import { QuizState } from '../../core/models/quiz';
 import { DECK_SESSION_STORAGE_KEY } from '../../core/models/deck-session';
+import { AuthService } from '../../core/services/auth.service';
 import { CatalogService } from '../../core/services/catalog.service';
 import { Connectivity } from '../../core/services/connectivity';
+import { InteractionStore } from '../../core/services/interaction-store';
 import { PreferenceStore } from '../../core/services/preference-store';
 import { Deck } from './deck';
 
@@ -244,12 +252,18 @@ describe('deck shell', () => {
     });
   }
 
-  function configure(): void {
+  /**
+   * `extra` is for the one test that signs in. Everything else here gets the
+   * module `beforeEach` builds, unchanged, so the deck's own claims are not
+   * made against a TestBed that quietly grew a backend.
+   */
+  function configure(extra: (Provider | EnvironmentProviders)[] = []): void {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
         { provide: CatalogService, useValue: new FakeCatalogService() },
         { provide: Connectivity, useValue: new FakeConnectivity() },
+        ...extra,
       ],
     });
   }
@@ -629,6 +643,90 @@ describe('deck shell', () => {
       // — a short walk would make "never reappears" meaningless.
       expect(seen.length).toBeGreaterThanOrEqual(30);
       expect(seen).not.toContain('Title 0');
+    });
+  });
+
+  describe('a merge that arrived from the account (004 US3 scenario 4)', () => {
+    /**
+     * Rebuilds the injector with an HTTP testing backend.
+     *
+     * This is the one deck test that signs in, and it does so through the real
+     * `AuthService` rather than a stand-in. The claim spans the whole path a
+     * merge travels — the guest document going up, the merged document coming
+     * back down, the deck reading it — so replacing any one link would leave
+     * the interesting part untested.
+     *
+     * A reset rather than a second `configureTestingModule` call: configuring
+     * one injector twice leaves two sets of root providers in it, and the deck
+     * would end up reading the stores from one and the session from the other.
+     * Same idiom as `reopenWithAFreshLoop` above, for the same reason.
+     */
+    function configureWithAuth(): void {
+      TestBed.resetTestingModule();
+      configure([provideHttpClient(), provideHttpClientTesting()]);
+    }
+
+    it('keeps a title either side rejected out of the deck', () => {
+      configureWithAuth();
+
+      const http = TestBed.inject(HttpTestingController);
+      const interactions = TestBed.inject(InteractionStore);
+      const account = TestBed.inject(AuthService);
+
+      completeQuiz();
+
+      // The guest's half of the merge: rejected here, back when this device
+      // was the only place that rating existed.
+      interactions.record('golf', 'notInterested');
+
+      account.signIn('visitor@example.com', 'Correct-Horse-9!').subscribe();
+
+      const request = http.expectOne('/api/auth/login');
+
+      // The premise, pinned. A rejection that never left the device would give
+      // the server nothing of the guest's to merge, and the only exclusion left
+      // under test would be the account's own.
+      expect(request.request.body.guest.interactions.golf.state).toBe('notInterested');
+
+      // The account's half, and the merged document as the server returns it:
+      // the account's older Disliked of Alpha sitting alongside the guest's
+      // rejection of Golf. Which side wins a conflict is the server's business
+      // (MigrationTests covers it); this is about what the deck does with the
+      // answer it was given.
+      const merged: AccountState = {
+        interactions: {
+          alpha: { state: 'disliked', updatedAt: '2026-09-26T09:00:00.000Z' },
+          golf: { state: 'notInterested', updatedAt: '2026-09-26T11:00:00.000Z' },
+        },
+        history: [],
+        preferences: {
+          mediaType: { values: ['movie'], any: false },
+          genre: { values: ['horror'], any: false },
+          provider: { values: ['netflix'], any: false },
+          includeUnownedProviders: false,
+          completedAt: COMPLETED_AT,
+          updatedAt: COMPLETED_AT,
+        },
+      };
+
+      request.flush({
+        userId: '0e7d2c41-9f3a-4b8e-a1c6-5d0f9e2b3a11',
+        email: 'visitor@example.com',
+        accessToken: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEifQ.signature-part',
+        state: merged,
+      });
+
+      build();
+
+      // Alpha leads the fixture — the scores are tied and the id breaks them —
+      // so reaching Bravo at all is the account's rejection doing the work.
+      expect(shownTitle()).toBe('Bravo');
+
+      // Golf was next in line, so an empty deck after one advance is the
+      // guest's rejection doing the work. Had the merge dropped it, this would
+      // be showing Golf.
+      tap('Skip');
+      expect(cards()).toHaveLength(0);
     });
   });
 

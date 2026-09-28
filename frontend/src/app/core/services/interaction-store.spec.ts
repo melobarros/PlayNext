@@ -1,6 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { emptyInteractionDocument, INTERACTION_STORAGE_KEY } from '../models/interaction';
+import { SyncOperation } from '../models/sync';
 import { InteractionStore } from './interaction-store';
+import { WriteSink } from './write-sink';
 
 /**
  * Contract tests for the guest's interaction document
@@ -20,6 +22,18 @@ describe('InteractionStore', () => {
   });
 
   afterEach(() => localStorage.clear());
+
+  /**
+   * A brand-new store, deliberately not the one DI hands out.
+   *
+   * The point of it is a store with no memory fallback and no history, so that
+   * whatever it reads it must have read from LocalStorage. Wrapped in an
+   * injection context because the store injects the write sink (research D9),
+   * which is the one thing about it that Angular has to supply.
+   */
+  function freshStore(): InteractionStore {
+    return TestBed.runInInjectionContext(() => new InteractionStore());
+  }
 
   describe('a first visit', () => {
     it('starts empty rather than absent', () => {
@@ -204,7 +218,7 @@ describe('InteractionStore', () => {
 
       store.remove('arrival');
 
-      const reread = new InteractionStore().read();
+      const reread = freshStore().read();
       expect(reread.interactions['inception'].state).toBe('liked');
       expect(Object.keys(reread.interactions)).toEqual(['inception']);
     });
@@ -236,7 +250,7 @@ describe('InteractionStore', () => {
     it('persists across store instances, not just in memory', () => {
       store.record('arrival', 'loved');
 
-      expect(new InteractionStore().read().interactions['arrival'].state).toBe('loved');
+      expect(freshStore().read().interactions['arrival'].state).toBe('loved');
     });
   });
 
@@ -266,6 +280,99 @@ describe('InteractionStore', () => {
 
       expect(held.interactions['inception']).toBeUndefined();
       expect(Object.keys(held.interactions)).toEqual(['arrival']);
+    });
+  });
+
+  describe('the write sink (research D9)', () => {
+    let sink: WriteSink;
+    let seen: SyncOperation[];
+    let stop: () => void;
+
+    beforeEach(() => {
+      sink = TestBed.inject(WriteSink);
+      seen = [];
+      stop = sink.observe((operation) => seen.push(operation));
+    });
+
+    afterEach(() => stop());
+
+    it('announces a rating with the timestamp it actually stored', () => {
+      store.record('arrival', 'loved');
+
+      // The timestamp is the load-bearing field: the server settles a conflict
+      // by comparing it against the account's, so an operation carrying a
+      // different one would lose a race this device's write should have won.
+      const stored = store.read().interactions['arrival'];
+
+      expect(seen).toEqual([
+        { kind: 'rate', titleId: 'arrival', state: 'loved', updatedAt: stored.updatedAt },
+      ]);
+    });
+
+    it('announces a Watch Now decision as both of its halves (FR-008)', () => {
+      store.recordWatch('arrival');
+
+      // The interaction and the log entry are one decision recorded twice.
+      // Sending only the interaction leaves the account's watching log short an
+      // entry the device has; sending only the history leaves it without the
+      // `watchingNow` rating the watchlist reads.
+      const stored = store.read();
+
+      expect(seen).toEqual([
+        {
+          kind: 'rate',
+          titleId: 'arrival',
+          state: 'watchingNow',
+          updatedAt: stored.interactions['arrival'].updatedAt,
+        },
+        {
+          kind: 'history',
+          titleId: 'arrival',
+          chosenAt: stored.history[0].chosenAt,
+        },
+      ]);
+    });
+
+    it('announces a removal as a removal, carrying a time of its own', () => {
+      store.record('arrival', 'loved');
+      seen.length = 0;
+
+      store.remove('arrival');
+
+      // On the device a removal is an *absence*, and an absence has no time to
+      // compare. It has to be given one here, or the server cannot weigh it
+      // against the account's rating and the removal either always wins or
+      // always loses (api.md).
+      expect(seen).toEqual([{ kind: 'remove', titleId: 'arrival', updatedAt: expect.any(String) }]);
+    });
+
+    it('says nothing when it is the account writing its own state back', () => {
+      // `replace` is the server's copy arriving, not a decision by the visitor.
+      // Announcing it would push the account's own state straight back at it —
+      // and since the push's success handler is what calls `replace`, one sync
+      // would trigger the next, forever.
+      store.replace({ arrival: { state: 'loved', updatedAt: '2026-09-27T10:00:00.000Z' } }, []);
+
+      expect(seen).toEqual([]);
+    });
+
+    it('says nothing when the document is cleared on sign-out', () => {
+      store.record('arrival', 'loved');
+      seen.length = 0;
+
+      store.clear();
+
+      // Sign-out discards the device's copy of the account's data (SC-007). It
+      // is not a change to the account, and announcing it would resurrect a
+      // rating the visitor has just walked away from.
+      expect(seen).toEqual([]);
+    });
+
+    it('stops announcing once the observer is removed', () => {
+      stop();
+      store.record('arrival', 'loved');
+
+      expect(seen).toEqual([]);
     });
   });
 

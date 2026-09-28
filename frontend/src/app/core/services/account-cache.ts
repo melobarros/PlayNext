@@ -30,7 +30,12 @@ export class AccountCache {
 
     const quiz = toQuizState(state.preferences);
 
+    // `replace`, not `write`: this is the account's copy, and the `write` path
+    // announces what it stores so the change can be pushed. Caching a sync
+    // response through the announcing path would push it back, and the next
+    // response would be cached and announced again — the same echo
+    // `InteractionStore.replace` exists to prevent.
     if (quiz === null) this.preferences.clear();
-    else this.preferences.write(quiz);
+    else this.preferences.replace(quiz);
   }
 }
