@@ -71,8 +71,14 @@ describe('SyncService', () => {
   afterEach(() => {
     // What makes the negative claims real: a test that says "nothing is sent"
     // only means something because an unexpected request would fail here.
-    http.verify();
+    //
+    // Cleared first, because a failing `verify()` throws and the clear below it
+    // would then never run — leaving a queue on the device for the next spec
+    // file, whose unexpected requests then fail too. One real failure turns
+    // into a dozen unrelated ones, which is the worst possible moment to make a
+    // suite hard to read.
     localStorage.clear();
+    http.verify();
   });
 
   /** Puts one operation in the queue by failing a push. */

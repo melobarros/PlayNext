@@ -25,7 +25,8 @@ pretending to work.
 
 Offline sync is the part worth describing, because it is invisible when it
 breaks: a change you make with no connection is queued on your device and sent
-the next time the app opens, so it does not wait for you to sign out. The
+when the connection comes back, or when the app next opens — so it does not wait
+for you to sign out. The
 end-to-end walkthrough against a real browser is still outstanding
 (`specs/004-guest-auth-migration/tasks.md`, T046) — the behaviour above is
 covered by tests, not yet by a device.

@@ -234,6 +234,13 @@ Four pieces do the work:
   nobody, and nothing fails.
 - **`sync.service.ts`** pushes a signed-in write, queues it when the network is
   down, and writes the server's canonical response back through `AccountCache`.
+  It also owns the queue's two ways out: the connection returning (it subscribes
+  to `Connectivity.cameOnline` — the *transition*, since "online" is true all
+  the time and a level cannot say "it just came back") and, via `SessionBoot`,
+  the app opening.
+- **`connectivity.ts`** answers both questions the app has about the network:
+  `isOnline` for a banner that has to know the current state, `cameOnline` for
+  the queue, which has to know it changed.
 
 `expire()` and `signOut()` are deliberately not one method. Expiry drops the
 marker and keeps the cache, because the visitor did not ask to leave; signing

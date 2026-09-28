@@ -87,9 +87,7 @@ export class SyncService {
     // A second long-lived subscription beside the sink's, for the same reason:
     // both are the write path staying open for as long as the app is, and a
     // subscription that had to be re-established is one that can be missed.
-    this.connectivity.cameOnline
-      .pipe(takeUntilDestroyed())
-      .subscribe(() => this.retryQueue());
+    this.connectivity.cameOnline.pipe(takeUntilDestroyed()).subscribe(() => this.retryQueue());
   }
 
   /**
