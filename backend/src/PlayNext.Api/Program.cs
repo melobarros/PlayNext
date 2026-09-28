@@ -1,12 +1,15 @@
+using System.IO.Compression;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using PlayNext.Api.Endpoints;
 using PlayNext.Application.Interfaces;
 using PlayNext.Application.UseCases;
+using PlayNext.Infrastructure.Catalog;
 using PlayNext.Infrastructure.Persistence;
 using PlayNext.Infrastructure.Security;
 
@@ -63,6 +66,18 @@ builder.Services
 // ---------------------------------------------------------------------------
 // Tokens
 // ---------------------------------------------------------------------------
+
+// The catalog credential (005). Checked here, at startup, for the same reason
+// the connection string is: a server that cannot reach TMDB would otherwise
+// start up and answer every deck with the empty state, which looks like an
+// empty catalog rather than a missing key.
+var tmdbApiKey = builder.Configuration["Tmdb:ApiKey"];
+
+if (string.IsNullOrWhiteSpace(tmdbApiKey))
+{
+    throw new InvalidOperationException(
+        "Tmdb:ApiKey is not configured. See specs/005-tmdb-catalog/quickstart.md for the user-secrets command.");
+}
 
 var signingKey = builder.Configuration["Jwt:SigningKey"]
     ?? throw new InvalidOperationException(
@@ -133,6 +148,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.Configure<GoogleOptions>(builder.Configuration.GetSection(GoogleOptions.SectionName));
+builder.Services.Configure<TmdbOptions>(builder.Configuration.GetSection(TmdbOptions.SectionName));
 
 // Scoped: these hold a DbContext, which is per-request.
 builder.Services.AddScoped<IAccountStore, IdentityAccountStore>();
@@ -140,6 +156,49 @@ builder.Services.AddScoped<IAccountStateRepository, AccountStateRepository>();
 builder.Services.AddScoped<ISessionStore, SessionStore>();
 builder.Services.AddScoped<AuthUseCases>();
 builder.Services.AddScoped<StateUseCases>();
+
+// ---------------------------------------------------------------------------
+// The catalog (005)
+// ---------------------------------------------------------------------------
+
+// A region's catalog is the same for every visitor in it, so it is cached once
+// and shared — the store and the refresher are process-wide state, not
+// per-request state, and are registered accordingly.
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<ICatalogSnapshotStore, CatalogSnapshotStore>();
+builder.Services.AddSingleton<ICatalogRefresher, CatalogRefresher>();
+
+// Scoped, because a refresh writes through a DbContext and the request path
+// reads through the store's cache. The refresher resolves this from a scope of
+// its own rather than being handed one, which is what keeps a singleton from
+// capturing a request's DbContext.
+//
+// Built by hand rather than by type, for the staleness bound: it is configured
+// with the rest of the catalog options, which live in Infrastructure, and the
+// Application layer is not allowed to know about them (constitution VII). This
+// is where the two meet — the policy takes the value, not the options object.
+builder.Services.AddScoped(services => new CatalogUseCases(
+    services.GetRequiredService<ICatalogProvider>(),
+    services.GetRequiredService<ICatalogSnapshotStore>(),
+    services.GetRequiredService<ICatalogRefresher>(),
+    services.GetRequiredService<TimeProvider>(),
+    services.GetRequiredService<IOptions<TmdbOptions>>().Value.Staleness));
+
+// The provider is a typed client: one long-lived HttpClient per process, with
+// its connection pool reused, and its base address read from configuration so
+// the whole catalog can be pointed at a stub in tests (research D18).
+builder.Services
+    .AddHttpClient<ICatalogProvider, TmdbClient>((services, client) =>
+    {
+        var tmdb = services.GetRequiredService<IOptions<TmdbOptions>>().Value;
+
+        client.BaseAddress = tmdb.BaseAddress;
+
+        // A pool of a few hundred calls should never take minutes; when it
+        // does, the batch is failing slowly and the previous snapshot is the
+        // better answer.
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
 
 // Singletons: no state beyond immutable options. TokenService holds an options
 // snapshot and a clock; GoogleTokenVerifier holds a configuration manager that
@@ -171,7 +230,41 @@ builder.Logging.AddJsonConsole(options =>
 
 builder.Services.AddOpenApi();
 
+// The catalog payload is the one large response this API serves — a region's
+// pool is ~380 KB of JSON — and it is served to phones on mobile data
+// (SC-002). Compressing it is the cheapest thing that can be done for that
+// number, and it costs a line (research D3's tuning ladder names it second,
+// after the pool quota).
+//
+// `EnableForHttps` is deliberate. Compression is off over TLS by default
+// because of BREACH, which needs a response that mixes a secret with
+// attacker-influenced input. This route is anonymous, reads no visitor data,
+// and reflects nothing the caller sent, so there is no secret in it to leak —
+// and the deployment terminates TLS in front of it.
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes;
+});
+
+// Both providers default to `Fastest`, and for this payload that is not a
+// neutral choice: measured against the live provider, brotli at its default
+// produced 180 KB where gzip produced 162 KB. Browsers offer `br` ahead of
+// `gzip`, so the default would hand every modern browser the *larger* body.
+// `Optimal` is the middle of the three levels — the pool is retrieved once and
+// served many times, so the CPU is spent per response rather than per byte
+// saved, and it must not become the reason the first card misses 300 ms.
+builder.Services.Configure<BrotliCompressionProviderOptions>(
+    options => options.Level = CompressionLevel.Optimal);
+builder.Services.Configure<GzipCompressionProviderOptions>(
+    options => options.Level = CompressionLevel.Optimal);
+
 var app = builder.Build();
+
+// Early, so it wraps every response the endpoints below produce.
+app.UseResponseCompression();
 
 if (app.Environment.IsDevelopment())
 {
@@ -193,6 +286,7 @@ app.UseAuthorization();
 
 app.MapAuthEndpoints();
 app.MapStateEndpoints();
+app.MapCatalogEndpoints();
 
 app.Run();
 

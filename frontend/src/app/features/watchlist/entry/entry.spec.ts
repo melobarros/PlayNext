@@ -93,7 +93,7 @@ describe('watchlist row', () => {
       build(entry());
 
       expect(text()).toContain('Netflix');
-      expect(text()).toContain('Max');
+      expect(text()).toContain('HBO Max');
     });
 
     it('says so rather than showing nothing when the title is on no service', () => {

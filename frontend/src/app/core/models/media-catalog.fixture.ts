@@ -2,40 +2,45 @@ import { StreamingAvailability, MediaTitle } from './media-title';
 import { MediaType } from './quiz';
 
 /**
- * The Milestone 1 mock catalog (002).
+ * The Milestone 1 mock catalog (002), kept as **test-only** data since 005.
  *
- * Three things about this file are deliberate and worth knowing before editing
- * it.
+ * It used to be the catalog the app shipped: `CatalogService` answered from it,
+ * and it was imported by production code. The live catalog now arrives from our
+ * own API (constitution IV, FR-001), so the file it came from was deleted and
+ * this one took its place — the same forty-eight titles, reachable only from
+ * specs.
  *
- * **It is local, and it stays local.** No TMDB call, no CDN image, no external
- * media integration of any kind: constitution Principle IV keeps every
- * third-party media API behind the backend, and Milestone 1 has no backend.
- * `CatalogService` is the seam that Milestone 2 replaces; this file is the
- * data it will stop returning.
+ * Three things about it are deliberate and worth knowing before editing it.
+ *
+ * **It is data for tests, and it stays that way.** Nothing under `src/app`
+ * outside a `.spec.ts` may import it. A production import would quietly restore
+ * the bundled catalog the feature exists to remove, and the app would keep
+ * working — which is exactly why it is worth stating rather than assuming.
  *
  * **Genre and provider ids are spec 001's ids, verbatim.** A title's `genres`
  * are `GENRES` ids and its `availability[].providerId` are
  * `STREAMING_PROVIDERS` ids, so a `Preference` and a `MediaTitle` are directly
  * comparable. There is no mapping table anywhere in the codebase, and adding
- * one would be a regression (data-model.md).
+ * one would be a regression (data-model.md). The specs that consume this
+ * fixture depend on the match: if an id here drifted from the quiz's, the
+ * ranking would stop filtering and the tests would keep passing.
  *
  * **The numbers are illustrative, not sourced.** Ratings and vote counts are
  * authored to make the ranking observable, not to report what TMDB says. In
  * particular the vote counts are deliberately spread across four orders of
- * magnitude so that the D7 confidence weighting is exercised by real catalog
- * data rather than only by test fixtures — see `midnight-static` and
- * `your-name` below.
+ * magnitude so that the D7 confidence weighting is exercised by a catalog
+ * shaped like a real one — see `midnight-static` and `your-name` below, which
+ * `recommend.spec.ts` ranks against each other.
  */
 
 /**
  * Per-provider search URLs.
  *
- * A Milestone 1 title cannot have a real deep link: producing one needs a
- * JustWatch lookup, which is a backend concern we do not have yet. A search on
+ * A fixture title has no real deep link to carry: a genuine one comes from the
+ * provider's own availability data, which only the API can look up. A search on
  * the official service is the honest stand-in — it is absolute, it is the
  * official destination, and it lands the visitor on the title even when a
- * provider changes its parameter name. Milestone 2 replaces these with genuine
- * per-title links from the API (T039's seam).
+ * provider changes its parameter name.
  *
  * Keyed by spec 001 provider id. A provider missing here is dropped from a
  * title's availability rather than producing a broken link, which is why this
@@ -61,11 +66,19 @@ function trailerSearchUrl(title: string): string {
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${title} trailer`)}`;
 }
 
-/** The six locally-authored placeholder posters in `public/posters/`. */
+/**
+ * Six stand-in posters, on the reserved documentation domain.
+ *
+ * These used to point at the SVGs in `public/posters/`, which shipped with the
+ * bundled catalog and were deleted with it. Nothing fetches these URLs — the
+ * specs that render a poster pass their own literal, and the placeholders they
+ * check are CSS — so what matters is only that a title with a `poster` has some
+ * absolute URL and a title without one has none.
+ */
 const POSTER_COUNT = 6;
 
 function posterUrl(index: number): string {
-  return `/posters/poster-${(index % POSTER_COUNT) + 1}.svg`;
+  return `https://example.com/posters/poster-${(index % POSTER_COUNT) + 1}.svg`;
 }
 
 /**
@@ -783,5 +796,11 @@ function toMediaTitle(seed: CatalogSeed): MediaTitle {
   };
 }
 
-/** The Milestone 1 catalog, in seed order. Ranking re-sorts it; order is irrelevant. */
-export const MEDIA_CATALOG: readonly MediaTitle[] = CATALOG_SEEDS.map(toMediaTitle);
+/**
+ * The catalog the specs rank, in seed order.
+ *
+ * Named for what it is rather than for what it was: `MEDIA_CATALOG` read like
+ * the app's catalog, and the whole point of 005 is that the app no longer has
+ * one of those.
+ */
+export const FIXTURE_CATALOG: readonly MediaTitle[] = CATALOG_SEEDS.map(toMediaTitle);

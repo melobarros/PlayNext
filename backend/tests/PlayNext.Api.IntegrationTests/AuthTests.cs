@@ -5,7 +5,9 @@ using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using PlayNext.Infrastructure.Persistence;
 
 namespace PlayNext.Api.IntegrationTests;
 
@@ -685,27 +687,68 @@ public sealed class GatedFactAttribute : FactAttribute
 /// </summary>
 internal static class Postgres
 {
+    /// <summary>
+    /// Suffixed onto the developer's own database name, so the suite runs
+    /// against a server and a set of credentials it did not have to be told
+    /// about twice.
+    /// </summary>
+    private const string Suffix = "_test";
+
     public const string SkipReason =
         "Needs a live PostgreSQL: set ConnectionStrings:Postgres in PlayNext.Api's user-secrets (see specs/004-guest-auth-migration/quickstart.md).";
 
+    /// <summary>
+    /// The application's connection string with the database name moved aside —
+    /// same host, same credentials, a different database.
+    ///
+    /// <b>Why this is not the developer's own database.</b> It used to be, and
+    /// the cost was not theoretical: running <c>dotnet test</c> left the
+    /// suite's stub snapshots in the database the API then served, so the deck
+    /// showed eight invented titles until someone worked out why and cleared
+    /// the region by hand. Diagnosing that took longer than this comment. A
+    /// suite that writes to the database the application reads is a suite that
+    /// changes what the next manual test observes, and the two activities are
+    /// exactly the ones a developer alternates between.
+    /// </summary>
     public static string ConnectionString { get; } = Resolve();
 
-    public static bool IsReachable { get; } = Probe();
+    /// <summary>
+    /// Whether the suite can run at all: the server answers, and the test
+    /// database exists and is migrated.
+    /// </summary>
+    public static bool IsReachable { get; } = Prepare();
 
     private static string Resolve()
     {
-        return new ConfigurationBuilder()
+        var configured = new ConfigurationBuilder()
             .AddUserSecrets(typeof(Program).Assembly, optional: true)
             .Build()
-            .GetConnectionString("Postgres") ?? string.Empty;
+            .GetConnectionString("Postgres");
+
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            return string.Empty;
+        }
+
+        var builder = new Npgsql.NpgsqlConnectionStringBuilder(configured);
+
+        builder.Database = builder.Database + Suffix;
+
+        return builder.ConnectionString;
     }
 
     /// <summary>
     /// A configured connection string is not a reachable one — the server may
-    /// simply not be running — and the two deserve different answers. This
-    /// sends a real query so "gated" means what it says.
+    /// simply not be running — and the two deserve different answers. So does a
+    /// reachable server without the test database, which this creates and
+    /// migrates on first use.
+    ///
+    /// Created rather than documented as a prerequisite deliberately: a setup
+    /// step someone has to remember is a setup step that gets skipped, and the
+    /// failure it produces is every database test silently skipping, which
+    /// looks exactly like a machine with no PostgreSQL at all.
     /// </summary>
-    private static bool Probe()
+    private static bool Prepare()
     {
         if (string.IsNullOrWhiteSpace(ConnectionString))
         {
@@ -714,6 +757,9 @@ internal static class Postgres
 
         try
         {
+            CreateDatabaseIfMissing();
+            Migrate();
+
             using var connection = new Npgsql.NpgsqlConnection(ConnectionString);
             connection.Open();
 
@@ -725,10 +771,64 @@ internal static class Postgres
         }
         catch (Exception)
         {
-            // Unreachable, or reachable but not migrated. Either way the schema
+            // Unreachable, uncreatable, or unmigratable. Either way the schema
             // these tests assert against is not there.
             return false;
         }
+    }
+
+    /// <summary>
+    /// Creates the test database, connecting to the server's default one to do
+    /// it — <c>CREATE DATABASE</c> cannot run from inside the database it is
+    /// creating.
+    /// </summary>
+    private static void CreateDatabaseIfMissing()
+    {
+        var test = new Npgsql.NpgsqlConnectionStringBuilder(ConnectionString);
+
+        var maintenance = new Npgsql.NpgsqlConnectionStringBuilder(ConnectionString)
+        {
+            Database = "postgres",
+        };
+
+        using var connection = new Npgsql.NpgsqlConnection(maintenance.ConnectionString);
+        connection.Open();
+
+        using var check = connection.CreateCommand();
+        check.CommandText = "SELECT 1 FROM pg_database WHERE datname = $1";
+        check.Parameters.AddWithValue(test.Database!);
+
+        if (check.ExecuteScalar() is not null)
+        {
+            return;
+        }
+
+        using var create = connection.CreateCommand();
+
+        // The name is quoted rather than parameterised because PostgreSQL does
+        // not accept a parameter where an identifier is required. It comes from
+        // the developer's own connection string plus a fixed suffix, so this is
+        // an identifier we composed rather than one a visitor supplied.
+        create.CommandText = $"CREATE DATABASE \"{test.Database!.Replace("\"", "\"\"")}\"";
+
+        create.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Brings the test database up to the schema the application expects, by
+    /// running the same migrations the API runs (constitution: schema changes
+    /// ship as reviewed migrations, and this applies those — it does not invent
+    /// a schema of its own).
+    /// </summary>
+    private static void Migrate()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(ConnectionString)
+            .Options;
+
+        using var db = new AppDbContext(options);
+
+        db.Database.Migrate();
     }
 }
 
@@ -747,14 +847,24 @@ public sealed class AuthApiFactory : WebApplicationFactory<Program>
     public AuthApiFactory()
     {
         // Set as process environment variables rather than through
-        // ConfigureAppConfiguration: Program.cs reads both of these while
+        // ConfigureAppConfiguration: Program.cs reads all of these while
         // building the host, which happens before any factory callback runs. An
         // in-memory configuration source added later would arrive after the
         // guards that read it had already thrown.
         Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
         Environment.SetEnvironmentVariable("ConnectionStrings__Postgres", Postgres.ConnectionString);
         Environment.SetEnvironmentVariable("Jwt__SigningKey", TestSigningKey);
+
+        // The catalog credential guard (005) is satisfied here too, though these
+        // tests never call the catalog: the host refuses to start without a key,
+        // and a suite that cannot start the host proves nothing about auth. The
+        // value is deliberately not a usable key — nothing here should reach
+        // TMDB. The catalog's own tests point BaseUrl at a stub instead.
+        Environment.SetEnvironmentVariable("Tmdb__ApiKey", TestTmdbKey);
     }
+
+    /// <summary>A placeholder, not a credential: no test in this class calls TMDB.</summary>
+    private const string TestTmdbKey = "test-placeholder-not-a-credential";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

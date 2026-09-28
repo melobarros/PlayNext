@@ -841,6 +841,36 @@ describe('deck shell', () => {
     });
   });
 
+  describe('the attribution (FR-018)', () => {
+    /**
+     * Placement only. The wording, the link and the logo belong to
+     * `Attribution` and are pinned in its own spec — asserting the sentence
+     * here as well would mean two copies of one licence term, and the copy that
+     * gets updated is never the one that fails.
+     */
+
+    it('appears on the screen that shows the provider’s titles', () => {
+      completeQuiz();
+      build();
+
+      expect(root.querySelector('app-attribution')).not.toBeNull();
+    });
+
+    it('rides with the action bar, where a scrolling card cannot push it off screen', () => {
+      completeQuiz();
+      build();
+
+      const footer = root.querySelector('footer');
+
+      // The same element as the action bar, deliberately. A line placed in the
+      // flow above it would sit below the fold as soon as a synopsis made the
+      // card scroll — attribution that is in the document and not on the
+      // screen, which is the failure this placement exists to avoid.
+      expect(footer?.querySelector('app-attribution')).not.toBeNull();
+      expect(footer?.querySelector('app-actions')).not.toBeNull();
+    });
+  });
+
   describe('when no preferences exist', () => {
     it('does not crash, and shows the way back to the quiz', () => {
       // Reaching /deck directly, without having completed the quiz.

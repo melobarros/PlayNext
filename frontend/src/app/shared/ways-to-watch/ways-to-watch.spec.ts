@@ -49,7 +49,9 @@ describe('ways to watch', () => {
 
       expect(byName).toEqual({
         Netflix: 'https://www.netflix.com/title/1',
-        Max: 'https://www.max.com/title/1',
+        // The label is the option list's, not the fixture's: the fixture says
+        // `max` and the service now answers to HBO Max (2026-09-28).
+        'HBO Max': 'https://www.max.com/title/1',
       });
     });
 

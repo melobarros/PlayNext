@@ -159,6 +159,24 @@ namespace PlayNext.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogSnapshot", b =>
+                {
+                    b.Property<string>("Region")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)");
+
+                    b.Property<DateTimeOffset>("FetchedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.HasKey("Region");
+
+                    b.ToTable("CatalogSnapshots");
+                });
+
             modelBuilder.Entity("PlayNext.Infrastructure.Persistence.UserInteraction", b =>
                 {
                     b.Property<Guid>("UserId")

@@ -5,6 +5,7 @@ import {
   FALLBACK_PROVIDERS,
   GENRES,
   MEDIA_TYPES,
+  RETIRED_PROVIDERS,
   STREAMING_PROVIDERS,
 } from '../models/quiz-options.data';
 
@@ -56,8 +57,14 @@ export class QuizOptionsService {
   /**
    * The full provider catalog, used to turn saved ids into display names even
    * when the visitor's region list is narrower than what they once picked.
+   *
+   * Retired services are included, and that is the whole reason this method is
+   * not just `providersFor('GLOBAL')`: a saved preference may name a service
+   * the quiz no longer offers, and dropping it here would render the visitor's
+   * own selection as nothing. It is not offered for *selection* — that list is
+   * `STREAMING_PROVIDERS` — only named.
    */
   getProvidersById(): StreamingProvider[] {
-    return [...STREAMING_PROVIDERS];
+    return [...STREAMING_PROVIDERS, ...RETIRED_PROVIDERS];
   }
 }

@@ -31,6 +31,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     /// <summary>Issued refresh tokens, as hashes.</summary>
     public DbSet<UserSession> Sessions => Set<UserSession>();
 
+    /// <summary>
+    /// The last catalog snapshot per region (005). A cache of the provider, not
+    /// account data — nothing references it and it references nothing.
+    /// </summary>
+    public DbSet<CatalogSnapshot> CatalogSnapshots => Set<CatalogSnapshot>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -124,6 +130,21 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
                 .WithMany()
                 .HasForeignKey(s => s.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<CatalogSnapshot>(snapshot =>
+        {
+            // The region *is* the identity — there is no surrogate key, because
+            // a second row for a region would be a second answer to the same
+            // question rather than a second record.
+            snapshot.HasKey(s => s.Region);
+
+            snapshot.Property(s => s.Region).HasMaxLength(2);
+
+            // jsonb, like the preference dimensions: the stored bytes are the
+            // snapshot as served, and Postgres validates the JSON on write — a
+            // truncated payload can never be stored and then served as if whole.
+            snapshot.Property(s => s.PayloadJson).HasColumnType("jsonb");
         });
     }
 

@@ -37,6 +37,35 @@ empty deck."
   anime? → A: Animation with a Japanese original language. A Japanese animated
   series classifies as anime rather than a series, which is what the quiz's
   three-way choice has implied since 001.
+- Q: When a card renders poster artwork, may the browser load the image
+  directly from the catalog provider's public image CDN, or must every image
+  also pass through our own API? → A: Direct CDN. Poster artwork loads straight
+  from the provider's public image CDN — it is static media, needs no
+  credential, and is designed to be hotlinked. FR-001's "must not contact the
+  provider" applies to catalog data only.
+- Q: Should this slice build a separate title-detail endpoint that the detail
+  view calls by title id, or does the fetched title pool carry full detail so
+  no second request is ever needed? → A: Pool carries full detail. The region
+  pool includes everything a card and the detail view render, so rendering a
+  title's detail never requires a second request and no `/catalog/{id}`
+  endpoint exists in this slice.
+- Q: How does the app determine the visitor's region for the catalog request?
+  → A: Browser locale. The device's language-region (for example, "pt-BR") is
+  mapped to a country code and sent with every catalog request — no permission
+  prompt, no cost, works for guests. When none can be derived, the existing
+  default-region edge case applies.
+- Q: The quiz offers a fixed set of 12 streaming services, but the provider's
+  availability data names many more — what should a card show when a title is
+  available only on a service the quiz doesn't offer? → A: Show every real
+  service. The 12 keep their ids so stored preferences keep matching; services
+  outside them are added to the server-side mapping vocabulary as they appear.
+  Badges describe reality, and the deck's filter treats a non-quiz service as
+  "other platforms" via the existing toggle.
+- Q: The spec assumes metadata comes in a single language for this slice —
+  which language is it? → A: English everywhere. Metadata is requested in
+  English for all regions: the app's UI is already English, English is the
+  provider's most complete metadata language, and no region-to-language mapping
+  is needed.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -155,6 +184,10 @@ state with its way out.
 - **A service the visitor selected that carries nothing in their region** →
   their filters match nothing and the existing empty state explains why, rather
   than the deck appearing broken.
+- **A title carried only by a service outside the quiz's fixed set** → the
+  badge still names that service, because availability is the provider's claim;
+  the deck's filter treats such a service as "other platforms" (the existing
+  toggle), since the visitor could not have selected it.
 - **The visitor's region cannot be determined** → the app's existing default
   region applies, and the badges describe that region honestly.
 - **Two titles with the same name and year** (a remake, a same-named series) →
@@ -173,7 +206,10 @@ state with its way out.
 ### Functional Requirements
 
 - **FR-001**: The catalog MUST be served to the client by our own API. The
-  client MUST NOT contact the catalog provider directly.
+  client MUST NOT contact the catalog provider for catalog data. Poster
+  artwork is the one exception: it is static media on the provider's public
+  image CDN, needs no credential, and the browser loads it directly from
+  there.
 - **FR-002**: The catalog provider's credential MUST remain server-side. It
   MUST NOT appear in the client bundle, in any API response, or in any log.
 - **FR-003**: The API MUST cache upstream catalog responses server-side, so
@@ -182,7 +218,8 @@ state with its way out.
   it once that bound is passed.
 - **FR-005**: The catalog MUST be scoped to the visitor's region, and the region
   MUST be an input to the catalog request rather than a filter over a fixed
-  list.
+  list. The region sent is derived from the visitor's device language-region,
+  such as "pt-BR" for Brazil.
 - **FR-006**: A title's availability MUST be the services that actually carry it
   in the visitor's region.
 - **FR-007**: Tapping a service badge MUST open **that service**, searching for
@@ -196,9 +233,12 @@ state with its way out.
   rating, vote count, runtime, trailer, poster, availability — so that no screen
   changes shape because the catalog became real.
 - **FR-010**: Genre and service identity MUST remain the vocabulary spec 001
-  defined, so that preferences already saved on visitors' devices keep matching
-  real titles. Preferences stored before this feature MUST NOT silently stop
-  matching.
+  defined for the genres and services 001 already names, so that preferences
+  already saved on visitors' devices keep matching real titles. Preferences
+  stored before this feature MUST NOT silently stop matching. Services outside
+  the quiz's fixed set are not dropped: they enter the server-side mapping
+  vocabulary as new entries, so a card's badges can name every service that
+  actually carries the title.
 - **FR-011**: The deck's filtering and ranking MUST remain on the client and
   MUST remain deterministic (002 FR-011). This feature changes where titles come
   from, not how they are chosen.
@@ -223,6 +263,10 @@ state with its way out.
 - **FR-019**: A single deck session MUST NOT cause one upstream request per
   card; the pool a deck session draws on MUST be retrieved in a bounded number
   of upstream calls.
+- **FR-020**: The region pool MUST carry complete title detail — everything a
+  card and the detail view render — so that showing a title's detail never
+  requires a second request. No separate title-detail endpoint exists in this
+  slice.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -244,9 +288,16 @@ state with its way out.
 
 ### Measurable Outcomes
 
-- **SC-001**: A visitor who filters to one genre and their own services is
-  offered at least 20 distinct titles — today the sample catalog cannot offer
-  that for most combinations.
+- **SC-001**: A visitor who filters to one genre and the services they selected
+  is offered at least 20 distinct titles, **for any selection of three or more
+  services** — today the sample catalog cannot offer that for most
+  combinations. Below three services the number is bounded by what those
+  services carry in the visitor's region rather than by this catalog: a
+  Netflix-only visitor in BR is offered 8 horror titles out of a pool of 916,
+  and no pool size changes that, so the criterion is stated for the part the
+  catalog controls. Measured against the live provider on 2026-09-28; the
+  genre-by-service table is in
+  [quickstart.md](./quickstart.md#sc-001-volume-t033).
 - **SC-002**: The first card renders within 300 ms of the deck opening on a warm
   cache, measured over a 4G connection (PRD performance target).
 - **SC-003**: A visitor who views 50 cards in one session causes no more than
@@ -271,9 +322,11 @@ state with its way out.
   deliberately not built: ranking exists once, in the client, where 002 put it
   and where it is already tested.
 - **The server returns a bounded pool rather than the whole catalog** — on the
-  order of 100 titles per region, taken from the provider's popularity ranking.
+  order of 900 titles per region, taken from the provider's popularity ranking.
   This is the number that makes SC-001 reachable without making the response
-  large; it is a tuning parameter, not a contract.
+  large; it is a tuning parameter, not a contract. It was raised from 540 to 916
+  on 2026-09-28 once SC-001 was measured rather than assumed, and once response
+  compression had made the extra bytes affordable (quickstart.md).
 - **Genre and service identity stays spec 001's vocabulary, translated
   server-side.** This deliberately breaks a stated invariant — 001's model
   comment says "there is no mapping table anywhere in the codebase" — because
@@ -281,7 +334,9 @@ state with its way out.
   devices by the frozen 001 storage contract. Adopting the provider's numeric
   identifiers instead would silently orphan those preferences. The mapping table
   therefore exists, on the server, and retiring that invariant is a deliberate
-  part of this feature rather than an oversight.
+  part of this feature rather than an oversight. The quiz's twelve service ids
+  are preserved verbatim; services outside them enter the mapping vocabulary as
+  new entries, never merged into an existing id.
 - **Title identity becomes the provider's identifier plus media type**, and the
   bundled sample's identifiers retire with the sample. Ratings stored against
   them degrade to the title-less watchlist row the watchlist already tolerates.
@@ -292,8 +347,10 @@ state with its way out.
   backend in this slice.** They stay as they are. The consequence is accepted:
   a visitor may filter to a service the provider does not carry in their region,
   and the existing empty state explains the result.
-- **Metadata is requested in a single language** for this slice. The quiz has no
-  language filter yet, so there is no second language to serve.
+- **Metadata is requested in a single language — English — for this slice.**
+  The app's UI is already English, English is the provider's most complete
+  metadata language, and the quiz has no language filter yet, so there is no
+  second language to serve.
 - **The provider credential is obtained out of band and stored with the other
   secrets.** The feature is non-functional without it, and must say so rather
   than fail obscurely.

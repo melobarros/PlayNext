@@ -1,0 +1,24 @@
+<!--
+  One link, because both halves go to the same place, and `target="_blank"`
+  with `rel="noopener noreferrer"` for the reason every other outbound link in
+  this app has it: an installed PWA has no browser chrome, so a same-tab
+  navigation leaves the visitor with no way back (constitution II).
+
+  The logo is deliberately small and muted. §3 requires it to be *less
+  prominent* than the marks that identify this app — it identifies the data
+  source, not the product.
+
+  The sentence below is on one line on purpose. Wrapped, the newline and its
+  indentation become part of the text node, so the rendered sentence would
+  carry whitespace the terms do not have — the kind of difference that survives
+  review because the page still *looks* right.
+-->
+<a
+  class="flex flex-col items-center gap-1.5 text-center no-underline"
+  href="https://www.themoviedb.org/"
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  <img src="tmdb-logo.svg" alt="TMDB" class="h-3 w-auto opacity-75" />
+  <span class="text-[10px] leading-tight text-chalk-500 underline-offset-2 hover:underline">This application uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB.</span>
+</a>

@@ -1,6 +1,7 @@
 import { Interaction, InteractionState, isExcluding } from '../../../core/models/interaction';
 import { MediaTitle } from '../../../core/models/media-title';
 import { Preference } from '../../../core/models/quiz';
+import { RETIRED_PROVIDER_SUCCESSORS } from '../../../core/models/quiz-options.data';
 
 /**
  * The recommendation engine
@@ -120,8 +121,28 @@ function isRejected(interaction: Interaction | undefined): boolean {
   return interaction !== undefined && isExcluding(interaction.state);
 }
 
+/**
+ * Filter 3's question, asked of the visitor's selected services **and their
+ * successors**.
+ *
+ * The successor lookup is what keeps a saved preference for a service that no
+ * longer exists from matching nothing: Star+ is gone and its catalog is
+ * Disney+'s, so a visitor whose stored preference says `star-plus` is looking
+ * for Disney+ titles whether or not they have heard the news. The alternative —
+ * matching literally — is an empty deck for that visitor, every genre, with no
+ * way to discover why.
+ *
+ * A direct match is still checked first and still wins; the alias only ever
+ * *adds* titles to a selection, never removes one.
+ */
 function isOnSelectedService(title: MediaTitle, preferences: Preference): boolean {
-  return title.availability.some((entry) => preferences.provider.values.includes(entry.providerId));
+  return title.availability.some((entry) =>
+    preferences.provider.values.some(
+      (selected) =>
+        selected === entry.providerId ||
+        RETIRED_PROVIDER_SUCCESSORS[selected] === entry.providerId,
+    ),
+  );
 }
 
 /** Stage 2, term 1. Plain overlap: more of what they asked for ranks higher. */
