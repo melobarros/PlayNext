@@ -171,39 +171,48 @@ describe('recommendation card', () => {
   });
 
   describe('the synopsis', () => {
-    it('keeps the synopsis behind a collapsed disclosure', () => {
+    it('shows the synopsis outright, with no tap required', () => {
+      // It used to be a native `<details>` (002 research.md D8), chosen so the
+      // synopsis stayed reachable with no JavaScript. One that is simply shown
+      // needs no interaction at all — more reachable, not less — and the card
+      // has the room. The disclosure is pinned out so it cannot quietly return.
       build({ synopsis: SYNOPSIS });
 
-      const details = root.querySelector('details');
-      expect(details).not.toBeNull();
-      expect(details?.open).toBe(false);
-      expect(details?.textContent).toContain(SYNOPSIS);
-      expect(details?.querySelector('summary')?.textContent).toContain('Synopsis');
+      expect(text()).toContain(SYNOPSIS);
+      expect(root.querySelector('details')).toBeNull();
+      expect(root.querySelector('summary')).toBeNull();
     });
 
-    it('opens on the summary, with no script involved', () => {
+    it('spans the card below the poster row, rather than sharing the facts column', () => {
+      // The whole point of the second visual pass: a synopsis in the ~176px
+      // beside the poster is a tall skinny strip, so it takes the full width
+      // under it. Specs cannot measure layout, so this pins the structure that
+      // produces it — a direct child of the card, right after the poster row.
       build({ synopsis: SYNOPSIS });
 
-      const details = root.querySelector('details') as HTMLDetailsElement;
-      details.open = true;
-      fixture.detectChanges();
+      const article = root.querySelector('article');
+      const synopsis = [...(article?.children ?? [])].find((child) =>
+        child.textContent?.includes(SYNOPSIS),
+      );
 
-      expect(details.open).toBe(true);
+      expect(synopsis?.tagName).toBe('P');
+      expect(synopsis?.previousElementSibling).toBe(article?.firstElementChild);
     });
 
-    it('gives the summary a 44px touch target (FR-017)', () => {
-      // It is the card's only interactive element, and the project's one
-      // mechanism for the 44px guarantee is the `touch-target` utility.
-      build({ synopsis: SYNOPSIS });
+    it('is purely presentational — nothing on it asks for interaction', () => {
+      // The deck's wrapper owns every pointer gesture, including the swipe. A
+      // control inside the card would compete with that gesture for the same
+      // finger. This was pinned on the `<summary>` while there was one; now it
+      // is pinned on the card.
+      build({ synopsis: SYNOPSIS, availability: [] });
 
-      const summary = root.querySelector('summary');
-      expect(summary?.classList.contains('touch-target')).toBe(true);
+      expect(root.querySelectorAll('summary, button, a, input, select, textarea')).toHaveLength(0);
     });
 
-    it('omits the disclosure entirely when there is no synopsis', () => {
+    it('omits the synopsis entirely when there is none', () => {
       build({ synopsis: '' });
 
-      expect(root.querySelector('details')).toBeNull();
+      expect(text()).not.toContain(SYNOPSIS);
       expect(text()).toContain('A Title');
     });
   });
@@ -271,6 +280,35 @@ describe('recommendation card', () => {
       expect(text()).toContain('7.9');
       expect(text()).toContain('Sci-Fi');
       expect(text()).toContain('Netflix');
+    });
+
+    it('shows the poster beside the facts on phones and above them on desktop', () => {
+      // A full-width 2:3 poster is ~525px at phone width, which puts the
+      // badges and the synopsis below the fold — the visitor has to scroll to
+      // decide. From `md` up the card has the height to spare and the
+      // thumbnail is what leaves it empty, so the row turns into a column and
+      // the poster fills the card. The width is the caller's to set
+      // (poster.ts), so this is where it is pinned: `shrink-0` because a long
+      // title beside it would otherwise squeeze the artwork out of its 2:3,
+      // and the row direction is the half that puts them side by side at all.
+      build({ posterUrl: '/posters/poster-1.svg' });
+
+      const poster = root.querySelector('app-poster');
+      const article = root.querySelector('article');
+      const row = poster?.parentElement;
+
+      expect(poster?.classList.contains('w-28')).toBe(true);
+      expect(poster?.classList.contains('shrink-0')).toBe(true);
+      expect(poster?.classList.contains('md:w-full')).toBe(true);
+      // The card is a column now, so the synopsis can span it — but the poster
+      // is in an inner *row*, which is what keeps it beside the facts.
+      expect(article?.classList.contains('flex-col')).toBe(true);
+      expect(row?.classList.contains('flex')).toBe(true);
+      expect(row?.classList.contains('md:flex-col')).toBe(true);
+      // The `md:` prefix is load-bearing: an unprefixed `flex-col` here would
+      // stack the poster above the facts at 360px too, which is the layout the
+      // phone just rejected. This pins that the stacking is desktop-only.
+      expect(row?.classList.contains('flex-col')).toBe(false);
     });
 
     it('does not retry a poster that has already failed', () => {

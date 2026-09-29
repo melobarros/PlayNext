@@ -3,6 +3,18 @@ import { AuthOutcome, AuthService } from '../../core/services/auth.service';
 import { SyncService } from '../../core/services/sync.service';
 
 /**
+ * What the screen says once the visitor is through a door.
+ *
+ * The swap that follows is in place and unannounced: the form they were
+ * looking at is gone and a different screen has taken its place. Without a
+ * word about why, that reads as a mis-navigation — MVP testing reported it as
+ * exactly that, "it went into the reset password screen", when the change
+ * form appearing first was the whole of what had happened.
+ */
+const SIGNED_UP = 'Account created — you are signed in.';
+const SIGNED_IN = 'Signed in.';
+
+/**
  * The Profile area: the always-available way to an account (US1, FR-001/002),
  * and the way to manage one once it exists (US4, FR-013/014).
  *
@@ -14,10 +26,11 @@ import { SyncService } from '../../core/services/sync.service';
  * before they can start (research.md D11).
  *
  * The **signed-in half** is a different screen wearing the same route: who is
- * signed in, a way to change the password, and a way out. It replaces the guest
- * half rather than joining it, because a visitor holding a session has nothing
- * to do with a sign-up form and leaving one up invites them to create a second
- * account for the address they are already using.
+ * signed in, a way out, and — below both, for the visitor who came here to do
+ * it — a way to change the password. It replaces the guest half rather than
+ * joining it, because a visitor holding a session has nothing to do with a
+ * sign-up form and leaving one up invites them to create a second account for
+ * the address they are already using.
  *
  * Three things this screen deliberately does not do:
  *
@@ -116,11 +129,12 @@ export class Profile {
     this.busy.set(true);
     this.notice.set(null);
 
-    const attempt = this.isSignUp()
+    const signUp = this.isSignUp();
+    const attempt = signUp
       ? this.auth.register(this.email(), this.password())
       : this.auth.signIn(this.email(), this.password());
 
-    attempt.subscribe((outcome) => this.settle(outcome));
+    attempt.subscribe((outcome) => this.settle(outcome, signUp ? SIGNED_UP : SIGNED_IN));
   }
 
   /**
@@ -193,11 +207,16 @@ export class Profile {
   protected signOut(): void {
     if (this.busy()) return;
 
+    // Synchronously, before anything can fail: the confirmation from signing
+    // in has been read, and this is the visitor acting again. Leaving it up
+    // would also leave it up *behind* the sign-out warning that a failed
+    // replay is about to write.
+    this.notice.set(null);
+
     const pending = this.sync.pending();
 
     if (pending.length > 0 && !this.confirmingSignOut()) {
       this.busy.set(true);
-      this.notice.set(null);
 
       this.sync.replay().subscribe((outcome) => {
         this.busy.set(false);
@@ -250,10 +269,21 @@ export class Profile {
     });
   }
 
-  private settle(outcome: AuthOutcome): void {
+  private settle(outcome: AuthOutcome, confirmation: string): void {
     this.busy.set(false);
 
-    if (!outcome.ok) this.notice.set(this.explain(outcome));
+    if (!outcome.ok) {
+      this.notice.set(this.explain(outcome));
+      return;
+    }
+
+    // The half the visitor was filling in is about to be replaced by the
+    // account summary, so the fields go with it. Leaving them in the signals
+    // would put the typed password back on screen the moment they sign out
+    // (FR-010) — a password nothing toggles is still a password on screen.
+    this.email.set('');
+    this.password.set('');
+    this.notice.set(confirmation);
   }
 
   /**

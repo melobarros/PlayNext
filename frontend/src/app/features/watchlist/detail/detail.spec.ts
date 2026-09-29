@@ -208,9 +208,9 @@ describe('title details', () => {
     });
 
     it('shows the synopsis outright rather than behind a disclosure', () => {
-      // The card hides it behind a `<details>` to keep the deck quiet; here the
-      // visitor has already stopped and asked, so there is nothing to spare
-      // them from.
+      // The deck card shows it outright too. It used to hide it behind a
+      // `<details>` to keep the deck quiet; the second visual pass gave the
+      // card the room and dropped the tap, so the two surfaces agree.
       build('arrival');
 
       expect(text()).toContain('A linguist is recruited to talk to the visitors.');

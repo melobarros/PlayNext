@@ -83,6 +83,12 @@ deck-private and is documented as not-migrated.
 **Decision**: `rankTitles` returns score-descending, `id`-ascending. No RNG,
 no `Date.now()`, no dependence on input order.
 
+**Amended (2026-09-28, MVP ranking pass)**: "score-descending" is now
+"match-tier descending, then within-tier score descending" (D13). The decision
+this section is about — a total order whose tiebreak is the id, so the sequence
+is a property of the comparator rather than of sort stability — is untouched,
+and the alternatives below were rejected against that, so they stand as written.
+
 **Rationale**: FR-011 and SC-005 require identical inputs to produce an
 identical sequence. A stable total order makes that a property of the
 comparator rather than a property of `Array.prototype.sort`'s stability plus
@@ -180,6 +186,15 @@ is a native `<details>`; nothing is added to `package.json`.
 existing stack preferred. Each candidate library solves a smaller problem than
 it brings: a 1-axis swipe is a threshold comparison, and a synopsis disclosure
 is what `<details>` has done natively and accessibly for years.
+
+**Amended (2026-09-28, deck visual pass)**: the synopsis half is superseded.
+Mobile testing found the deck card had room to spare, so the synopsis is now
+shown outright — `hasSynopsis()` and a paragraph, no `<details>`. A synopsis
+that needs no interaction is more reachable than one behind a tap, so this
+strengthens the rationale rather than departing from it; the tap was a
+compactness concession and the constraint is gone. The **no-new-dependencies**
+half stands unchanged, and it is the half the D8 alternatives below were
+rejected against. See `spec.md` FR-003, reworded to match.
 
 **Alternatives considered**:
 - *`@angular/cdk` drag-drop* — rejected: a large dependency for one axis, and
@@ -311,3 +326,48 @@ against one destination and reworking it against two.
 **Alternatives considered**:
 - *Add the nav shell now to avoid rework* — rejected: it would be an unneeded,
   un-specified UI in this slice, and the rework saved is small.
+
+---
+
+## D13. Match tiers are a sort key; unselected selectable genres demote
+
+**Decision**: the ranking is two keys deep — `matchedGenres` first, then
+`6 × historyAffinity − 10 × mismatchedGenres + weightedRating` — with the `id`
+tiebreak unchanged. `mismatchedGenres` counts the title's genres that are in
+the quiz's nine selectable ids but **not** in the visitor's selection; it is
+`0` under Any, and slug tags never count.
+
+**Rationale**: MVP testing delivered both halves of the failure. First, the
+visitor's expectation — "rom-coms first, and when those get exhausted, maybe
+start seeing animations" — was not guaranteed: with one flat score, a one-genre
+title carrying a full affinity lift beat a two-genre title 28.8 to 26.8, so the
+tier was outvotable by the very terms beneath it. Second, the deck filled with
+kids animation: TMDB files Shrek and its kind under Comedy, so inside the
+comedy tier the mega-vote titles won on confidence-weighted rating alone. A
+sort key fixes the first structurally — no arithmetic argument about bounds,
+just a comparator that cannot be outvoted — and the demotion term fixes the
+second with the visitor's own words: choosing comedy is also a statement about
+animation. Only the selectable vocabulary counts, because a visitor can only
+have declined a genre they were offered; this is the point the fixture data
+cannot exercise and production TMDB data can.
+
+**Alternatives considered**:
+- *Raise `MATCHED_GENRE_WEIGHT` until it dominates (e.g. 100)* — rejected:
+  dominance would rest on bounds over real data (how many genres a TMDB title
+  carries, how many the visitor can love) rather than on the comparison itself.
+  One catalog row with enough genres and the guarantee is gone silently.
+- *Clamp `historyAffinity` to ±9* — rejected for the same reason plus a second:
+  it changes what affinity means to save arithmetic that a sort key makes
+  unnecessary.
+- *A hard genre filter (drop animation when not selected)* — rejected:
+  `matchedGenres` is per-title and the selection is a union; dropping titles
+  would empty the deck for visitors who picked animation-adjacent genres, the
+  dead end the constitution forbids. Demotion keeps them reachable, later.
+- *Weight the demotion at 2 (enough to reorder near-ties)* — rejected: the
+  rating spread between a mega-vote kids title and a mid-rated pure one
+  exceeds 2, so the crowd-out this exists to fix would survive it. 10 sits
+  above that spread and below two loved genres (2 × 6), so the visitor's own
+  ratings still speak louder than one unselected genre.
+- *Penalize slug tags too* — rejected: a visitor cannot have declined `family`
+  because the quiz never offered it; penalizing it would encode a taste
+  judgement they never made.

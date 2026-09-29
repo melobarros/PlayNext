@@ -73,6 +73,19 @@ describe('the attribution', () => {
     });
   });
 
+  describe('the shape of the notice', () => {
+    it('renders one link and one logo, however small it is made', () => {
+      // 005 compacted this into a single row and shrank the logo rather than
+      // dropping it, because the terms require it (§3). Both halves are still
+      // single: a second image, or a link nested in a link, would be a
+      // duplicated notice rather than a smaller one.
+      build();
+
+      expect(root.querySelectorAll('a')).toHaveLength(1);
+      expect(root.querySelectorAll('img')).toHaveLength(1);
+    });
+  });
+
   describe('the link', () => {
     function link(): HTMLAnchorElement | null {
       return root.querySelector('a');

@@ -7,6 +7,7 @@ import {
   Interaction,
   InteractionState,
   INTERACTION_STORAGE_KEY,
+  RATING_ACTIONS,
   WatchHistoryEntry,
 } from '../../../core/models/interaction';
 import { MediaTitle } from '../../../core/models/media-title';
@@ -15,6 +16,7 @@ import { CatalogService } from '../../../core/services/catalog.service';
 import { Connectivity } from '../../../core/services/connectivity';
 import { PreferenceStore } from '../../../core/services/preference-store';
 import { Deck } from '../deck';
+import { RATING_ICONS } from './actions';
 
 /**
  * The action bar, driven through the deck shell.
@@ -298,6 +300,37 @@ describe('deck action bar', () => {
 
       expect(root.querySelector('footer')).toBeNull();
       expect(text()).toContain('Start a new loop');
+    });
+  });
+
+  describe('the rating glyphs', () => {
+    it('draws one hidden icon inside each rating button, beside its label', () => {
+      // The glyph is decoration on a button whose word already says what it
+      // does, so it must be exactly one and hidden from the accessibility tree:
+      // two, or an unhidden one, would have a screen reader announce the
+      // control twice in words that are not the label.
+      build();
+
+      for (const { label } of RATINGS) {
+        const icons = [...findButton(label).querySelectorAll('svg')];
+
+        expect(icons).toHaveLength(1);
+        expect(icons[0].getAttribute('aria-hidden')).toBe('true');
+        expect(icons[0].querySelector('path')?.getAttribute('d')).toBeTruthy();
+        // The namespace is the difference between a glyph and a blank square:
+        // an `<svg>` created in the HTML namespace is in the DOM, has its `d`,
+        // and draws nothing at all.
+        expect(icons[0].namespaceURI).toBe('http://www.w3.org/2000/svg');
+      }
+    });
+
+    it('has a drawn glyph for every rating, not a blank cell', () => {
+      // `RATING_ICONS` is a total `Record`, so a new state fails to compile.
+      // What that cannot catch is a value that is present but empty, which
+      // renders as a button with a hole in it.
+      for (const { state } of RATING_ACTIONS) {
+        expect(RATING_ICONS[state]).toMatch(/^M\d/);
+      }
     });
   });
 

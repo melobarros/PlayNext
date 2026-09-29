@@ -545,6 +545,116 @@ describe('rankTitles — score and order', () => {
     });
   });
 
+  /*
+    The visitor asked for this in so many words: "I would expect to see rom-coms
+    first, and when those get exhausted, maybe start seeing animations." The
+    tier is a sort key of its own (contract G6) rather than a weighted term, so
+    no total of the terms below it can carry a title past the tier above —
+    which is what these two tests pin, one per way the old flat score broke it.
+  */
+  describe('tier dominance (term 1 is the sort’s primary key)', () => {
+    it('keeps a two-genre match above a one-genre match wearing every loved genre', () => {
+      // `signal` shares no genre with the choice, so filter 2 drops it — but
+      // genreSignals reads the catalog *before* filtering, so its genres are
+      // still what the visitor has loved. That is the worst case for the tier
+      // key: the one-genre title gets the full affinity lift (+12) and the
+      // two-genre title gets none, and under the old flat score
+      // (10 × matches + 6 × affinity + rating) the lower tier won, 28.8 to 26.8.
+      const catalog = [
+        title('two-match', { genres: ['horror', 'thriller'] }),
+        title('one-match', { genres: ['horror', 'comedy', 'drama'] }),
+        title('signal', { genres: ['comedy', 'drama'] }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({ genre: { values: ['horror', 'thriller'], any: false } }),
+        { signal: rated('loved') },
+        [],
+      );
+
+      expect(result.map((t) => t.id)).toEqual(['two-match', 'one-match']);
+    });
+
+    it('keeps the tier even when the tier below is far better rated', () => {
+      // A wall of high-vote titles one genre short is exactly the Shrek
+      // complaint; popularity reorders within a tier and never across one.
+      const catalog = [
+        title('two-match', { genres: ['horror', 'thriller'], rating: 5, voteCount: 1000 }),
+        title('one-match', { genres: ['horror'], rating: 9.5, voteCount: 2_000_000 }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({ genre: { values: ['horror', 'thriller'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result.map((t) => t.id)).toEqual(['two-match', 'one-match']);
+    });
+  });
+
+  /*
+    The demotion term. A selection is also a statement about what the visitor
+    did *not* pick, and this is where that lands — the difference between "a
+    comedy" and a kids animation that TMDB files under comedy.
+  */
+  describe('mismatchedGenres (the demotion term)', () => {
+    it('ranks a pure comedy above a better-rated comedy animation', () => {
+      const catalog = [
+        title('pure-comedy', { genres: ['comedy'], rating: 8, voteCount: 1000 }),
+        title('kids-comedy', { genres: ['comedy', 'animation'], rating: 9, voteCount: 100_000 }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({ genre: { values: ['comedy'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      // Both match the one chosen genre, so the tier cannot separate them —
+      // the demotion is what puts the 8.0 comedy ahead of the 9.0 animation,
+      // a gap raw rating would have decided the other way.
+      expect(result.map((t) => t.id)).toEqual(['pure-comedy', 'kids-comedy']);
+    });
+
+    it('adds no demotion when the visitor chose Any', () => {
+      // "Any" is the absence of a selection, not a choice against everything:
+      // with no statement to enforce, the order is the one the terms alone
+      // produce — here the rating, which favors the animated title. If the
+      // demotion leaked into this path, it would sink it instead.
+      const catalog = [
+        title('with-animation', { genres: ['comedy', 'animation'], rating: 9, voteCount: 100_000 }),
+        title('plain', { genres: ['comedy'], rating: 8, voteCount: 1000 }),
+      ];
+
+      const result = rankTitles(catalog, preference(), noInteractions, []);
+
+      expect(result.map((t) => t.id)).toEqual(['with-animation', 'plain']);
+    });
+
+    it('never demotes for a slug tag the visitor was never offered', () => {
+      // `family` is a TMDB tag the catalog carries, not one of the nine the
+      // quiz offers, so a title wearing it has disobeyed nothing. Only the
+      // selectable vocabulary can trigger the term (contract G7).
+      const catalog = [
+        title('tagged', { genres: ['comedy', 'family'], rating: 9, voteCount: 100_000 }),
+        title('plain', { genres: ['comedy'], rating: 8, voteCount: 1000 }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({ genre: { values: ['comedy'], any: false } }),
+        noInteractions,
+        [],
+      );
+
+      expect(result.map((t) => t.id)).toEqual(['tagged', 'plain']);
+    });
+  });
+
   describe('historyAffinity (term 2, the Feedback Loop invariant)', () => {
     it('lifts titles wearing a genre the visitor has loved', () => {
       const catalog = [

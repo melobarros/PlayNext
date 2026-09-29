@@ -14,10 +14,30 @@
     </p>
 
     <!--
-      Outside the form, because both things below it can produce a message:
-      the change form, and the sign-out warning about changes that never
-      reached the account. One message region for the half, as the guest half
-      has one for its form.
+      The summary, and the order is the point: who the visitor is signed in as
+      and the way out, before anything they came here to do. The change form
+      used to lead this half, which made "what did I just sign up to?" land on
+      a password form.
+
+      `type="button"`, so it is not the form's submit control: "Sign out" and
+      "Change password" sitting in one form would make Enter in the last field
+      a coin toss between them.
+    -->
+    <button
+      type="button"
+      class="touch-target mt-3 flex items-center justify-center rounded-full border border-ink-600 px-6 font-medium text-chalk-300 transition-opacity disabled:opacity-60"
+      [disabled]="busy()"
+      (click)="signOut()"
+    >
+      Sign out
+    </button>
+
+    <!--
+      Outside the form, because more than the form speaks here: the
+      confirmation that the visitor is through a door, the sign-out warning
+      about changes that never reached the account, and the change form's own
+      result. One message region for the half, as the guest half has one for
+      its form.
     -->
     @if (notice(); as message) {
       <p role="alert" class="mt-4 rounded-lg bg-ink-800 px-3 py-2 text-sm text-chalk-300">
@@ -72,20 +92,6 @@
         Change password
       </button>
     </form>
-
-    <!--
-      `type="button"`, so it is not the form's submit control: "Sign out" and
-      "Change password" sitting in one form would make Enter in the last field
-      a coin toss between them.
-    -->
-    <button
-      type="button"
-      class="touch-target mt-3 flex items-center justify-center rounded-full border border-ink-600 px-6 font-medium text-chalk-300 transition-opacity disabled:opacity-60"
-      [disabled]="busy()"
-      (click)="signOut()"
-    >
-      Sign out
-    </button>
   } @else {
   <p class="mt-1 text-sm text-chalk-500">
     Save your ratings, watchlist and history to an account, and they follow you to any device.

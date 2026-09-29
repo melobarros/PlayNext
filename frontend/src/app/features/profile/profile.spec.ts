@@ -544,6 +544,87 @@ describe('profile', () => {
       expect(signOutButton()).toBeTruthy();
     });
 
+    /*
+      The confirmation, and the order of this half, are one fix.
+
+      MVP testing reported signing up as "it went into the reset password
+      screen": submitting the form swapped the halves in place, with no
+      navigation and no word about it, onto a screen whose first control was
+      the change-password form. Nothing was broken — the visitor was simply
+      never told what had happened, and the first thing they read described a
+      different job.
+    */
+    describe('the confirmation (MVP signup fix)', () => {
+      it('says the account was created, on the same screen', () => {
+        build();
+        fill();
+        submit();
+        http.expectOne('/api/auth/register').flush({
+          userId: USER_ID,
+          email: EMAIL,
+          accessToken: ACCESS_TOKEN,
+          state: SIGNED_IN_STATE,
+        });
+        fixture.detectChanges();
+
+        expect(alert()?.textContent).toContain('Account created');
+        expect(modes()).toHaveLength(0);
+      });
+
+      it('says who signed in after signing in', () => {
+        build();
+        openMode('Sign in');
+        fill();
+        submit();
+        http.expectOne('/api/auth/login').flush({
+          userId: USER_ID,
+          email: EMAIL,
+          accessToken: ACCESS_TOKEN,
+          state: SIGNED_IN_STATE,
+        });
+        fixture.detectChanges();
+
+        expect(alert()?.textContent).toContain('Signed in');
+      });
+
+      it('leads with the account summary, before the password form', () => {
+        // The structural half of the fix, pinned as DOM order because that is
+        // what the visitor reads top to bottom. A confirmation above a form
+        // that still led the screen would leave the symptom in place.
+        build();
+        signIn();
+
+        const form = root.querySelector('form');
+        const summary = [...root.querySelectorAll('p')].find((element) =>
+          element.textContent?.includes(EMAIL),
+        );
+
+        expect(summary).toBeTruthy();
+        expect(form).toBeTruthy();
+        expect(
+          summary!.compareDocumentPosition(form!) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+        expect(
+          signOutButton().compareDocumentPosition(form!) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      });
+
+      it('clears the confirmation when signing out begins', () => {
+        // A confirmation is about the door the visitor just came through. The
+        // press of "Sign out" is them leaving it, and the message must go
+        // before the request does — a failed sign-out writes its own warning
+        // into the same region, and the stale one would be read as its cause.
+        build();
+        signIn();
+
+        signOutButton().click();
+        fixture.detectChanges();
+
+        expect(alert()).toBeNull();
+        http.expectOne('/api/auth/logout').flush(null, { status: 204, statusText: 'No Content' });
+      });
+    });
+
     it('is offered the way in again once there is no session', () => {
       // The other direction, so the test above cannot pass because the screen
       // renders everything and hides nothing.

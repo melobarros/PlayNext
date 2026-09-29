@@ -7,79 +7,118 @@
     in the shared `<app-poster>` so the watchlist row gets the identical
     behaviour rather than a second copy of it (research.md D11).
 
+    A thumbnail on a phone, the hero on a desktop: a full-width 2:3 poster at
+    360px is ~525px tall and pushes the title and the facts off the first
+    screen, which is the one screen the decision is made on. At `md` the card
+    has the height to spare and the thumbnail is what leaves it empty, so the
+    row turns into a column and the poster fills the card above the facts
+    instead. The width is the caller's to set (poster.ts) — the same contract
+    the watchlist row uses, with `block` because a custom element is inline by
+    default.
+
+    The card is a column of sections — this row, the synopsis, the badges — and
+    the poster sits in an inner row so it stays *beside* the facts on a phone
+    and *above* them from `md` up.
+
+    No `placeholderText`: this one poster renders at two very different sizes —
+    a 112px thumbnail on a phone, the full card from `md` up — and the input is
+    a single value, so a word sized for the desktop one overflows the phone one.
+    poster.ts's rule for thumbnail callers (a word at that size is not readable)
+    settles it rather than a viewport listener for a failure path, and the h2
+    names the title either way.
+
     `priority` is on because this is the one card on screen (FR-002) — the shell
     preloads the *next* one only, and a list of rows must not all claim it.
-    The placeholder names the media type, which fits at card scale.
   -->
-  <app-poster
-    [src]="title().posterUrl"
-    [alt]="posterAlt()"
-    [placeholderText]="mediaTypeLabel()"
-    [priority]="true"
-  />
+  <div class="flex md:flex-col">
+    <app-poster
+      class="block w-28 shrink-0 md:w-full"
+      [src]="title().posterUrl"
+      [alt]="posterAlt()"
+      [priority]="true"
+    />
 
-  <div class="flex flex-1 flex-col gap-3 p-5">
-    <div class="flex items-start justify-between gap-3">
-      <h2 [id]="'card-title-' + title().id" class="text-xl font-semibold text-balance">
-        {{ title().title }}
-      </h2>
-
-      <p class="shrink-0 rounded-full bg-ink-800 px-3 py-1 text-sm font-semibold text-accent-400">
-        {{ rating() }}
-        <span class="sr-only">out of 10</span>
-      </p>
-    </div>
-
-    <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-chalk-500">
-      <span>{{ title().releaseYear }}</span>
-      <span aria-hidden="true">&middot;</span>
-      <span>{{ mediaTypeLabel() }}</span>
-      @if (runtime(); as length) {
-        <span aria-hidden="true">&middot;</span>
-        <span>{{ length }}</span>
-      }
-    </p>
-
-    @if (genreLabels().length > 0) {
-      <ul class="flex flex-wrap gap-2">
-        @for (genre of genreLabels(); track genre) {
-          <li
-            class="rounded-full border border-ink-700 px-3 py-1 text-xs font-medium text-chalk-300"
-          >
-            {{ genre }}
-          </li>
-        }
-      </ul>
-    }
-
-    <!--
-      Native <details>: the disclosure works with no JavaScript, which is what
-      keeps the synopsis reachable when the bundle is cold or the connection
-      has just dropped (research.md D8).
-    -->
-    @if (hasSynopsis()) {
-      <details>
-        <summary
-          class="touch-target flex cursor-pointer items-center text-sm font-medium text-accent-400"
+    <!-- `min-w-0` on both this and the title: a flex item will not shrink
+         below its longest word by default, so a long title would widen the
+         card. -->
+    <div class="flex min-w-0 flex-1 flex-col gap-2.5 p-4">
+      <div class="flex items-start justify-between gap-3">
+        <h2
+          [id]="'card-title-' + title().id"
+          class="min-w-0 text-xl font-semibold text-balance break-words"
         >
-          Synopsis
-        </summary>
-        <p class="pt-2 text-sm leading-relaxed text-chalk-300">{{ title().synopsis }}</p>
-      </details>
-    }
+          {{ title().title }}
+        </h2>
 
-    <div class="mt-auto pt-1">
-      @if (providerLabels().length > 0) {
+        <p class="shrink-0 rounded-full bg-ink-800 px-3 py-1 text-sm font-semibold text-accent-400">
+          {{ rating() }}
+          <span class="sr-only">out of 10</span>
+        </p>
+      </div>
+
+      <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-chalk-500">
+        <span>{{ title().releaseYear }}</span>
+        <span aria-hidden="true">&middot;</span>
+        <span>{{ mediaTypeLabel() }}</span>
+        @if (runtime(); as length) {
+          <span aria-hidden="true">&middot;</span>
+          <span>{{ length }}</span>
+        }
+      </p>
+
+      @if (genreLabels().length > 0) {
         <ul class="flex flex-wrap gap-2">
-          @for (provider of providerLabels(); track provider) {
-            <li class="rounded-full bg-ink-800 px-3 py-1 text-xs font-medium text-chalk-300">
-              {{ provider }}
+          @for (genre of genreLabels(); track genre) {
+            <li
+              class="rounded-full border border-ink-700 px-3 py-1 text-xs font-medium text-chalk-300"
+            >
+              {{ genre }}
             </li>
           }
         </ul>
-      } @else {
-        <p class="text-xs text-chalk-500">Not on your services</p>
       }
     </div>
+  </div>
+
+  <!--
+    Full width, below the poster row, and visible outright. The native
+    `<details>` this replaced (research.md D8) was chosen so the synopsis stayed
+    reachable with no JavaScript — but one that is simply *shown* needs no
+    interaction at all, which is more reachable than one behind a tap, and the
+    deck now has the room. D8's other half stands: still no dependency.
+
+    Nothing is clamped. A synopsis is one to three sentences; a long one makes
+    the card taller than the screen, which is fine — the sticky footer keeps
+    the actions in reach (FR-017) and `touch-pan-y` on the deck's wrapper
+    leaves the vertical scroll to the browser.
+  -->
+  @if (hasSynopsis()) {
+    <p class="px-4 pt-3 text-sm leading-relaxed text-pretty text-chalk-300">
+      {{ title().synopsis }}
+    </p>
+  }
+
+  <!--
+    Full width and last: availability is the decision this card exists to serve
+    (FR-006), so the badges get the strip directly above the sticky action bar.
+    In the facts column they had ~176px at phone width and scattered down the
+    card beside the poster. Same order as the detail view — the facts, then
+    what it is about, then where to watch it.
+
+    The names are not links here on purpose: leaving the card is Match Found's
+    job, where the visitor has chosen this title (FR-008).
+  -->
+  <div class="border-t border-ink-800 px-4 py-3">
+    @if (providerLabels().length > 0) {
+      <ul class="flex flex-wrap gap-2">
+        @for (provider of providerLabels(); track provider) {
+          <li class="rounded-full bg-ink-800 px-3 py-1 text-xs font-medium text-chalk-300">
+            {{ provider }}
+          </li>
+        }
+      </ul>
+    } @else {
+      <p class="text-xs text-chalk-500">Not on your services</p>
+    }
   </div>
 </article>

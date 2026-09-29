@@ -1,7 +1,7 @@
 import { Interaction, InteractionState, isExcluding } from '../../../core/models/interaction';
 import { MediaTitle } from '../../../core/models/media-title';
 import { Preference } from '../../../core/models/quiz';
-import { RETIRED_PROVIDER_SUCCESSORS } from '../../../core/models/quiz-options.data';
+import { GENRES, RETIRED_PROVIDER_SUCCESSORS } from '../../../core/models/quiz-options.data';
 
 /**
  * The recommendation engine
@@ -19,11 +19,22 @@ import { RETIRED_PROVIDER_SUCCESSORS } from '../../../core/models/quiz-options.d
  * constant and every rule maps to a numbered filter in the contract.
  */
 
-/** Score weight for each genre the title shares with the visitor's choice. */
-const MATCHED_GENRE_WEIGHT = 10;
-
 /** Score weight for each net genre the visitor's own ratings point at. */
 const HISTORY_AFFINITY_WEIGHT = 6;
+
+/**
+ * Demotion for each selectable genre a title wears that the visitor did not
+ * pick — the difference between "a comedy" and "a kids animation filed under
+ * comedy". Chosen against the two terms it sits between: it outweighs the
+ * widest rating gap a mega-vote title can open over a mid-rated one, and it
+ * stays below two loved genres (2 × 6), so the visitor's own ratings still
+ * speak louder than one unselected tag. It can only reorder *within* a match
+ * tier, which is why it needs no guard against the tier above it.
+ */
+const MISMATCHED_GENRE_PENALTY = 10;
+
+/** The quiz's own genre vocabulary — the ids a visitor can actually select. */
+const SELECTABLE_GENRE_IDS: ReadonlySet<string> = new Set(GENRES.map((genre) => genre.id));
 
 /**
  * Confidence-weighted rating: pulls low-evidence titles toward the middle, so a
@@ -40,6 +51,13 @@ const POSITIVE_STATES: readonly InteractionState[] = ['loved', 'liked', 'wantToW
 /**
  * Ranks the catalog for a visitor, best first.
  *
+ * The order is two keys deep, not one score: how many of the visitor's genres
+ * the title matches, then a within-tier score. Making the tier its own key
+ * rather than a weighted term is what makes "rom-coms first, animations when
+ * those run out" a property of the comparator instead of an arithmetic
+ * argument — no affinity total or rating gap can ever carry a title past the
+ * tier above it, whatever the catalog holds.
+ *
  * Returns a new array every call and never mutates its inputs. An empty result
  * is a normal value — it drives the empty state (FR-014), it is not an error.
  */
@@ -55,12 +73,16 @@ export function rankTitles(
     .filter((title) => isEligible(title, preferences, interactions, shownTitleIds))
     .map((title) => ({
       title,
-      score:
-        MATCHED_GENRE_WEIGHT * matchedGenres(title, preferences) +
-        HISTORY_AFFINITY_WEIGHT * historyAffinity(title, lovedGenres, dislikedGenres) +
+      matches: matchedGenres(title, preferences),
+      within:
+        HISTORY_AFFINITY_WEIGHT * historyAffinity(title, lovedGenres, dislikedGenres) -
+        MISMATCHED_GENRE_PENALTY * mismatchedGenres(title, preferences) +
         weightedRating(title),
     }))
-    .sort((a, b) => b.score - a.score || compareIds(a.title.id, b.title.id))
+    .sort(
+      (a, b) =>
+        b.matches - a.matches || b.within - a.within || compareIds(a.title.id, b.title.id),
+    )
     .map((scored) => scored.title);
 }
 
@@ -145,10 +167,33 @@ function isOnSelectedService(title: MediaTitle, preferences: Preference): boolea
   );
 }
 
-/** Stage 2, term 1. Plain overlap: more of what they asked for ranks higher. */
+/** Stage 2's tier key. Plain overlap: more of what they asked for ranks higher. */
 function matchedGenres(title: MediaTitle, preferences: Preference): number {
   if (preferences.genre.any) return 0;
   return title.genres.filter((genre) => preferences.genre.values.includes(genre)).length;
+}
+
+/**
+ * Stage 2's demotion term — the other half of what a genre selection says.
+ *
+ * Picking comedy and romance is also a statement about animation, and a title
+ * wearing a genre the visitor could have picked but did not starts lower than
+ * one that stays inside the selection. This is what puts Shrek behind a
+ * rom-com instead of letting vote count decide.
+ *
+ * `Any` carries no such statement — it is the absence of a selection, not a
+ * choice against everything — so the term vanishes and the tier falls back to
+ * affinity and rating.
+ *
+ * Only the quiz's selectable ids count. A slug tag (`family`, `fantasy`…) is
+ * not a genre the visitor was offered, so a title carrying one has disobeyed
+ * nothing and is never penalized for it.
+ */
+function mismatchedGenres(title: MediaTitle, preferences: Preference): number {
+  if (preferences.genre.any) return 0;
+  return title.genres.filter(
+    (genre) => SELECTABLE_GENRE_IDS.has(genre) && !preferences.genre.values.includes(genre),
+  ).length;
 }
 
 /**
@@ -158,6 +203,10 @@ function matchedGenres(title: MediaTitle, preferences: Preference): number {
  * wearing genres the visitor rejected sinks. Rejected *titles* are already gone
  * by filter 4; this is how their taste generalizes past the specific titles
  * they rejected.
+ *
+ * It counts every genre a title wears, tags included, and is left unbounded:
+ * the tier key above it is what keeps a loved-genre total from carrying a title
+ * past a better match, so no clamp is needed here to say that.
  */
 function historyAffinity(
   title: MediaTitle,

@@ -4,6 +4,12 @@
 empty-state detection); the Milestone 2 backend reimplements it in the Domain
 layer | **Date**: 2026-09-26
 
+**Amended (2026-09-28, MVP ranking pass)**: the flat score became the tiered
+order above (tier key + demotion term), after testing showed the weighted form
+let a one-genre title outrank a two-genre one and let high-vote family
+animation crowd out the genres the visitor actually picked. The stage-1 filter
+table and G1–G5 are unchanged.
+
 `rankTitles` is the product's core asset and the reason the deck is trustworthy.
 It is specified as a **pure function** so that two constitution invariants can be
 proven by tests rather than argued about, and so FR-011's reproducibility is a
@@ -50,16 +56,36 @@ Notes that matter:
   has provider preferences and has not opted into other platforms — correct,
   since we cannot claim it is watchable for them.
 
-## Stage 2 — Score (weighted, explainable)
+## Stage 2 — Score (tiered, explainable)
+
+The order is **two keys deep**: a match tier, then a within-tier score.
 
 ```
-score(title) = 10 × matchedGenres
-             +  6 × historyAffinity(title)
-             +      weightedRating(title)
+tier(title)   = matchedGenres(title)
+within(title) =  6 × historyAffinity(title)
+              − 10 × mismatchedGenres(title)
+              +      weightedRating(title)
 ```
+
+The tier is a sort key of its own rather than a weighted term, and that is the
+whole point: a weighted `10 × matchedGenres` can be outvoted by the terms below
+it, so "a rom-com before an animation" would be an arithmetic hope. As a key, it
+is a property of the comparator — **no affinity total and no rating gap can
+carry a title past the tier above it**, whatever the catalog holds.
 
 **`matchedGenres`** = `|title.genres ∩ preferences.genre.values|`, or `0` when
 the visitor chose Any. Plain overlap: more of what they asked for ranks higher.
+
+**`mismatchedGenres`** = `|title.genres ∩ selectableGenres − preferences.genre.values|`,
+or `0` when the visitor chose Any, where `selectableGenres` is the nine ids the
+quiz offers (`GENRES`). A selection is also a statement about what the visitor
+did *not* pick, and this is where it lands: a title wearing a genre they could
+have chosen but didn't starts lower within its tier — the difference between "a
+comedy" and a kids animation that the provider files under comedy. `Any` carries
+no such statement (it is the absence of a selection, not a choice against
+everything), so the term vanishes there. Only the selectable vocabulary counts:
+a slug tag (`family`, `fantasy`…) is not a genre the visitor was ever offered,
+so a title wearing one is never penalized for it.
 
 **`historyAffinity(title)`** — the feedback loop's positive/negative signal,
 derived from the visitor's own ratings:
@@ -72,7 +98,10 @@ historyAffinity(t) = |t.genres ∩ lovedGenres| − |t.genres ∩ dislikedGenres
 
 This may be negative — a title wearing genres the visitor has rejected sinks.
 Disliked *titles* are already gone (filter 4); this is how the visitor's taste
-generalizes past the specific titles they rejected.
+generalizes past the specific titles they rejected. All title genres count here,
+tags included (see the spec's assumption that scoring uses tags as well as
+genres); the demotion term is the only place the selectable vocabulary is the
+limit.
 
 **`weightedRating(title)`** — quality, confidence-weighted so a lone 10.0 from
 three votes cannot top the deck:
@@ -87,7 +116,8 @@ every time.
 
 ## Stage 3 — Total order (the determinism guarantee)
 
-Sort by `score` descending; break ties by `title.id` ascending.
+Sort by `tier` descending, then `within` descending; break ties by `title.id`
+ascending.
 
 The id tiebreak is what makes FR-011 real. Without it the sequence would depend
 on `Array.prototype.sort` stability and on the order the catalog happened to
@@ -106,6 +136,8 @@ visitor's own ratings have changed the scores, not because a dice roll did.
 | G3 | Equal inputs ⇒ identical output array, element for element | FR-011, SC-005 |
 | G4 | Inputs are never mutated; the caller's arrays are unchanged | — |
 | G5 | An empty result is a normal value, never an error | FR-014 (empty state) |
+| G6 | A title matching more selected genres always ranks above one matching fewer — unconditional, independent of the within-tier terms | FR-019, SC-009 |
+| G7 | Within a tier, an unselected *selectable* genre demotes; slug tags never demote; no demotion when the visitor chose Any | FR-019 |
 
 ## Worked example
 
@@ -113,22 +145,22 @@ Preferences: `mediaType = [movie]`, `genre = [horror, thriller]`,
 `provider = [netflix]`, `includeUnownedProviders = false`.
 History: `se7en` is `disliked`.
 
-| Title | Type | Genres | On Netflix | Score | Outcome |
+| Title | Type | Genres | On Netflix | Tier / within | Outcome |
 |---|---|---|---|---|---|
-| A | movie | horror, thriller | yes | 10×2 + 6×0 + 7.9 = **27.9** | rank 1 |
-| B | movie | horror | yes | 10×1 + 6×0 + 7.1 = **17.1** | rank 2 |
+| A | movie | horror, thriller | yes | 2 / 0 + 7.9 = **7.9** | rank 1 |
+| B | movie | horror | yes | 1 / 0 + 7.1 = **7.1** | rank 2 |
 | C | tv | horror | yes | — | dropped (filter 1) |
 | D | movie | horror | no | — | dropped (filter 3) |
 | E (se7en) | movie | thriller | yes | — | dropped (filter 4) |
 
-Returned: `[A, B]`. If A and B scored identically, the lower `id` would come
-first — every time, on every device.
+Returned: `[A, B]`. If A and B sat in the same tier and scored identically, the
+lower `id` would come first — every time, on every device.
 
 ## Deliberate non-goals
 
 - **No personalization beyond the visitor's own ratings.** No collaborative
   filtering, no ML pipeline (constitution VI). The engine is explainable: every
-  score decomposes into three terms a person can read.
+  ranking decomposes into a tier and three terms a person can read.
 - **No randomization or "discovery" injection.** Variety comes from the quiz
   preferences and the rating history, both of which the visitor controls.
 - **No popularity-only fallback ordering.** The fallback path (FR-013) reuses

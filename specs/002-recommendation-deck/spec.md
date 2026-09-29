@@ -32,7 +32,7 @@
 
 After completing the onboarding quiz, a visitor is presented with one
 recommendation at a time. Each card shows rich details: poster art, title,
-release year, ratings, a collapsible synopsis, media type, and the streaming
+release year, ratings, a synopsis, media type, and the streaming
 services where the title is available. The visitor advances with a swipe or a
 tap and receives the next suggestion. Every suggestion matches their quiz
 preferences (media type, genres) and is available on at least one of their
@@ -192,9 +192,9 @@ browsable.
   recommendation immediately, with no further input required.
 - **FR-002**: The system MUST show exactly one recommendation card at a
   time.
-- **FR-003**: Each card MUST show: title, release year, ratings, a
-  collapsible synopsis, poster art, media type, and the streaming providers
-  where the title is available.
+- **FR-003**: Each card MUST show: title, release year, ratings, a synopsis,
+  poster art, media type, and the streaming providers where the title is
+  available.
 - **FR-004**: The visitor MUST be able to advance via a swipe gesture and
   via an explicit tap action; every advance yields exactly one next card.
   A swipe is a neutral skip — it records no rating; ratings are recorded
@@ -233,6 +233,12 @@ browsable.
 - **FR-017**: All deck screens MUST remain fully usable at 360px viewport
   width with touch targets of at least 44px and sticky bottom action
   buttons, in dark high-contrast styling.
+- **FR-019**: Among eligible titles, one matching more of the visitor's
+  selected genres MUST rank above one matching fewer, regardless of ratings,
+  popularity, or rating history. Within the same number of matches, a title
+  carrying a genre the visitor was offered but did not select MUST NOT
+  outrank an otherwise equal title that avoids it; genres outside the
+  offered set carry no such penalty.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -268,6 +274,10 @@ browsable.
   10 or more cards without an error.
 - **SC-008**: The full deck flow (browse, rate, Watch Now, Match Found) is
   completable on a 360px-wide screen with touch input only.
+- **SC-009**: In a session with two or more selected genres, every title
+  matching more of them appears before any title matching fewer — the
+  visitor's chosen genres are exhausted in order, never interleaved with or
+  outranked by titles that match less.
 
 ## Assumptions
 

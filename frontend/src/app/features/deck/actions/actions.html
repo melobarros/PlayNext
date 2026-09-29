@@ -2,14 +2,32 @@
   Five columns, because the five ratings are one judgement each and should be
   reachable without aiming. Labels may wrap to two lines at 360px; every button
   keeps its 44px minimum either way (FR-017).
+
+  Each cell is a glyph over its word. The word stays because it is the label the
+  visitor is recording — "Disliked" and "Not Interested" are a real distinction
+  and a shapes-only bar would make the visitor guess which is which. The icons
+  are `aria-hidden`, so a screen reader hears the label and not the graphic.
 -->
 <div class="grid grid-cols-5 gap-1.5">
   @for (action of ratings; track action.state) {
     <button
       type="button"
-      class="touch-target flex items-center justify-center rounded-xl border border-ink-700 bg-ink-900 px-0.5 text-center text-xs leading-tight font-medium text-chalk-300"
+      class="touch-target flex flex-col items-center justify-center gap-1 rounded-xl border border-ink-700 bg-ink-900 px-0.5 py-1 text-center text-[10px] leading-tight font-medium text-chalk-300"
       (click)="ratingChosen.emit(action.state)"
     >
+      <!-- `d` as an attribute binding, never `[innerHTML]`: the sanitizer strips `svg`. -->
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+        class="h-5 w-5 shrink-0"
+      >
+        <path [attr.d]="icons[action.state]" />
+      </svg>
       {{ action.label }}
     </button>
   }
