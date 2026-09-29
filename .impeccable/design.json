@@ -1,0 +1,379 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-29T14:00:00.000Z",
+  "title": "Design System: PlayNext",
+  "extensions": {
+    "colorMeta": {
+      "projector-black": {
+        "role": "neutral",
+        "displayName": "Projector Black",
+        "canonical": "#0b0b0f",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#15151c",
+          "#1e1e28",
+          "#2a2a36",
+          "#3a3a4a",
+          "#52526a",
+          "#75758f",
+          "#a3a3b8"
+        ]
+      },
+      "projector-black-surface": {
+        "role": "neutral",
+        "displayName": "Projector Black Surface",
+        "canonical": "#15151c",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#15151c",
+          "#1e1e28",
+          "#2a2a36",
+          "#3a3a4a",
+          "#52526a",
+          "#75758f",
+          "#a3a3b8"
+        ]
+      },
+      "projector-black-raised": {
+        "role": "neutral",
+        "displayName": "Projector Black Raised",
+        "canonical": "#1e1e28",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#15151c",
+          "#1e1e28",
+          "#2a2a36",
+          "#3a3a4a",
+          "#52526a",
+          "#75758f",
+          "#a3a3b8"
+        ]
+      },
+      "projector-black-line": {
+        "role": "neutral",
+        "displayName": "Projector Black Line",
+        "canonical": "#2a2a36",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#15151c",
+          "#1e1e28",
+          "#2a2a36",
+          "#3a3a4a",
+          "#52526a",
+          "#75758f",
+          "#a3a3b8"
+        ]
+      },
+      "projector-black-line-strong": {
+        "role": "neutral",
+        "displayName": "Projector Black Line Strong",
+        "canonical": "#3a3a4a",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#15151c",
+          "#1e1e28",
+          "#2a2a36",
+          "#3a3a4a",
+          "#52526a",
+          "#75758f",
+          "#a3a3b8"
+        ]
+      },
+      "screen-grey-bright": {
+        "role": "neutral",
+        "displayName": "Screen Grey Bright",
+        "canonical": "#f5f5f7",
+        "tonalRamp": [
+          "#2f2f3a",
+          "#464652",
+          "#5e5e6c",
+          "#787886",
+          "#8f8f9c",
+          "#a1a1ad",
+          "#c9c9d4",
+          "#f5f5f7"
+        ]
+      },
+      "screen-grey": {
+        "role": "neutral",
+        "displayName": "Screen Grey",
+        "canonical": "#c9c9d4",
+        "tonalRamp": [
+          "#2f2f3a",
+          "#464652",
+          "#5e5e6c",
+          "#787886",
+          "#8f8f9c",
+          "#a1a1ad",
+          "#c9c9d4",
+          "#f5f5f7"
+        ]
+      },
+      "screen-grey-muted": {
+        "role": "neutral",
+        "displayName": "Screen Grey Muted",
+        "canonical": "#a1a1ad",
+        "tonalRamp": [
+          "#2f2f3a",
+          "#464652",
+          "#5e5e6c",
+          "#787886",
+          "#8f8f9c",
+          "#a1a1ad",
+          "#c9c9d4",
+          "#f5f5f7"
+        ]
+      },
+      "neon-violet": {
+        "role": "primary",
+        "displayName": "Neon Violet",
+        "canonical": "#7c5cff",
+        "tonalRamp": [
+          "#2a1a66",
+          "#3d2499",
+          "#5230cc",
+          "#6a46f5",
+          "#7c5cff",
+          "#9b82ff",
+          "#bfaeff",
+          "#e2dbff"
+        ]
+      },
+      "neon-violet-bright": {
+        "role": "primary",
+        "displayName": "Neon Violet Bright",
+        "canonical": "#9b82ff",
+        "tonalRamp": [
+          "#2a1a66",
+          "#3d2499",
+          "#5230cc",
+          "#6a46f5",
+          "#7c5cff",
+          "#9b82ff",
+          "#bfaeff",
+          "#e2dbff"
+        ]
+      },
+      "neon-violet-deep": {
+        "role": "primary",
+        "displayName": "Neon Violet Deep",
+        "canonical": "#6a46f5",
+        "tonalRamp": [
+          "#2a1a66",
+          "#3d2499",
+          "#5230cc",
+          "#6a46f5",
+          "#7c5cff",
+          "#9b82ff",
+          "#bfaeff",
+          "#e2dbff"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The Match Found title, and the poster placeholder's wordmark. One screen only — it is the payoff moment."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Screen titles: Profile, Watchlist, History, and a title's detail page."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "The deck card's title and the quiz step questions. text-balance on the card, so a long name breaks evenly."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Running copy, form labels and row titles. Synopses step down to 14px with leading-relaxed and text-pretty."
+      },
+      "action": {
+        "displayName": "Action",
+        "purpose": "Every button and chip label. Carried at 500 or 600 — the split is unresolved in the incumbent."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Eyebrows and pill text: 12px, 600, uppercase, 0.2em tracking. The deck's rating tiles drop to 10px and the TMDB notice to 9px."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "state",
+        "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "The system's only state transition (transition-colors / transition-opacity): chips, nav links, profile tabs, the quiz progress bar and the disabled fade."
+      },
+      {
+        "name": "card-in",
+        "value": "card-in 200ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "The deck card fading and rising 8px as it arrives, played once per card id. One card is on screen at a time, so without it an advance reads as the same card changing its text. Declared inside @media (prefers-reduced-motion: no-preference)."
+      },
+      {
+        "name": "deck-spring",
+        "value": "transform 200ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "The card returning to centre when a drag falls short. Applied only while the finger is up: a transition during the drag would put a 200ms lag between the thumb and the card. Declared inside @media (prefers-reduced-motion: no-preference)."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "md",
+        "value": "768px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The headline action — Watch Now, the quiz's Next, the profile submit. One per surface. Deep violet at rest for contrast (5.52:1 with white), the brighter violet on hover, a darkening on press.",
+      "html": "<button class=\"ds-btn-primary\">Watch Now</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; flex: 1; min-height: 2.75rem; padding: 0 24px; border: none; border-radius: 9999px; background: var(--color-accent-600, #6a46f5); color: #ffffff; font-family: system-ui, ui-sans-serif, sans-serif; font-size: 16px; font-weight: 600; line-height: 1.5; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-primary:hover { background: var(--color-accent-500, #7c5cff); } .ds-btn-primary:active { filter: brightness(0.9); } .ds-btn-primary:focus-visible { outline: 2px solid var(--color-accent-400, #9b82ff); outline-offset: 2px; } .ds-btn-primary:disabled { background: var(--color-ink-800, #1e1e28); color: var(--color-chalk-500, #a1a1ad); cursor: default; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Skip, Quiz Back, Sign out, Google, Trailer: an outlined peer to the primary action. The border step splits between Projector Black Line Strong (used here) and the softer Line, with no rule distinguishing them.",
+      "html": "<button class=\"ds-btn-secondary\">Skip</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; min-height: 2.75rem; padding: 0 20px; border: 1px solid var(--color-ink-600, #3a3a4a); border-radius: 9999px; background: transparent; color: var(--color-chalk-300, #c9c9d4); font-family: system-ui, ui-sans-serif, sans-serif; font-size: 16px; font-weight: 500; line-height: 1.5; cursor: pointer; } .ds-btn-secondary:focus-visible { outline: 2px solid var(--color-accent-400, #9b82ff); outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "The quiet register for sub-forms — Remove rating, Start a new loop. Text only, no fill or border; the underline arrives on hover. Two other sub-forms exist (a permanent underline, and an accent-coloured un-underlined link) with no rule separating them.",
+      "html": "<button class=\"ds-btn-ghost\">Start a new loop</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; min-height: 2.75rem; padding: 0 16px; border: none; background: transparent; color: var(--color-chalk-500, #a1a1ad); font-family: system-ui, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 500; line-height: 1.25; text-underline-offset: 4px; cursor: pointer; } .ds-btn-ghost:hover { text-decoration: underline; } .ds-btn-ghost:focus-visible { outline: 2px solid var(--color-accent-400, #9b82ff); outline-offset: 2px; }"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "A quiz answer: one of twelve genres or providers, or the dashed Any. The selected chip is the primary fill in miniature and takes the primary's resting Deep violet for the same contrast reason. It sets aria-pressed rather than a class, which is what the styling and the screen reader both read.",
+      "html": "<div class=\"ds-chip-row\"><button class=\"ds-chip\" aria-pressed=\"true\">Comedy</button><button class=\"ds-chip\" aria-pressed=\"false\">Drama</button><button class=\"ds-chip ds-chip-any\" aria-pressed=\"false\">Any</button></div>",
+      "css": ".ds-chip-row { display: flex; flex-wrap: wrap; gap: 8px; } .ds-chip { display: inline-flex; align-items: center; min-height: 2.75rem; padding: 0 16px; border: 1px solid var(--color-ink-600, #3a3a4a); border-radius: 9999px; background: var(--color-ink-800, #1e1e28); color: var(--color-chalk-300, #c9c9d4); font-family: system-ui, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 500; line-height: 1.25; cursor: pointer; transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1), border-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-chip[aria-pressed='true'] { border-color: var(--color-accent-600, #6a46f5); background: var(--color-accent-600, #6a46f5); color: #ffffff; } .ds-chip-any { border-style: dashed; border-color: var(--color-ink-600, #3a3a4a); background: transparent; color: var(--color-chalk-500, #a1a1ad); } .ds-chip-any[aria-pressed='true'] { border-style: solid; border-color: var(--color-accent-400, #9b82ff); background: var(--color-ink-800, #1e1e28); color: var(--color-accent-400, #9b82ff); } .ds-chip:focus-visible { outline: 2px solid var(--color-accent-400, #9b82ff); outline-offset: 2px; }"
+    },
+    {
+      "name": "Deck Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The hero surface, and the only 24px radius in the system. Poster beside the facts on a phone, above them from 768px. Depth is the tonal step and a hairline — no shadow. Carries the reason line under the title: the product's whole differentiation is saying why a card is here.",
+      "html": "<article class=\"ds-card\"><div class=\"ds-card-poster\"></div><div class=\"ds-card-body\"><div class=\"ds-card-head\"><h2 class=\"ds-card-title\">Everything Everywhere All at Once</h2><p class=\"ds-card-score\">8.0 <span class=\"ds-sr-only\">out of 10</span></p></div><p class=\"ds-card-reason\">Because you picked Comedy</p><p class=\"ds-card-meta\">2022 &middot; Movie &middot; 2h 19m</p><ul class=\"ds-card-tags\"><li class=\"ds-card-tag\">Comedy</li><li class=\"ds-card-tag\">Sci-Fi</li></ul></div><p class=\"ds-card-synopsis\">An aging Chinese immigrant is swept up in an insane adventure in which she alone can save existence.</p><div class=\"ds-card-foot\"><ul class=\"ds-card-tags\"><li class=\"ds-card-pill\">Netflix</li></ul></div></article>",
+      "css": ".ds-card { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--color-ink-700, #2a2a36); border-radius: 24px; background: var(--color-ink-900, #15151c); color: var(--color-chalk-50, #f5f5f7); font-family: system-ui, ui-sans-serif, sans-serif; } .ds-card-poster { aspect-ratio: 2 / 3; width: 100%; background: linear-gradient(to bottom right, var(--color-ink-800, #1e1e28), var(--color-ink-700, #2a2a36)); } .ds-card-body { display: flex; flex-direction: column; gap: 10px; padding: 16px; } .ds-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; } .ds-card-title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.4; text-wrap: balance; overflow-wrap: break-word; } .ds-card-score { flex-shrink: 0; margin: 0; border-radius: 9999px; background: var(--color-ink-800, #1e1e28); padding: 4px 12px; color: var(--color-chalk-500, #a1a1ad); font-size: 14px; font-weight: 600; line-height: 1.25; } .ds-card-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--color-chalk-500, #a1a1ad); font-size: 14px; line-height: 1.25; } .ds-card-tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; } .ds-card-tag { border: 1px solid var(--color-ink-700, #2a2a36); border-radius: 9999px; padding: 4px 12px; color: var(--color-chalk-300, #c9c9d4); font-size: 12px; font-weight: 500; line-height: 1.33; } .ds-card-synopsis { margin: 0; padding: 12px 16px 0; color: var(--color-chalk-300, #c9c9d4); font-size: 14px; line-height: 1.625; text-wrap: pretty; } .ds-card-foot { border-top: 1px solid var(--color-ink-800, #1e1e28); padding: 12px 16px; } .ds-card-pill { border-radius: 9999px; background: var(--color-ink-800, #1e1e28); padding: 4px 12px; color: var(--color-chalk-300, #c9c9d4); font-size: 12px; font-weight: 500; line-height: 1.33; } .ds-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } .ds-card-reason { margin: 0; color: var(--color-accent-400, #9b82ff); font-size: 14px; font-weight: 500; line-height: 1.25; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "The profile's email and password fields. Label above in Screen Grey, 6px gap, 44px field on a 12px radius. Focus is the global violet ring, not a per-field treatment.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Email</span><input class=\"ds-input\" type=\"email\" placeholder=\"you@example.com\" /></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 6px; font-family: system-ui, ui-sans-serif, sans-serif; } .ds-field-label { color: var(--color-chalk-300, #c9c9d4); font-size: 14px; font-weight: 500; line-height: 1.25; } .ds-input { min-height: 2.75rem; padding: 0 16px; border: 1px solid var(--color-ink-700, #2a2a36); border-radius: 12px; background: var(--color-ink-900, #15151c); color: var(--color-chalk-50, #f5f5f7); font-family: inherit; font-size: 16px; line-height: 1.5; } .ds-input::placeholder { color: var(--color-chalk-500, #a1a1ad); } .ds-input:focus-visible { outline: 2px solid var(--color-accent-400, #9b82ff); outline-offset: 2px; }"
+    },
+    {
+      "name": "Bottom Navigation",
+      "kind": "nav",
+      "description": "Three text labels, no icons, 64px tall, frosted with an 8px backdrop blur. One of only two floating bars in the system. The active item does not set aria-current in the incumbent — a gap, not a decision.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-link ds-nav-link-active\" href=\"#\">Deck</a><a class=\"ds-nav-link\" href=\"#\">Watchlist</a><a class=\"ds-nav-link\" href=\"#\">Profile</a></nav>",
+      "css": ".ds-nav { display: flex; height: 4rem; max-width: 448px; margin: 0 auto; border-top: 1px solid var(--color-ink-800, #1e1e28); background: color-mix(in oklab, var(--color-ink-950, #0b0b0f) 95%, transparent); backdrop-filter: blur(8px); font-family: system-ui, ui-sans-serif, sans-serif; } .ds-nav-link { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 2.75rem; color: var(--color-chalk-500, #a1a1ad); font-size: 14px; font-weight: 500; line-height: 1.25; text-decoration: none; transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-nav-link:hover { color: var(--color-chalk-300, #c9c9d4); } .ds-nav-link-active { color: var(--color-accent-400, #9b82ff); } .ds-nav-link:focus-visible { outline: 2px solid var(--color-accent-400, #9b82ff); outline-offset: 2px; }"
+    },
+    {
+      "name": "Rating Pill",
+      "kind": "custom",
+      "refersTo": "rating-pill",
+      "description": "The TMDB score on the deck card. Raised fill, Screen Grey Muted text, and the 'out of 10' spoken only to screen readers. It gave up its violet to the reason line — a score is a fact about the title, not a reason for its presence.",
+      "html": "<p class=\"ds-rating-pill\">8.0 <span class=\"ds-sr-only\">out of 10</span></p>",
+      "css": ".ds-rating-pill { display: inline-block; margin: 0; border-radius: 9999px; background: var(--color-ink-800, #1e1e28); padding: 4px 12px; color: var(--color-chalk-500, #a1a1ad); font-family: system-ui, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 600; line-height: 1.25; } .ds-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }"
+    },
+    {
+      "name": "Rating Tile",
+      "kind": "custom",
+      "description": "The signature component: five judgements, each a Feather-style glyph over its word. Three columns at phone width and one row of five from 768px, with 12px labels — five labels sharing 360px left each about fourteen characters, which is an unreadable label rather than a compact one. Every tile is 44px tall either way.",
+      "html": "<div class=\"ds-ratings\"><button class=\"ds-rating\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z\"/></svg>Loved</button><button class=\"ds-rating\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3\"/></svg>Liked</button><button class=\"ds-rating\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17\"/></svg>Disliked</button><button class=\"ds-rating\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z\"/></svg>Want to Watch</button><button class=\"ds-rating\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20zM15 9l-6 6M9 9l6 6\"/></svg>Not Interested</button></div>",
+      "css": ".ds-ratings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; } @media (min-width: 768px) { .ds-ratings { grid-template-columns: repeat(5, minmax(0, 1fr)); } } .ds-rating { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 2.75rem; padding: 4px 2px; border: 1px solid var(--color-ink-700, #2a2a36); border-radius: 12px; background: var(--color-ink-900, #15151c); color: var(--color-chalk-300, #c9c9d4); font-family: system-ui, ui-sans-serif, sans-serif; font-size: 12px; font-weight: 500; line-height: 1.25; text-align: center; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1), border-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-rating svg { width: 20px; height: 20px; flex-shrink: 0; } .ds-rating:hover { background: var(--color-ink-800, #1e1e28); } .ds-rating:active { border-color: var(--color-accent-400, #9b82ff); background: var(--color-ink-800, #1e1e28); } .ds-rating:focus-visible { outline: 2px solid var(--color-accent-400, #9b82ff); outline-offset: 2px; }"
+    },
+    {
+      "name": "Reason Line",
+      "kind": "custom",
+      "refersTo": "reason-line",
+      "description": "Why this card is here: a picked genre, a loved genre, or a selected service, in the app's one violet. Absent — never defaulted — when no signal fired, because a placeholder would be the one claim the engine cannot support.",
+      "html": "<p class=\"ds-reason\">Because you loved Horror</p>",
+      "css": ".ds-reason { margin: 0; color: var(--color-accent-400, #9b82ff); font-family: system-ui, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 500; line-height: 1.25; }"
+    },
+    {
+      "name": "Undo Strip",
+      "kind": "custom",
+      "refersTo": "undo-strip",
+      "description": "The acknowledgement of a rating, and the only way back from a mis-tap. Sits inside the deck's footer directly above the action bar. An offer, not a prompt: nothing blocks the next card, it holds only the last rating, and the next action clears it — never a clock.",
+      "html": "<div class=\"ds-undo\"><p class=\"ds-undo-text\">Rated Loved It</p><button class=\"ds-undo-btn\">Undo</button></div>",
+      "css": ".ds-undo { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; border-radius: 12px; background: var(--color-ink-800, #1e1e28); padding: 8px 12px; font-family: system-ui, ui-sans-serif, sans-serif; } .ds-undo-text { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-chalk-300, #c9c9d4); font-size: 14px; line-height: 1.25; } .ds-undo-btn { flex-shrink: 0; min-height: 2.75rem; padding: 0 16px; border: 1px solid var(--color-ink-600, #3a3a4a); border-radius: 9999px; background: transparent; color: var(--color-chalk-300, #c9c9d4); font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-undo-btn:hover, .ds-undo-btn:active { background: var(--color-ink-700, #2a2a36); } .ds-undo-btn:focus-visible { outline: 2px solid var(--color-accent-400, #9b82ff); outline-offset: 2px; }"
+    },
+    {
+      "name": "Loading Skeleton",
+      "kind": "custom",
+      "refersTo": "skeleton",
+      "description": "The deck's first render, shaped like the card it will become so nothing jumps when the answer arrives. Never a progressbar — one request, no increments — and never a verdict: an empty state here would be claiming to know an answer that has not arrived. The bars are a picture of a card and carry no information, so the whole thing is aria-hidden and a separate sentence is the announcement.",
+      "html": "<div class=\"ds-skeleton\" aria-hidden=\"true\"><div class=\"ds-skeleton-poster\"></div><div class=\"ds-skeleton-body\"><div class=\"ds-skeleton-bar ds-skeleton-bar-lg\"></div><div class=\"ds-skeleton-bar ds-skeleton-bar-md\"></div><div class=\"ds-skeleton-bar ds-skeleton-bar-sm\"></div></div></div><p class=\"ds-sr-only\" role=\"status\">Loading your deck&hellip;</p>",
+      "css": ".ds-skeleton { overflow: hidden; border: 1px solid var(--color-ink-700, #2a2a36); border-radius: 24px; background: var(--color-ink-900, #15151c); animation: ds-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; } .ds-skeleton-poster { aspect-ratio: 2 / 3; width: 100%; background: var(--color-ink-800, #1e1e28); } .ds-skeleton-body { display: flex; flex-direction: column; gap: 10px; padding: 16px; } .ds-skeleton-bar { border-radius: 9999px; background: var(--color-ink-800, #1e1e28); height: 16px; } .ds-skeleton-bar-lg { height: 24px; width: 75%; } .ds-skeleton-bar-md { width: 50%; } .ds-skeleton-bar-sm { width: 67%; } @keyframes ds-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } } @media (prefers-reduced-motion: reduce) { .ds-skeleton { animation: none; } } .ds-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }"
+    },
+    {
+      "name": "Swipe Hint Pill",
+      "kind": "custom",
+      "refersTo": "swipe-hint",
+      "description": "What a gesture is about to record, shown while the finger is still down: a violet outline on a translucent black capsule, on the side the card is leaving. Its opacity is the gesture's progress, reaching full at the distance a drag commits — keyed to the drag, because waiting for commitment would blink it into full opacity exactly when the visitor stops needing telling. aria-hidden: the rating it becomes is announced once it is actually written, and naming it here would read out a rating for a gesture that may still be abandoned.",
+      "html": "<p class=\"ds-hint\" aria-hidden=\"true\">Not Interested</p>",
+      "css": ".ds-hint { position: absolute; top: 50%; left: 16px; transform: translateY(-50%); margin: 0; border: 1px solid var(--color-accent-400, #9b82ff); border-radius: 9999px; background: color-mix(in oklab, var(--color-ink-950, #0b0b0f) 90%, transparent); padding: 8px 16px; color: var(--color-accent-400, #9b82ff); font-family: system-ui, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 500; line-height: 1.25; pointer-events: none; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Late-Night Couch",
+    "overview": "One person, phone in hand, lights off. Not a theater and not a cinema lobby — a couch at midnight, where the only thing competing for attention is the title on screen. The interface should read as editorial, quiet, sharp: a well-set page rather than app chrome, where typographic hierarchy carries the layout and colour is nearly absent. What is built today already has the right bones for that. There are no shadows anywhere in the application — depth comes entirely from a five-step near-black ramp and 1px hairlines, which is an unusually disciplined foundation. Contrast does the heavy lifting: bright chalk text on projector black, with one violet accent. Where the incumbent and the North Star diverge is how much that violet is asked to do. Today it marks primary buttons, selected chips, the rating score on every card, the active navigation item, focus rings and eyebrow labels. That is chrome doing the talking. The direction this record commits to is to let type, spacing and the ramp carry more, and to reserve violet for genuine state — the thing you chose, not the thing you are being sold.",
+    "keyCharacteristics": [
+      "Dark only, by product constraint rather than fashion — the PRD's own words are that dark \"fits movie/theater aesthetics\", and the constitution makes it the default.",
+      "Flat by construction: zero shadows in the entire codebase (verified by scan), depth expressed as tonal steps and hairlines.",
+      "One accent hue, no second colour, and no error/destructive colour at all — a real gap, recorded under Do's and Don'ts.",
+      "A single 448px column on every screen, phone-first from a 360px floor.",
+      "All type from the system font stack; no webfont is loaded, and nothing in the design depends on one.",
+      "Every interactive target is at least 44px, enforced by one shared utility (touch-target) rather than by discipline."
+    ],
+    "rules": [
+      {
+        "name": "The One Violet Rule",
+        "body": "Violet is a state, not a mood. It may mark what the visitor has chosen or where they are, and it may mark a primary action — never decoration, never a heading, never a background wash. Its rarity is what makes \"selected\" legible without a checkmark.",
+        "section": "colors"
+      },
+      {
+        "name": "The Hairline Rule",
+        "body": "Depth is a 1px border or a tonal step, never a shadow. If a surface needs to feel raised, move it one step up the Projector Black ramp. There is no shadow vocabulary in this system to reach for.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Two Weights Rule",
+        "body": "500 or 600, nothing else. A third weight would need to justify itself against a hierarchy that is already working without one.",
+        "section": "typography"
+      },
+      {
+        "name": "The Two Frosted Bars Rule",
+        "body": "bg-ink-950/95 backdrop-blur belongs to the navigation and the deck's action bar. A third one would make the app feel like it is hovering rather than sitting still.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do reserve Neon Violet for state and primary action. If a violet element is neither chosen, current, scored, or actionable, it is decoration — the One Violet Rule.",
+      "Do express depth as a step on the Projector Black ramp or a 1px hairline. There is no shadow in this system; adding one means inventing a second depth language.",
+      "Do keep every interactive target at 44px by applying touch-target, which is the single mechanism the constitution's touch requirement is enforced through.",
+      "Do keep the frame: max-w-md, px-5, phone-first from 360px. Desktop gets a taller card, not a wider page.",
+      "Do use 12px uppercase with wide tracking for eyebrows and pill labels, and set headings semibold against medium interactive text.",
+      "Do keep the TMDB attribution present, legible, and less prominent than the app's own marks on any screen showing TMDB titles or artwork. It is a licence term, not a design choice, and attribution.spec.ts pins its wording.",
+      "Do let long titles break with text-balance/truncate and min-w-0 rather than widening a container."
+    ],
+    "donts": [
+      "Don't add a shadow, a glow, or a gradient — except the poster placeholder's, which exists to signal \"no artwork\" rather than to decorate.",
+      "Don't introduce a second accent hue. The palette has exactly one, and its scarcity is what makes selection legible.",
+      "Don't style a destructive action in colour until the palette actually has an error token. Today's neutral treatment of Sign out and Remove rating is the honest consequence of that gap, not an oversight to quietly patch with a red.",
+      "Don't put a 10px label anywhere new. That size belongs to the deck's rating tiles, where five labels share 360px.",
+      "Don't rely on colour alone to communicate selection: every selectable control carries aria-pressed or aria-selected, and new ones must too.",
+      "Don't add a third frosted bar or a sticky header. Two floating bars is the system; three makes the page feel unmoored."
+    ]
+  }
+}
