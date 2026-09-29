@@ -10,6 +10,11 @@ let a one-genre title outrank a two-genre one and let high-vote family
 animation crowd out the genres the visitor actually picked. The stage-1 filter
 table and G1–G5 are unchanged.
 
+**Amended (2026-09-29, the reason line)**: the return type became `RankedTitle[]`
+— every ranked title now carries the one-sentence reason the card shows
+(stage 4, below). Ordering, the filter table and G1–G7 are unchanged; the
+reason is derived from the same inputs the score was, and cannot influence it.
+
 `rankTitles` is the product's core asset and the reason the deck is trustworthy.
 It is specified as a **pure function** so that two constitution invariants can be
 proven by tests rather than argued about, and so FR-011's reproducibility is a
@@ -21,16 +26,28 @@ TypeScript, exactly like spec 001's `quiz-rules.ts`.
 ## Signature
 
 ```ts
+interface RankedTitle extends MediaTitle {
+  reason: string | null;            // stage 4; `null` = nothing honest to say
+}
+
 function rankTitles(
   catalog: readonly MediaTitle[],
   preferences: Preference,          // spec 001's completed Preference
   interactions: Readonly<Record<string, Interaction>>,
   shownTitleIds: readonly string[], // the current loop's already-advanced-past ids
-): MediaTitle[]
+): RankedTitle[]
 ```
 
-Returns the eligible titles, best first. Never mutates its inputs. Never throws
-on malformed input — a title that cannot be scored is filtered out, not fatal.
+Returns the eligible titles, best first, each carrying its own reason. Never
+mutates its inputs. Never throws on malformed input — a title that cannot be
+scored is filtered out, not fatal.
+
+`RankedTitle` extends `MediaTitle` rather than replacing it: `MediaTitle` stays
+the storage-and-transport shape, and the reason is a statement about *this*
+ranking that no API response makes. It is attached by the engine, not derived
+by the card, because only the engine knows which signal actually placed the
+title — a second derivation downstream would be a second opinion, and the two
+would eventually disagree.
 
 ## Stage 1 — Hard filters (the Filter Enforcement invariant)
 
@@ -127,6 +144,40 @@ anywhere in this function**, and that is a deliberate product decision
 (constitution VI), not a limitation: a new loop feels fresh because the
 visitor's own ratings have changed the scores, not because a dice roll did.
 
+## Stage 4 — The reason (why this card is here)
+
+One sentence per title, or `null`. The deck's promise is that a card can be
+*justified*, not that every term of the score is itemized — the sentence names
+the one signal a visitor would recognize their own decision in.
+
+Precedence, first match wins:
+
+| # | Condition | Sentence |
+|---|---|---|
+| 1 | `!preferences.genre.any` and the title wears a genre in `preferences.genre.values` that has a display name | `Because you picked {Genre}` |
+| 2 | the title wears a genre in `lovedGenres` that has a display name | `Because you loved {Genre}` |
+| 3 | the title has an availability entry on a selected service, directly or through `RETIRED_PROVIDER_SUCCESSORS` | `On {Provider}, one of your services` |
+| 4 | none of the above | `null` |
+
+Notes that matter:
+
+- **Only one sentence, ever.** Terms 2 and 3 of the score still apply to a title
+  ranked by branch 1; the reason reports the *first* thing the visitor would
+  name, not a summary of the arithmetic.
+- **Branch 2 is only reachable under `Any`.** With a real genre selection, filter
+  2 has already guaranteed an overlap, so branch 1 matches — unless the stored
+  id has no display name, in which case branch 2 gets its turn.
+- **Branch 3 names the service that matched, not the one selected.** A visitor
+  whose stored preference says `star-plus` is shown `On Disney+, one of your
+  services`, because Disney+ is the catalog they can actually watch.
+- **An unlabelled id falls through, never through to the card.** `a-defunct-service`
+  in an availability entry and `family` in a genre list are both data the option
+  lists do not know; neither reaches the visitor. This is the same rule the
+  card's own id→name mapping follows, applied at the engine so the string is
+  safe wherever it is shown.
+- `null` is a normal value, not a failure. A title that ranked purely on its
+  confidence-weighted rating gets silence, and the card renders nothing.
+
 ## Guarantees
 
 | # | Guarantee | Requirement |
@@ -138,6 +189,7 @@ visitor's own ratings have changed the scores, not because a dice roll did.
 | G5 | An empty result is a normal value, never an error | FR-014 (empty state) |
 | G6 | A title matching more selected genres always ranks above one matching fewer — unconditional, independent of the within-tier terms | FR-019, SC-009 |
 | G7 | Within a tier, an unselected *selectable* genre demotes; slug tags never demote; no demotion when the visitor chose Any | FR-019 |
+| G8 | Every `reason` is either `null` or a sentence naming a labelled genre or provider — never a raw id, never a fragment | FR-003 |
 
 ## Worked example
 

@@ -1,18 +1,17 @@
 import { createDeckSession, DeckSession } from '../../../core/models/deck-session';
 import { MediaTitle } from '../../../core/models/media-title';
 import { Preference } from '../../../core/models/quiz';
-import { advance, currentCard, loopFor, startNewLoop } from './deck-session';
+import { advance, currentCard, loopFor, rewind, startNewLoop } from './deck-session';
 
 /**
  * Tests for the loop's transitions.
  *
  * Pure functions, so no `TestBed` here. One consequence worth stating: these
- * tests prove the advance path has **nowhere** to record a rating (FR-004),
- * because a `DeckSession` has no field for one and `advance` returns nothing
- * else. The end-to-end version of that guarantee — that
- * `playnext:interactions` is still untouched after a rating-free swipe session
- * — belongs to the DOM-driven integration test in `deck.spec.ts` (T024), which
- * has a store to check.
+ * tests prove `advance` and `rewind` have **nowhere** to record a rating
+ * (FR-004), because a `DeckSession` has no field for one. The ratings a swipe
+ * produces live in the interaction document and reach it through the shell's
+ * `onRating`, which is where the end-to-end version of that guarantee is
+ * checked — in `deck.spec.ts` (T024), which has a store to inspect.
  */
 
 const STARTED_AT = '2026-09-26T10:00:00.000Z';
@@ -76,13 +75,74 @@ describe('advance', () => {
   });
 
   it('has nowhere to record an interaction (FR-004)', () => {
-    // A swipe is a neutral skip: no rating, no history entry. That is not a
-    // rule the advance path has to remember — there is no field to put one in.
+    // Advancing records that a card was *seen* and nothing more. A rating
+    // cannot be smuggled through here — there is no field to put one in — which
+    // is why the deck's swipe can route through `onRating` without this module
+    // having to know that gestures exist.
     expect(Object.keys(advance(session(), 'first')).sort()).toEqual([
       'schemaVersion',
       'shownTitleIds',
       'startedAt',
     ]);
+  });
+});
+
+describe('rewind', () => {
+  it('un-shows the id, so the card comes back (US2 undo)', () => {
+    const next = rewind(session(['first', 'second']), 'second');
+
+    expect(next.shownTitleIds).toEqual(['first']);
+  });
+
+  it('leaves the id out of the walk from wherever it was', () => {
+    // Order-independent on purpose: Undo is reached from the last rating, but
+    // the function is total over the list, and a rewind that only ever worked
+    // on the tail would hide an off-by-one until the one time it mattered.
+    const next = rewind(session(['first', 'second', 'third']), 'first');
+
+    expect(next.shownTitleIds).toEqual(['second', 'third']);
+  });
+
+  it('hands back the same session when the id was never shown', () => {
+    // By reference, not by value: the caller writes whatever comes back, and
+    // an equal-but-fresh object would turn "nothing to undo" into a disk write.
+    const before = session(['first']);
+
+    expect(rewind(before, 'second')).toBe(before);
+  });
+
+  it('is a no-op on an empty walk', () => {
+    const before = session();
+
+    expect(rewind(before, 'first')).toBe(before);
+  });
+
+  it('does not mutate the session it was given', () => {
+    const before = session(['first', 'second']);
+
+    rewind(before, 'second');
+
+    expect(before.shownTitleIds).toEqual(['first', 'second']);
+  });
+
+  it('keeps the persisted shape — a rewind is not a new loop', () => {
+    const next = rewind(session(['first']), 'first');
+
+    expect(Object.keys(next).sort()).toEqual(['schemaVersion', 'shownTitleIds', 'startedAt']);
+    expect(next.startedAt).toBe(STARTED_AT);
+    expect(next.schemaVersion).toBe(1);
+  });
+
+  it('round-trips with advance', () => {
+    // The property that makes Undo cheap: undoing one advance restores exactly
+    // the walk it was applied to, so the card that reappears is the one that
+    // was on screen — no cursor, no stored position, nothing to desynchronise.
+    const before = session(['first']);
+
+    const undone = rewind(advance(before, 'second'), 'second');
+
+    expect(undone.shownTitleIds).toEqual(before.shownTitleIds);
+    expect(currentCard(undone, ranked)?.id).toBe('second');
   });
 });
 

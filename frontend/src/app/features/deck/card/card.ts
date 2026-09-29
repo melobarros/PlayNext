@@ -1,10 +1,10 @@
 import { Component, computed, inject, input } from '@angular/core';
-import { MediaTitle } from '../../../core/models/media-title';
 import { MEDIA_TYPE_LABELS } from '../../../core/models/quiz';
 import { QuizOptionsService } from '../../../core/services/quiz-options.service';
 import { displayNames } from '../../../shared/display-names';
 import { artworkAlt, Poster } from '../../../shared/poster/poster';
 import { formatRating, formatRuntime } from '../../../shared/title-facts';
+import { RankedTitle } from '../deck-logic/recommend';
 
 /**
  * One recommendation card (FR-003).
@@ -38,7 +38,14 @@ import { formatRating, formatRuntime } from '../../../shared/title-facts';
 export class Card {
   private readonly options = inject(QuizOptionsService);
 
-  readonly title = input.required<MediaTitle>();
+  /**
+   * The ranked title to render — a `MediaTitle` the engine has already
+   * justified. It is asked for the richer type rather than the base one because
+   * the reason line is the card's to *show* and the engine's to *decide*: a
+   * second component deriving it would be a second opinion about why a card is
+   * on screen, and the two would eventually disagree.
+   */
+  readonly title = input.required<RankedTitle>();
 
   /** Genre and provider ids are dense; these are the lookup tables for them. */
   private readonly genreNames = new Map(

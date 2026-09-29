@@ -287,10 +287,17 @@ describe('httpCatalogSource', () => {
     });
 
     it('renders the empty state, never an error, when nothing was ever cached', async () => {
-      // US3 scenario 2. The empty array is what the deck's existing empty state
-      // is built for, and it carries its own way out — a retry. An error here
+      // US3 scenario 2. The empty array is what the deck's empty state is built
+      // for, and that state carries its own way out — a retry. An error here
       // would be a screen with no next step, which is the dead end the
       // constitution forbids.
+      //
+      // The deck tells this apart from a genuinely empty result by reading the
+      // empty array *together with* the flag below: `usingCachedTitles() &&
+      // titles.length === 0` is the failure, and it renders "Couldn't reach the
+      // catalog" rather than "Nothing matches". That derivation is why this spec
+      // asserts the pair — either half alone is ambiguous, and the deck is the
+      // only place that can combine them.
       const load = lastValueFrom(service.loadTitles('BR'));
       refuse();
 

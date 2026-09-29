@@ -8,7 +8,13 @@
  * (Milestone 2). Renaming one is a contract change.
  */
 
-/** The rating vocabulary. A swipe is a neutral skip and records none of these. */
+/**
+ * The rating vocabulary.
+ *
+ * Six states, and every one of them is reachable from the deck's rating bar.
+ * A swipe records two of them — `notInterested` to the left, `wantToWatch` to
+ * the right — and the neutral advance, `Skip`, records none.
+ */
 export type InteractionState =
   'loved' | 'liked' | 'disliked' | 'wantToWatch' | 'notInterested' | 'watchingNow';
 

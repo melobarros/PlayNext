@@ -35,7 +35,7 @@ export type ProviderLoadState = 'loading' | 'loaded' | 'failed' | 'fallback';
           </p>
           <button
             type="button"
-            class="touch-target mt-3 inline-flex items-center rounded-full bg-accent-500 px-4 text-sm font-medium text-white"
+            class="touch-target mt-3 inline-flex items-center rounded-full bg-accent-600 px-4 text-sm font-medium text-white hover:bg-accent-500 active:brightness-90"
             (click)="retry()"
           >
             Retry

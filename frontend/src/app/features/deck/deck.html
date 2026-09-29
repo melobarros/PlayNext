@@ -8,12 +8,32 @@
   class="mx-auto flex min-h-[calc(100dvh-var(--spacing-nav))] max-w-md flex-col px-5 pt-6"
 >
   <!--
+    What a rating *says*, for anyone who cannot see the strip below. It is a
+    region of its own rather than an attribute on the strip because the strip is
+    inside the footer and disappears with the card at the end of a loop — and an
+    `aria-live` node that is removed cannot announce the removal, so the last
+    rating of a loop would go unacknowledged exactly when the deck is most
+    likely to feel like it swallowed the tap.
+
+    Empty before the first rating, and empty again after Undo: a region that
+    keeps its old text cannot report a change, and a retracted rating must not
+    still be readable as a fact.
+  -->
+  <p aria-live="polite" class="sr-only">{{ announcement() }}</p>
+
+  <!--
     The notices are in the flow, above the card, and a line of small text each
     (FR-017). They are the whole reason the deck can be honest about degraded
     state without taking the decision away: an overlay or a full-height banner
     would report the problem by causing a worse one.
   -->
-  @if (usingCachedTitles()) {
+  <!--
+    Suppressed when the fallback was empty: "showing saved results" is a promise
+    about results that, in that case, do not exist. The empty state says what
+    actually happened instead, and two notices contradicting each other is worse
+    than either one alone.
+  -->
+  @if (usingCachedTitles() && !loadFailed()) {
     <p class="mb-3 rounded-lg bg-ink-800 px-3 py-2 text-xs text-chalk-300" role="status">
       Couldn't reach the catalog. Showing saved results.
     </p>
@@ -24,26 +44,109 @@
     </p>
   }
 
-  @if (card(); as current) {
+  @if (showsSkeleton()) {
     <!--
-      The card is the only thing on screen (FR-002). `touch-pan-y` leaves
-      vertical scrolling to the browser — the synopsis has to stay reachable —
-      while the horizontal gesture comes to us. Capture is taken on pointerdown
-      so a drag that wanders off the card still finishes as one gesture.
+      A skeleton, and deliberately not a spinner. Three things it must not be:
+
+      1. **Not a verdict.** The first render is the one the visitor sees while
+         the answer is still unknown, so it may not say anything about what the
+         answer will be. An empty state here is the bug this replaced.
+      2. **Not a `progressbar`.** There is no progress to report — one request,
+         no increments — and a bar that animates forever without advancing is a
+         worse lie than silence. Two specs pin its absence.
+      3. **Not content.** The bars are a picture of a card and nothing in them
+         is information, so they are `aria-hidden` and the sentence below is the
+         whole announcement. `motion-reduce` stops the pulse for a visitor who
+         asked for less movement.
+
+      Shaped like the real card — same radius, border and poster aspect — so
+      nothing jumps when the answer arrives.
     -->
-    <div
-      #cardSurface
-      class="touch-pan-y"
-      [class.transition-transform]="!isDragging()"
-      [class.duration-200]="!isDragging()"
-      [style.transform]="'translateX(' + dragX() + 'px)'"
-      (pointerdown)="onPointerDown($event)"
-      (pointermove)="onPointerMove($event)"
-      (pointerup)="onPointerUp($event)"
-      (pointercancel)="onPointerUp($event)"
-    >
-      <app-card [title]="current" />
+    <div data-card-skeleton aria-hidden="true" class="animate-pulse motion-reduce:animate-none">
+      <div class="overflow-hidden rounded-3xl border border-ink-700 bg-ink-900">
+        <div class="flex md:flex-col">
+          <div class="aspect-poster w-28 shrink-0 bg-ink-800 md:w-full"></div>
+
+          <div class="flex min-w-0 flex-1 flex-col gap-2.5 p-4">
+            <div class="h-6 w-3/4 rounded-full bg-ink-800"></div>
+            <div class="h-4 w-1/2 rounded-full bg-ink-800"></div>
+            <div class="h-4 w-2/3 rounded-full bg-ink-800"></div>
+          </div>
+        </div>
+      </div>
     </div>
+
+    <p role="status" class="sr-only">Loading your deck…</p>
+  } @else if (card(); as current) {
+    <!--
+      The card is the only thing on screen (FR-002). On the surface below,
+      `touch-pan-y` leaves vertical scrolling to the browser — the synopsis has
+      to stay reachable — while the horizontal gesture comes to us, and capture
+      is taken on pointerdown so a drag that wanders off the card still finishes
+      as one gesture.
+
+      Two elements, two transforms, and that is the whole reason for the split.
+
+      The wrapper does the arrival — `card-in` fades and lifts it — and it
+      re-mounts on every card id because `@for` tracks by id. The surface inside
+      does the drag, translating on X with the finger.
+
+      Put both on one element and they collide: a CSS animation's `transform`
+      beats an inline style for as long as it runs, so a drag begun in the 200ms
+      after a card appeared would leave the card stuck under the finger — and
+      swiping quickly, one card after another, is exactly when that happens.
+      Apart, they compose, and the card can rise into place while already
+      following a thumb.
+
+      `relative` is on the wrapper rather than the surface because the surface
+      *translates*: a pill positioned against it would ride off the screen edge
+      along with the card, which is the opposite of what a hint at the edge is
+      for. The wrapper stays put, so the pill marks a place on the screen while
+      the card moves away from it.
+    -->
+    @for (item of [current]; track item.id) {
+      <div class="card-in relative">
+        <div
+          #cardSurface
+          class="touch-pan-y"
+          [class.deck-spring]="!isDragging()"
+          [style.transform]="'translateX(' + dragX() + 'px)'"
+          (pointerdown)="onPointerDown($event)"
+          (pointermove)="onPointerMove($event)"
+          (pointerup)="onPointerUp($event)"
+          (pointercancel)="onPointerUp($event)"
+        >
+          <app-card [title]="item" />
+        </div>
+
+        <!--
+          What the gesture is heading toward, shown while the finger is still
+          down. It appears on the side the card is leaving, which is where the
+          eye already is and where the gap is opening up.
+
+          `aria-hidden`, and not by oversight: this is a picture of a decision
+          the visitor is making with their hand, and the rating it becomes is
+          announced by the live region above once it is actually written. Naming
+          it here as well would have a screen reader read out a rating for a
+          gesture that may still be abandoned.
+
+          `pointer-events-none` so it can never swallow the pointer that created
+          it — the same pointer is still driving the drag.
+        -->
+        @if (swipeHint(); as hint) {
+          <p
+            data-swipe-hint
+            aria-hidden="true"
+            class="pointer-events-none absolute top-1/2 -translate-y-1/2 rounded-full border border-accent-400 bg-ink-950/90 px-4 py-2 text-sm font-medium text-accent-400"
+            [class.left-4]="dragX() < 0"
+            [class.right-4]="dragX() >= 0"
+            [style.opacity]="swipeHintOpacity()"
+          >
+            {{ stateLabels[hint] }}
+          </p>
+        }
+      </div>
+    }
 
     <!--
       Sticky, so no action ever scrolls out of reach on a long card (FR-017).
@@ -61,6 +164,38 @@
     <footer
       class="sticky bottom-nav mt-auto border-t border-ink-800 bg-ink-950/95 px-5 py-4 backdrop-blur"
     >
+      <!--
+        The acknowledgement, and the only way back from a mis-tap.
+
+        It sits *above* the bar rather than over the card: the next card is
+        already on screen and is the thing the visitor is looking at, so an
+        overlay would cover the content it is reporting on. Above the bar is
+        also where the eye already is after tapping a tile, and it costs the
+        deck a row of height only while there is something to say.
+
+        Timer-free by construction. It is cleared by the next action, not by the
+        clock, so there is no window in which it describes a rating that is no
+        longer the last one — and no `setTimeout` to keep alive when the screen
+        is torn down.
+      -->
+      @if (lastAction(); as action) {
+        <div
+          data-undo-strip
+          class="mb-2 flex items-center justify-between gap-3 rounded-xl bg-ink-800 px-3 py-2"
+        >
+          <p class="min-w-0 truncate text-sm text-chalk-300">
+            Rated {{ stateLabels[action.state] }}
+          </p>
+          <button
+            type="button"
+            class="touch-target shrink-0 rounded-full border border-ink-600 px-4 text-sm font-medium text-chalk-300 hover:bg-ink-700 active:bg-ink-700"
+            (click)="undo()"
+          >
+            Undo
+          </button>
+        </div>
+      }
+
       <app-actions (ratingChosen)="onRating($event)" (watchNow)="onWatchNow()" (skipped)="skip()" />
 
       <!--
@@ -82,6 +217,7 @@
       class="flex flex-1 flex-col"
       [outcome]="outcome()"
       (startNewLoop)="startLoop()"
+      (retry)="reload()"
     />
   }
 </main>

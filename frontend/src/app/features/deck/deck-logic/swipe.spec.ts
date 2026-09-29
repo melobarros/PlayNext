@@ -1,4 +1,9 @@
-import { PointerSample, swipeDecision } from './swipe';
+import {
+  DISMISS_MIN_DISTANCE_PX,
+  dismissThreshold,
+  PointerSample,
+  swipeDecision,
+} from './swipe';
 
 /**
  * Tests for the swipe gesture, as a pure function over pointer samples.
@@ -100,5 +105,38 @@ describe('swipeDecision', () => {
         'dismiss-right',
       );
     });
+  });
+});
+
+describe('dismissThreshold', () => {
+  it('takes the ratio of a card wide enough for it to matter', () => {
+    // 360px × 0.35 = 126px, comfortably past the floor.
+    expect(dismissThreshold(360)).toBeCloseTo(126);
+  });
+
+  it('never drops below the floor, however narrow the card', () => {
+    // A short card would otherwise be dismissed by a twitch.
+    expect(dismissThreshold(100)).toBe(DISMISS_MIN_DISTANCE_PX);
+  });
+
+  it('falls back to the floor when the card cannot be measured', () => {
+    // jsdom reports every element as 0px wide, and a real card can be measured
+    // before layout. A NaN here would make the threshold NaN and commit *every*
+    // drag, so an unmeasurable card has to be stricter, not looser.
+    expect(dismissThreshold(0)).toBe(DISMISS_MIN_DISTANCE_PX);
+    expect(dismissThreshold(Number.NaN)).toBe(DISMISS_MIN_DISTANCE_PX);
+  });
+
+  it('is the same number the decision commits on', () => {
+    // The two are separate functions by necessity — one answers "how far", the
+    // other "did it get there" — and this is the pin that keeps the drag hint
+    // reaching full opacity at the distance a drag actually dismisses.
+    const threshold = dismissThreshold(CARD_WIDTH);
+    const justUnder = drag(-(threshold - 1), 100000);
+    const justOver = drag(-(threshold + 1), 100000);
+
+    // Slow enough that velocity cannot commit either one on its own.
+    expect(swipeDecision(justUnder, CARD_WIDTH)).toBe('reset');
+    expect(swipeDecision(justOver, CARD_WIDTH)).toBe('dismiss-left');
   });
 });

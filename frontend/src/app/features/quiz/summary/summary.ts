@@ -29,7 +29,7 @@ const EMPTY_LABEL = 'Nothing selected';
 
     <button
       type="button"
-      class="touch-target mt-8 inline-flex w-full items-center justify-center rounded-full bg-accent-500 px-6 font-semibold text-white"
+      class="touch-target mt-8 inline-flex w-full items-center justify-center rounded-full bg-accent-600 px-6 font-semibold text-white hover:bg-accent-500 active:brightness-90"
       (click)="start.emit()"
     >
       Start recommendations

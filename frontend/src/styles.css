@@ -71,3 +71,57 @@
     @apply outline-2 outline-offset-2 outline-accent-400;
   }
 }
+
+/*
+ * Motion, and the two things that move.
+ *
+ * Both live inside `prefers-reduced-motion: no-preference` rather than being
+ * switched off with a `motion-reduce:` variant at the call site. The default is
+ * that nothing animates, and a visitor who has asked their system for less
+ * movement never receives the animation at all — not an animation that starts
+ * and is then cancelled, which is what a `motion-reduce:animate-none` class
+ * would give them.
+ *
+ * Written as plain CSS rather than through Angular's animation DSL: both of
+ * these are one-shot CSS animations on elements that already exist, and
+ * `provideAnimations` would add a runtime and a bundle to the app for two rules
+ * that the browser can already do.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  /*
+   * The card arriving — a short rise and fade, played once per card id by the
+   * `@for` that re-mounts the surface on every advance.
+   *
+   * The motion is doing a job, not decorating: the deck is one card at a time
+   * (FR-002), so without it an advance reads as the *same* card changing its
+   * text rather than a new one taking its place, and the loop's forward
+   * direction becomes invisible.
+   */
+  @keyframes card-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .card-in {
+    animation: card-in 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /*
+   * The card returning to centre when a drag falls short.
+   *
+   * Applied only while the finger is up (`!isDragging()`): a transition during
+   * the drag itself would put a 200ms lag between the finger and the card,
+   * which is the one thing that makes a swipe feel broken.
+   */
+  .deck-spring {
+    transition-property: transform;
+    transition-duration: 200ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}

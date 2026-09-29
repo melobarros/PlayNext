@@ -1,21 +1,24 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { MediaTitle } from '../../../core/models/media-title';
+import { RankedTitle } from '../deck-logic/recommend';
 import { Card } from './card';
 
 /**
  * Tests for the recommendation card.
  *
- * The card is presentational: it renders one `MediaTitle` and reports nothing.
+ * The card is presentational: it renders one `RankedTitle` and reports nothing.
  * What is worth testing here is not the markup but the two mapping rules that
  * have a real failure mode — turning ids into display names, and surviving
  * missing artwork (FR-016). Both are required to *degrade*, never to break,
  * which is why most of these assertions pair a "shows the right thing" case
  * with an "and the card is still readable" case.
+ *
+ * The fixture carries `reason: null` by default so that every test written
+ * before the reason line existed still describes a card that shows no reason.
  */
 
 const SYNOPSIS = 'A linguist learns a language that rewrites how she remembers.';
 
-function title(overrides: Partial<MediaTitle> = {}): MediaTitle {
+function title(overrides: Partial<RankedTitle> = {}): RankedTitle {
   return {
     id: 'a-title',
     title: 'A Title',
@@ -26,6 +29,7 @@ function title(overrides: Partial<MediaTitle> = {}): MediaTitle {
     rating: 8.4,
     voteCount: 1000,
     availability: [],
+    reason: null,
     ...overrides,
   };
 }
@@ -34,7 +38,7 @@ describe('recommendation card', () => {
   let fixture: ComponentFixture<Card>;
   let root: HTMLElement;
 
-  function build(overrides: Partial<MediaTitle> = {}): void {
+  function build(overrides: Partial<RankedTitle> = {}): void {
     fixture = TestBed.createComponent(Card);
     fixture.componentRef.setInput('title', title(overrides));
     root = fixture.nativeElement as HTMLElement;
@@ -167,6 +171,72 @@ describe('recommendation card', () => {
 
       expect(text()).toContain('Netflix');
       expect(text()).not.toContain('a-defunct-service');
+    });
+  });
+
+  describe('the reason the card is here', () => {
+    const REASON = 'Because you picked Comedy';
+
+    function reasonLine(reason: string): Element | undefined {
+      return [...root.querySelectorAll('p')].find(
+        (node) => node.textContent?.trim() === reason,
+      );
+    }
+
+    it('shows the engine’s reason, in the card’s one violet', () => {
+      // The sentence is the engine's to decide and the card's to show; the
+      // colour is the card's. Violet is spent here rather than on the score,
+      // because the reason is this deck's decision and the score is only a
+      // fact about the title (DESIGN.md, the One Violet Rule).
+      build({ reason: REASON });
+
+      expect(text()).toContain(REASON);
+      expect(reasonLine(REASON)?.classList.contains('text-accent-400')).toBe(true);
+    });
+
+    it('leaves the card with no violet at all when there is no reason', () => {
+      // A card that ranked on nothing in particular says nothing — no "Top
+      // pick", no "Recommended for you". Pinning the *absence* is what stops a
+      // future accent from quietly taking the reason's place, since an
+      // assertion that only looked for a known string would let one through.
+      //
+      // The facts column holds two paragraphs without a reason — the score
+      // pill and the year/type/runtime row — and three with one.
+      build({ reason: null });
+
+      const factsColumn = root.querySelector('h2')?.closest('div.flex-col');
+
+      expect(factsColumn?.querySelectorAll('p')).toHaveLength(2);
+      expect(root.querySelectorAll('.text-accent-400')).toHaveLength(0);
+    });
+
+    it('states the reason inside the facts column, not as a row of its own', () => {
+      // The card is two halves — poster and facts — and the synopsis spans
+      // beneath them. A reason made a third direct child of the article would
+      // break that pairing and push the synopsis out of the position the
+      // layout depends on, which the synopsis test pins from the other side.
+      build({ reason: REASON });
+
+      const reason = reasonLine(REASON);
+      const article = root.querySelector('article');
+      const heading = root.querySelector('h2');
+
+      expect(reason).toBeDefined();
+      expect(reason?.parentElement).not.toBe(article);
+      expect(reason?.parentElement?.contains(heading)).toBe(true);
+    });
+
+    it('keeps the score grey, so the violet means the reason', () => {
+      // The demotion is the point of the swap: two violets on one card is two
+      // things claiming to be the important one.
+      build({ reason: REASON });
+
+      const pill = [...root.querySelectorAll('p')].find((node) =>
+        node.textContent?.includes('out of 10'),
+      );
+
+      expect(pill?.classList.contains('text-chalk-500')).toBe(true);
+      expect(pill?.classList.contains('text-accent-400')).toBe(false);
     });
   });
 

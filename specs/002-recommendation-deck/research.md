@@ -371,3 +371,94 @@ cannot exercise and production TMDB data can.
 - *Penalize slug tags too* — rejected: a visitor cannot have declined `family`
   because the quiz never offered it; penalizing it would encode a taste
   judgement they never made.
+
+## D14. The card names its reason
+
+**Decision**: `rankTitles` returns `RankedTitle[]` — `MediaTitle` plus a
+`reason: string | null` — rather than a bare title list. The reason is one
+sentence from a fixed precedence: the quiz's own genre selection ("Because you
+picked Comedy"), then a genre the visitor's ratings point at ("Because you loved
+Horror"), then the matched service ("On Netflix, one of your services"), then
+`null`. The card renders whatever it is handed, in the app's one violet.
+
+**Rationale**: the product's stated differentiation is "no ML, and here is
+exactly why this card is here" — a claim the deck was making in its documentation
+and nowhere on screen. The engine already computed every input the sentence
+needs; the only question was where to compose it. Composing it in the card would
+have meant the card re-deriving which signal fired, and the card does not know:
+it receives a title, not the score. Putting the sentence in the engine keeps the
+ordering and the explanation derived from the same call, so they cannot drift —
+the card shown first is the card whose reason is quoted.
+
+Attaching it to the returned value rather than threading a parallel lookup keeps
+`MediaTitle` as purely the storage-and-transport shape. A `reason` field on the
+API model would be a claim the server does not make: ranking runs on the client,
+so the server has no reason to give.
+
+**Alternatives considered**:
+- *Compute the reason in the card from `MediaTitle` + preferences* — rejected:
+  two derivations of the same fact, and the card would need the preferences
+  injected to produce a sentence about a decision it did not make.
+- *A parallel `Map<titleId, reason>` returned alongside the array* — rejected:
+  two collections to keep in step through `currentCard`, the advance, and every
+  filter, for no gain over one field on the item.
+- *Show every signal that fired ("Comedy match · on Netflix · 8.4")* — rejected:
+  the deck's promise is that a card can be *justified*, not itemized. A row of
+  tags is the catalog-browsing surface this product exists to replace.
+- *Always show something, inventing a default like "Popular right now"* —
+  rejected: it would be the one claim the engine cannot support, on the card of
+  a product whose selling point is that every claim is supported. `null` renders
+  as nothing, and the card is honest by being quiet.
+
+## D15. A swipe is a rating; Undo is a local rewind
+
+**Decision**: a completed swipe routes into the same `onRating` path as the
+rating buttons. Left records `notInterested` and right records `wantToWatch`, a
+hint pill names the rating while the finger is still down, and the acknowledgement
+strip's Undo takes it back. `Skip` becomes the one advance that records nothing
+(FR-004, amended 2026-09-29). Undo is two writes with no timer and no stack:
+`InteractionStore.remove` clears the rating, and a pure `rewind(session, titleId)`
+removes the id from the loop's `shownTitleIds`.
+
+**Rationale**: the amended FR-004 is the *why* for the routing, and D11 already
+settled that the gesture's judgement belongs in a pure function. What is worth
+recording here is that the four surfaces — buttons, gesture, announcement, Undo —
+are one mechanism rather than four. The gesture does not record a rating; it calls
+`onRating`, so it is announced, counted and undoable for the same reason the
+buttons are, and none of those three had to be extended to cover it. The
+alternative, giving the swipe its own write, would have been a second path that
+agreed with the first until the day it did not.
+
+`rewind` returns the session **by reference** when the id is not in the walk. The
+caller writes whatever comes back, so an equal-but-fresh object would turn
+"nothing to undo" into a disk write — and make a double tap on a consumed Undo
+strip indistinguishable from a real rewind.
+
+The acknowledgement is an offer, not a prompt: the strip holds the last rating and
+nothing else, and is cleared by the next action rather than by a clock. A timer
+would introduce the only `setTimeout` in the deck, and with it a window in which
+the strip describes a rating that is no longer the last one. It is deliberately
+not persisted either — it answers "what did you just do", which a reload cannot
+know, so a restored strip could invite undoing a tap from a session days ago.
+
+**Alternatives considered**:
+- *A toast with a timeout* — rejected: the deck has no timers anywhere, and this
+  would add one to express something the next action already expresses exactly.
+- *An undo stack (repeated Undo walks backwards)* — rejected: it needs history in
+  a document whose shape is frozen at three keys, and "undo the last thing" is the
+  only guarantee a visitor can form a mental model of.
+- *Undo stored in the loop document* — rejected: `DeckSession`'s key set is pinned
+  by spec 003's storage contract, and the offer is UI state, not a record.
+- *Swipe records nothing, and the hint explains the *absence*** — rejected: it
+  documents a dead gesture. The two directions a swipe already means were going
+  unused, and one of them is the exclusion FR-009 needs.
+- *Swipe records `disliked`/`loved`* — rejected: a swipe is a reflex, and those
+  two weigh on the affinity score. The strong claims stay on the buttons, where
+  they are deliberate.
+
+**Note on the card swap**: the card surface re-mounts per id through a
+single-item `@for`, which replays a CSS `card-in` animation on every advance *and*
+on Undo. The animation is on the wrapper element and the drag transform is on the
+surface inside it, because a running CSS animation's `transform` beats an inline
+style — on one element, a drag begun during those 200ms would leave the card stuck
+under the finger, and swiping quickly is exactly when that happens.

@@ -803,3 +803,136 @@ describe('rankTitles — score and order', () => {
     });
   });
 });
+
+/**
+ * Stage 4 — the sentence the card shows (FR-003's "why this card is here").
+ *
+ * The reason is part of the engine's contract rather than the card's
+ * presentation, so it is tested as one: the card is handed a string and shows
+ * it. What matters here is *which* string — the precedence between the three
+ * signals, and the cases where the honest answer is nothing at all.
+ */
+describe('rankTitles — the reason (stage 4)', () => {
+  const nothing: Record<string, Interaction> = {};
+
+  /**
+   * The reason on the only title in a one-title catalog.
+   *
+   * Throws rather than returning `null` when the title was filtered out: a
+   * filter that dropped it and a reason that is legitimately absent are two
+   * different results, and only one of them is what these tests are about.
+   */
+  function reasonOf(
+    preferences: Preference,
+    overrides: Partial<MediaTitle> = {},
+    interactions: Record<string, Interaction> = nothing,
+  ): string | null {
+    const [only] = rankTitles(
+      [title('a-title', overrides)],
+      preferences,
+      interactions,
+      [],
+    );
+
+    if (only === undefined) {
+      throw new Error('The title was filtered out; this test is about its reason');
+    }
+
+    return only.reason;
+  }
+
+  describe('the precedence', () => {
+    it('quotes the quiz answer first — this is what the visitor asked for', () => {
+      expect(
+        reasonOf(preference({ genre: { values: ['comedy'], any: false } }), {
+          genres: ['comedy'],
+        }),
+      ).toBe('Because you picked Comedy');
+    });
+
+    it('prefers what the visitor chose over what their ratings point at', () => {
+      // Both signals fire for this title: it wears a picked genre *and* a
+      // genre the visitor has loved elsewhere. The quiz answer is the one they
+      // can still see themselves having given, so that is the one they are told.
+      const catalog = [
+        title('a-title', { genres: ['comedy'] }),
+        title('a-loved', { genres: ['comedy'] }),
+      ];
+
+      const result = rankTitles(
+        catalog,
+        preference({ genre: { values: ['comedy'], any: false } }),
+        { 'a-loved': rated('loved') },
+        [],
+      );
+
+      expect(result.find((t) => t.id === 'a-title')?.reason).toBe('Because you picked Comedy');
+    });
+
+    it('falls back to the ratings when nothing was chosen', () => {
+      // Under `Any` there is no selection to quote, so the feedback loop is
+      // the whole story — the deck saying "you have loved things like this".
+      const catalog = [
+        title('a-title', { genres: ['horror'] }),
+        title('a-loved', { genres: ['horror'] }),
+      ];
+
+      const result = rankTitles(catalog, preference(), { 'a-loved': rated('loved') }, []);
+
+      expect(result.find((t) => t.id === 'a-title')?.reason).toBe('Because you loved Horror');
+    });
+
+    it('falls back to the service when neither signal applies', () => {
+      expect(
+        reasonOf(preference({ provider: { values: ['netflix'], any: false } }), {
+          availability: on('netflix'),
+        }),
+      ).toBe('On Netflix, one of your services');
+    });
+
+    it('names the service through a retired id’s successor', () => {
+      // A visitor whose stored preference says `star-plus` is looking for
+      // Disney+ titles, so Disney+ is the name they are given — not the dead
+      // service they picked years ago, and not the id.
+      expect(
+        reasonOf(preference({ provider: { values: ['star-plus'], any: false } }), {
+          availability: on('disney-plus'),
+        }),
+      ).toBe('On Disney+, one of your services');
+    });
+  });
+
+  describe('when it says nothing', () => {
+    it('is null for a title that ranked on nothing but its rating', () => {
+      // `Any` everywhere and no ratings to learn from: the card is here
+      // because of the confidence-weighted rating and nothing else, and there
+      // is no sentence for that which is not noise.
+      expect(reasonOf(preference())).toBeNull();
+    });
+
+    it('is null for a service the visitor did not select', () => {
+      // The title can legitimately be on screen — they asked to see other
+      // platforms — but "one of your services" would be a lie about it.
+      expect(
+        reasonOf(
+          preference({
+            provider: { values: ['hulu'], any: false },
+            includeUnownedProviders: true,
+          }),
+          { availability: on('netflix') },
+        ),
+      ).toBeNull();
+    });
+
+    it('never prints an id the option lists do not know', () => {
+      // A slug tag (`family`, `fantasy`…) is not a genre the quiz offered, so
+      // nobody selected it and there is nothing to say. Printing it raw is
+      // exactly what the card's own id→name rule exists to prevent.
+      expect(
+        reasonOf(preference({ genre: { values: ['family'], any: false } }), {
+          genres: ['family'],
+        }),
+      ).toBeNull();
+    });
+  });
+});

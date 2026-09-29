@@ -57,6 +57,24 @@ export const DISMISS_MIN_DISTANCE_PX = 72;
 export const DISMISS_VELOCITY_PX_PER_MS = 0.6;
 
 /**
+ * How far a drag must travel to commit on distance alone, for this card width.
+ *
+ * Exported because the drag hint has to know the same number to fade in as the
+ * gesture approaches commitment. Recomputing it there would put the arithmetic
+ * in two places and let the pill reach full opacity at a distance that no
+ * longer dismisses anything — the sort of drift that is invisible in review and
+ * obvious to a thumb.
+ *
+ * Guards the measurement rather than the gesture: a NaN width would make the
+ * threshold NaN and commit every drag, so an unmeasurable card falls back to
+ * the floor and is merely strict instead of wrong.
+ */
+export function dismissThreshold(cardWidth: number): number {
+  const width = Number.isFinite(cardWidth) ? cardWidth : 0;
+  return Math.max(DISMISS_MIN_DISTANCE_PX, width * DISMISS_DISTANCE_RATIO);
+}
+
+/**
  * Decides what a completed gesture meant.
  *
  * @param samples Every pointer position collected, oldest first.
@@ -79,11 +97,7 @@ export function swipeDecision(samples: readonly PointerSample[], cardWidth: numb
   const dx = last.x - first.x;
   const elapsed = last.t - first.t;
 
-  // Guard the measurement rather than the gesture: a NaN width would make the
-  // threshold NaN and commit every drag. Falling back to the floor keeps a
-  // pre-layout measurement merely strict instead of wrong.
-  const width = Number.isFinite(cardWidth) ? cardWidth : 0;
-  const threshold = Math.max(DISMISS_MIN_DISTANCE_PX, width * DISMISS_DISTANCE_RATIO);
+  const threshold = dismissThreshold(cardWidth);
 
   // Average speed across the gesture. Measuring the last two samples instead
   // would be closer to true release velocity, but a pointer that pauses before

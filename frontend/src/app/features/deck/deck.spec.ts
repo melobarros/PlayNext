@@ -5,8 +5,8 @@ import {
 } from '@angular/common/http/testing';
 import { EnvironmentProviders, Provider, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
-import { Observable, of } from 'rxjs';
+import { provideRouter, Router } from '@angular/router';
+import { Observable, of, Subject } from 'rxjs';
 import { AccountState } from '../../core/models/account-state';
 import { Interaction, INTERACTION_STORAGE_KEY } from '../../core/models/interaction';
 import { MediaTitle } from '../../core/models/media-title';
@@ -125,6 +125,43 @@ class FakeCatalogService {
 
   loadTitles(_region: string): Observable<MediaTitle[]> {
     return of(catalog.map((title) => ({ ...title })));
+  }
+}
+
+/**
+ * A catalog that answers when the test says so, one request at a time.
+ *
+ * Every other test in this file uses the synchronous fake above, which
+ * completes before the first `detectChanges()` — and that is precisely how the
+ * false-empty-state bug survived a suite this size: nothing ever looked at the
+ * deck while a request was open. This one holds it open.
+ *
+ * Each call gets its own `Subject`, so a retry is a *second* answerable request
+ * rather than a second subscription to a finished one.
+ */
+class DeferredCatalogService {
+  private readonly requests: Subject<MediaTitle[]>[] = [];
+
+  readonly usingCachedTitles = usingCachedTitles.asReadonly();
+
+  /** How many times the catalog has been asked — the retry assertion. */
+  get loadCalls(): number {
+    return this.requests.length;
+  }
+
+  loadTitles(_region: string): Observable<MediaTitle[]> {
+    const request = new Subject<MediaTitle[]>();
+    this.requests.push(request);
+    return request.asObservable();
+  }
+
+  /** Completes the request at `index` (the most recent by default). */
+  emit(titles: MediaTitle[] = catalog, index = this.requests.length - 1): void {
+    const request = this.requests[index];
+    if (request === undefined) throw new Error(`No catalog request at index ${index}`);
+
+    request.next(titles.map((title) => ({ ...title })));
+    request.complete();
   }
 }
 
@@ -495,11 +532,20 @@ describe('deck shell', () => {
     });
   });
 
-  describe('a swipe records no rating (FR-004)', () => {
-    it('leaves the interaction document untouched', () => {
-      // The pure-logic specs prove the advance path has nowhere to put a rating
-      // (deck-session.spec.ts). This is the end-to-end version: a full pass over
-      // every card, by tap and by swipe, without the store ever being written.
+  describe('what a swipe records (FR-004, amended)', () => {
+    /**
+     * FR-004 originally said a swipe records nothing, and this suite pinned
+     * that end to end: a full pass over the deck by tap and by swipe, with
+     * `playnext:interactions` never written. The amendment keeps the guarantee
+     * where it belongs — `Skip` is still the one action that advances without
+     * recording — and gives the two directions meanings, because a gesture that
+     * silently does nothing is a gesture the visitor has to be told not to use.
+     *
+     * So this test is rewritten rather than deleted: the same full pass, the
+     * same three advances, and now a document at the end that names exactly
+     * which one of them wrote something.
+     */
+    it('records a swipe as a rating, while Skip still records nothing', () => {
       completeQuiz();
       build();
 
@@ -509,7 +555,321 @@ describe('deck shell', () => {
 
       // Confirms the pass really was the whole deck, not an early exit.
       expect(cards()).toHaveLength(0);
-      expect(localStorage.getItem(INTERACTION_STORAGE_KEY)).toBeNull();
+      expect(savedInteractions()).toEqual({
+        bravo: expect.objectContaining({ state: 'notInterested' }),
+      });
+    });
+
+    it('takes a leftward swipe as Not Interested (FR-009)', () => {
+      // `notInterested` excludes the title from later loops, which is what
+      // makes a left swipe worth making: it is remembered, not just an exit.
+      completeQuiz();
+      build();
+
+      swipe(-200);
+
+      expect(savedInteractions()['alpha']?.state).toBe('notInterested');
+    });
+
+    it('takes a rightward swipe as Want to Watch', () => {
+      completeQuiz();
+      build();
+
+      swipe(200);
+
+      expect(savedInteractions()['alpha']?.state).toBe('wantToWatch');
+    });
+
+    it('acknowledges a swipe exactly as it acknowledges a tap', () => {
+      // The gesture is a rating, so it gets a rating's feedback — this is the
+      // assertion that would fail if the swipe had kept its own path.
+      completeQuiz();
+      build();
+
+      swipe(-200);
+
+      expect(root.querySelector('[data-undo-strip]')?.textContent).toContain('Not Interested');
+      expect(root.querySelector('[aria-live="polite"]')?.textContent).toMatch(
+        /^Not Interested\. 1 rated\.$/,
+      );
+    });
+
+    it('can be taken back like any other rating', () => {
+      completeQuiz();
+      build();
+      swipe(200);
+
+      tap('Undo');
+
+      expect(shownTitle()).toBe('Alpha');
+      expect(savedInteractions()['alpha']).toBeUndefined();
+    });
+  });
+
+  describe('the drag hint', () => {
+    function hint(): HTMLElement | null {
+      return root.querySelector<HTMLElement>('[data-swipe-hint]');
+    }
+
+    /** Drags without lifting the finger, leaving the gesture open. */
+    function drag(dx: number): void {
+      const surface = cards()[0];
+      if (!surface) throw new Error('No card was rendered to drag');
+      surface.dispatchEvent(pointerEvent('pointerdown', 200, 1));
+      surface.dispatchEvent(pointerEvent('pointermove', 200 + dx, 1));
+      fixture.detectChanges();
+    }
+
+    it('says nothing until the finger has moved past the slop', () => {
+      // Below the slop there is no gesture yet — this is a tap, and a tap does
+      // not rate anything. The card has not moved, so nothing is promised.
+      completeQuiz();
+      build();
+
+      drag(-4);
+
+      expect(hint()).toBeNull();
+    });
+
+    it('names the rating a leftward drag is about to record', () => {
+      completeQuiz();
+      build();
+
+      drag(-200);
+
+      expect(hint()?.textContent?.trim()).toBe('Not Interested');
+    });
+
+    it('names the rating a rightward drag is about to record', () => {
+      completeQuiz();
+      build();
+
+      drag(200);
+
+      expect(hint()?.textContent?.trim()).toBe('Want to Watch');
+    });
+
+    it('sits on the side the card is leaving, and fades in with the drag', () => {
+      completeQuiz();
+      build();
+
+      drag(-200);
+      const leftward = hint();
+      expect(leftward?.classList.contains('left-4')).toBe(true);
+      expect(leftward?.classList.contains('right-4')).toBe(false);
+      // The fixture card is 0px wide in jsdom, so the dismissal threshold is
+      // the 72px floor and a 200px drag is well past full opacity.
+      expect(leftward?.style.opacity).toBe('1');
+
+      // A second, shallower drag on the next card: still visible, and dimmer.
+      // Swiping back the other way is not available — the gesture would commit.
+      cards()[0].dispatchEvent(pointerEvent('pointerup', 0, 0));
+      fixture.detectChanges();
+      drag(36);
+      const shallow = hint();
+      expect(shallow?.classList.contains('right-4')).toBe(true);
+      expect(Number(shallow?.style.opacity)).toBeCloseTo(0.5, 1);
+    });
+
+    it('drops the hint the moment the finger lifts', () => {
+      // It describes a gesture in progress. Once the gesture is over the strip
+      // below says the same thing about a rating that actually happened, and
+      // two labels for one decision is one too many.
+      completeQuiz();
+      build();
+      drag(-200);
+
+      cards()[0].dispatchEvent(pointerEvent('pointerup', 0, 0));
+      fixture.detectChanges();
+
+      expect(hint()).toBeNull();
+    });
+
+    it('is invisible to a screen reader, which hears the rating instead', () => {
+      // The pill is a picture of a decision. Announcing it would have a screen
+      // reader read out a rating for a gesture that may still be abandoned.
+      completeQuiz();
+      build();
+      drag(-200);
+
+      expect(hint()?.getAttribute('aria-hidden')).toBe('true');
+    });
+  });
+
+  describe('acknowledging a rating, and taking it back (US2 undo)', () => {
+    /** The strip offering to undo, or `undefined` when there is nothing to undo. */
+    function strip(): HTMLElement | null {
+      return root.querySelector<HTMLElement>('[data-undo-strip]');
+    }
+
+    /** What a screen reader was told, which is the strip's real counterpart. */
+    function announcement(): string {
+      return root.querySelector('[aria-live="polite"]')?.textContent?.trim() ?? '';
+    }
+
+    it('says which rating landed, and how many are now recorded', () => {
+      // The count is the part that proves the write happened rather than the
+      // card merely sliding away — the tile gives no other feedback, and the
+      // next card looks identical whether or not anything was saved.
+      completeQuiz();
+      build();
+
+      tap('Loved It');
+
+      expect(announcement()).toMatch(/^Loved It\. 1 rated\.$/);
+    });
+
+    it('counts every rating, not just the last one', () => {
+      completeQuiz();
+      build();
+
+      tap('Loved It');
+      tap('Liked It');
+
+      expect(announcement()).toMatch(/^Liked It\. 2 rated\.$/);
+    });
+
+    it('offers the undo, reachable without aiming (FR-017)', () => {
+      completeQuiz();
+      build();
+
+      tap('Loved It');
+
+      const undo = button('Undo');
+      expect(undo).toBeDefined();
+      expect(undo?.classList.contains('touch-target')).toBe(true);
+    });
+
+    it('sits above the action bar, where the eye already is', () => {
+      // Placement is the whole reason the offer is noticed at all: it has to be
+      // between the tiles the visitor just used and the card they are now
+      // looking at, and it has to live inside the footer so it leaves with the
+      // card when the loop ends.
+      completeQuiz();
+      build();
+
+      tap('Loved It');
+
+      const footer = root.querySelector('footer');
+      expect(footer?.firstElementChild).toBe(strip());
+      expect(strip()?.nextElementSibling?.tagName.toLowerCase()).toBe('app-actions');
+    });
+
+    it('shows nothing at all before the first rating', () => {
+      completeQuiz();
+      build();
+
+      expect(strip()).toBeNull();
+      expect(announcement()).toBe('');
+    });
+
+    it('brings the rated card back, and forgets the rating (US2 undo)', () => {
+      // The whole point: a mis-tap costs one tap to fix, not a reload.
+      completeQuiz();
+      build();
+      tap('Loved It');
+      expect(shownTitle()).toBe('Bravo');
+
+      tap('Undo');
+
+      expect(shownTitle()).toBe('Alpha');
+      expect(savedInteractions()['alpha']).toBeUndefined();
+      expect(savedSession()?.['shownTitleIds']).toEqual([]);
+    });
+
+    it('brings back a title the rating had excluded (FR-009)', () => {
+      // `disliked` and `notInterested` remove their title from the ranking, so
+      // undoing one is two repairs at once: the walk is rewound *and* the
+      // title rejoins the pool. Clearing only the walk would leave a card
+      // missing from a deck that looks complete.
+      completeQuiz();
+      build();
+      tap('Disliked');
+      expect(shownTitle()).toBe('Bravo');
+
+      tap('Undo');
+
+      expect(shownTitle()).toBe('Alpha');
+      expect(savedInteractions()['alpha']).toBeUndefined();
+    });
+
+    it('takes back only the last rating, leaving the earlier ones alone', () => {
+      completeQuiz();
+      catalog = manyTitles(6);
+      build();
+      tap('Loved It');
+      tap('Disliked');
+
+      tap('Undo');
+
+      expect(shownTitle()).toBe('Title 1');
+      expect(savedInteractions()['title-00']?.state).toBe('loved');
+      expect(savedInteractions()['title-01']).toBeUndefined();
+    });
+
+    it('leaves no offer once it has been taken', () => {
+      // The strip is consumed, not merely hidden: a second Undo would have to
+      // reach past the rating it just retracted to find another one, which is
+      // the undo stack this deliberately is not.
+      completeQuiz();
+      build();
+      tap('Loved It');
+
+      tap('Undo');
+
+      expect(strip()).toBeNull();
+      expect(announcement()).toBe('');
+    });
+
+    it('withdraws the offer when the visitor skips instead', () => {
+      // Skip says nothing about any title. A strip still offering to un-rate
+      // the card before last would be offering to undo something that is no
+      // longer the last thing they did.
+      completeQuiz();
+      build();
+      tap('Loved It');
+
+      tap('Skip');
+
+      expect(strip()).toBeNull();
+      expect(announcement()).toBe('');
+      expect(shownTitle()).toBe('Golf');
+    });
+
+    it('withdraws the offer when the visitor decides, and leaves the screen', () => {
+      // Watch Now ends the loop and opens Match Found. The offer to un-rate is
+      // not actionable from there, and the strip would still be sitting in the
+      // footer if they navigated back — an invitation to undo a decision they
+      // have already acted on by finding a movie to watch.
+      completeQuiz();
+      build();
+      tap('Loved It');
+
+      // The navigation is stubbed, not followed: this spec has no `/deck/match`
+      // route, and letting the router really leave would reject in the
+      // background and be reported as an unhandled error in the run.
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      tap('Watch Now');
+
+      expect(navigate).toHaveBeenCalledWith(['/deck/match', 'bravo']);
+      expect(strip()).toBeNull();
+      expect(savedInteractions()['bravo']?.state).toBe('watchingNow');
+    });
+
+    it('does not outlive a reload, because it describes a tap and not a state', () => {
+      // The offer is deliberately not persisted. It is an answer to "what did
+      // you just do", and a reload has no way to know — a strip restored from
+      // storage would be inviting an undo of something the visitor may have
+      // done in a different session, days ago. The rating survives; the offer
+      // to retract it does not.
+      completeQuiz();
+      build();
+      tap('Loved It');
+
+      build();
+
+      expect(strip()).toBeNull();
+      expect(savedInteractions()['alpha']?.state).toBe('loved');
     });
   });
 
@@ -882,6 +1242,142 @@ describe('deck shell', () => {
         anchor.getAttribute('href')?.includes('/quiz'),
       );
       expect(link).toBeDefined();
+    });
+  });
+
+  /**
+   * The state between "asking" and "answered" — the P0 this pass exists for.
+   *
+   * Before it, a cold start rendered "Nothing matches right now" over a **Reset
+   * Filters** button while the request was still in flight: the deck told the
+   * visitor their answers were wrong before anything had been asked, and the
+   * action it offered would have rewritten answers that were never the problem.
+   *
+   * Same idiom as `configureWithAuth` above — reset, reconfigure, then build —
+   * because the module `beforeEach` built carries the synchronous catalog.
+   */
+  describe('the load (FR-013)', () => {
+    function deferred(): DeferredCatalogService {
+      const service = new DeferredCatalogService();
+      TestBed.resetTestingModule();
+      configure([{ provide: CatalogService, useValue: service }]);
+      return service;
+    }
+
+    /** The sr-only status lines, which are the screen reader's whole picture. */
+    function statuses(): (string | undefined)[] {
+      return [...root.querySelectorAll('[role="status"]')].map(
+        (node) => node.textContent?.trim(),
+      );
+    }
+
+    it('shows a skeleton, not a verdict, while the catalog is in flight', () => {
+      completeQuiz();
+      deferred();
+
+      build();
+
+      // The bug, stated as a test.
+      expect(text()).not.toContain('Nothing matches');
+      expect(button('Reset Filters')).toBeUndefined();
+      expect(root.querySelector('[data-card-skeleton]')).not.toBeNull();
+      expect(cards()).toHaveLength(0);
+      // There is no progress to report, so there is no progressbar to report
+      // it with — the same pin the empty-state tests make from the other side.
+      expect(root.querySelector('[role="progressbar"]')).toBeNull();
+    });
+
+    it('announces that it is loading, rather than leaving a screen reader in silence', () => {
+      completeQuiz();
+      deferred();
+
+      build();
+
+      expect(statuses()).toContain('Loading your deck…');
+    });
+
+    it('replaces the skeleton with the first card when the answer arrives', () => {
+      completeQuiz();
+      const service = deferred();
+      build();
+
+      service.emit();
+      fixture.detectChanges();
+
+      expect(root.querySelector('[data-card-skeleton]')).toBeNull();
+      expect(shownTitle()).toBe('Alpha');
+    });
+
+    it('asks for the quiz before it asks for titles', () => {
+      // Someone who has not taken the quiz is not waiting for a deck: no load
+      // is going to change their answer, so a skeleton would be a delay they
+      // cannot end by waiting — with the prompt that moves them forward hidden
+      // behind it.
+      deferred();
+
+      build();
+
+      expect(root.querySelector('[data-card-skeleton]')).toBeNull();
+      expect(text()).toContain('quiz');
+    });
+
+    it('says the catalog could not be reached, and offers the retry', () => {
+      completeQuiz();
+      const service = deferred();
+      usingCachedTitles.set(true);
+      build();
+
+      service.emit([]);
+      fixture.detectChanges();
+
+      expect(text()).toContain("Couldn't reach the catalog");
+      expect(button('Try again')).toBeDefined();
+      // The failure is the network's, not the visitor's answers.
+      expect(button('Reset Filters')).toBeUndefined();
+      // And there is no deck to walk again, so no new loop to offer.
+      expect(button('Start a new loop')).toBeUndefined();
+      // "Showing saved results" is a promise about results that do not exist.
+      expect(text()).not.toContain('saved results');
+      expect(root.querySelector('[role="progressbar"]')).toBeNull();
+    });
+
+    it('still asks for the quiz when the load failed as well', () => {
+      // The one case where two screens could each claim to be the truth, so
+      // the precedence is pinned rather than left to branch order. The quiz
+      // prompt wins: it is not a verdict about the catalog — the visitor's own
+      // answers need no request to read — and it is the thing they have to do
+      // either way. The failure is waiting for them on the other side of it.
+      const service = deferred();
+      usingCachedTitles.set(true);
+      build();
+
+      service.emit([]);
+      fixture.detectChanges();
+
+      expect(text()).toContain('quiz');
+      expect(button('Try again')).toBeUndefined();
+    });
+
+    it('recovers on retry, from the same screen', () => {
+      completeQuiz();
+      const service = deferred();
+      usingCachedTitles.set(true);
+      build();
+      service.emit([]);
+      fixture.detectChanges();
+
+      tap('Try again');
+      expect(service.loadCalls).toBe(2);
+      // The retry is a real second attempt, not a re-render of the failure.
+      expect(root.querySelector('[data-card-skeleton]')).not.toBeNull();
+
+      service.emit();
+      // The second request reached the catalog, so the fallback is over.
+      usingCachedTitles.set(false);
+      fixture.detectChanges();
+
+      expect(shownTitle()).toBe('Alpha');
+      expect(text()).not.toContain("Couldn't reach the catalog");
     });
   });
 });

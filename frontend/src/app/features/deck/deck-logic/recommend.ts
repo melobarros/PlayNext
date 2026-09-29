@@ -1,7 +1,12 @@
 import { Interaction, InteractionState, isExcluding } from '../../../core/models/interaction';
 import { MediaTitle } from '../../../core/models/media-title';
 import { Preference } from '../../../core/models/quiz';
-import { GENRES, RETIRED_PROVIDER_SUCCESSORS } from '../../../core/models/quiz-options.data';
+import {
+  GENRES,
+  RETIRED_PROVIDERS,
+  RETIRED_PROVIDER_SUCCESSORS,
+  STREAMING_PROVIDERS,
+} from '../../../core/models/quiz-options.data';
 
 /**
  * The recommendation engine
@@ -45,8 +50,45 @@ const SELECTABLE_GENRE_IDS: ReadonlySet<string> = new Set(GENRES.map((genre) => 
 const RATING_PRIOR = 6.5;
 const RATING_PRIOR_WEIGHT = 500;
 
+/**
+ * Id → the word a visitor would say, for the reason line.
+ *
+ * Retired services are in here too, for the same reason they are in the
+ * successor map: a title's availability is whatever the server last saw, and an
+ * id this app no longer offers must still resolve to a name rather than to
+ * itself.
+ */
+const GENRE_LABELS: ReadonlyMap<string, string> = new Map(
+  GENRES.map((genre) => [genre.id, genre.displayName]),
+);
+
+const PROVIDER_LABELS: ReadonlyMap<string, string> = new Map(
+  [...STREAMING_PROVIDERS, ...RETIRED_PROVIDERS].map((provider) => [
+    provider.id,
+    provider.displayName,
+  ]),
+);
+
 /** States that mean "more like this". `watchingNow` is deliberately neither. */
 const POSITIVE_STATES: readonly InteractionState[] = ['loved', 'liked', 'wantToWatch'];
+
+/**
+ * A ranked title, plus the one-line answer to "why is this card here?".
+ *
+ * The reason is decided *here* rather than derived in the card because it is a
+ * statement about this ranking: it names the selection or the rating signal
+ * that actually placed the title, and only the engine knows which of those
+ * fired. It rides along on the returned value so `MediaTitle` stays purely the
+ * storage-and-transport shape — a `reason` on the wire would be a claim the API
+ * does not make, and the card would be guessing at it.
+ *
+ * `null` is the honest answer for a title that ranked on nothing in particular:
+ * a deck is allowed to contain cards we cannot justify, and the card shows
+ * nothing rather than inventing a reason.
+ */
+export interface RankedTitle extends MediaTitle {
+  reason: string | null;
+}
 
 /**
  * Ranks the catalog for a visitor, best first.
@@ -60,13 +102,18 @@ const POSITIVE_STATES: readonly InteractionState[] = ['loved', 'liked', 'wantToW
  *
  * Returns a new array every call and never mutates its inputs. An empty result
  * is a normal value — it drives the empty state (FR-014), it is not an error.
+ *
+ * Every returned title carries its own `reason` (stage 4 below). The reason is
+ * computed for all of them, not lazily for the one on screen: it reads the same
+ * inputs the score did, so computing it here is what keeps the sentence and the
+ * ordering from ever disagreeing.
  */
 export function rankTitles(
   catalog: readonly MediaTitle[],
   preferences: Preference,
   interactions: Readonly<Record<string, Interaction>>,
   shownTitleIds: readonly string[],
-): MediaTitle[] {
+): RankedTitle[] {
   const { lovedGenres, dislikedGenres } = genreSignals(catalog, interactions);
 
   return catalog
@@ -83,7 +130,63 @@ export function rankTitles(
       (a, b) =>
         b.matches - a.matches || b.within - a.within || compareIds(a.title.id, b.title.id),
     )
-    .map((scored) => scored.title);
+    .map((scored) => ({
+      // Spread rather than pick: a field added to `MediaTitle` later rides
+      // along automatically instead of silently going missing on the card.
+      ...scored.title,
+      reason: reasonFor(scored.title, preferences, lovedGenres),
+    }));
+}
+
+/**
+ * Stage 4 — the reason, in the visitor's own words.
+ *
+ * One sentence, and only ever one: the deck's promise is that a card can be
+ * justified, not that every term of the score is itemized. The precedence is
+ * the order the visitor would recognize their own decision in — what they
+ * *chose* in the quiz, then what their *ratings* have taught us, then the
+ * service they already pay for. A title that landed on nothing but its
+ * confidence-weighted rating gets `null`, which the card renders as silence.
+ *
+ * Every branch is guarded by a label lookup, so an id the option lists do not
+ * know returns `null` rather than leaking `a-defunct-service` onto the card —
+ * the same rule the card's own id→name mapping follows.
+ */
+function reasonFor(
+  title: MediaTitle,
+  preferences: Preference,
+  lovedGenres: ReadonlySet<string>,
+): string | null {
+  // 1 — a genre from the quiz, named as the visitor chose it. Under a real
+  // selection this is always available: filter 2 has already guaranteed that a
+  // title reaching here overlaps the selection, so the only way past this
+  // branch is a stored id with no label.
+  if (!preferences.genre.any) {
+    const picked = labelFor(title.genres, preferences.genre.values);
+    if (picked !== null) return `Because you picked ${picked}`;
+  }
+
+  // 2 — a genre the visitor's own ratings point at. Only reachable under
+  // `Any`, where nothing was chosen and the feedback loop is the whole story.
+  const loved = labelFor(title.genres, [...lovedGenres]);
+  if (loved !== null) return `Because you loved ${loved}`;
+
+  // 3 — the plainest reason of all, and the deck's founding constraint: it is
+  // on a service they told us they have.
+  const service = title.availability.find((entry) =>
+    isOnSelectedService(entry.providerId, preferences),
+  );
+  const serviceLabel =
+    service === undefined ? undefined : PROVIDER_LABELS.get(service.providerId);
+  if (serviceLabel !== undefined) return `On ${serviceLabel}, one of your services`;
+
+  return null;
+}
+
+/** The first of `ids` that is also a genre of this title, named. */
+function labelFor(genres: readonly string[], ids: readonly string[]): string | null {
+  const match = genres.find((genre) => ids.includes(genre));
+  return match === undefined ? null : (GENRE_LABELS.get(match) ?? null);
 }
 
 /**
@@ -114,7 +217,7 @@ function isEligible(
   if (
     !preferences.provider.any &&
     !preferences.includeUnownedProviders &&
-    !isOnSelectedService(title, preferences)
+    !isAvailableOnSelectedService(title, preferences)
   ) {
     return false;
   }
@@ -157,13 +260,21 @@ function isRejected(interaction: Interaction | undefined): boolean {
  * A direct match is still checked first and still wins; the alias only ever
  * *adds* titles to a selection, never removes one.
  */
-function isOnSelectedService(title: MediaTitle, preferences: Preference): boolean {
-  return title.availability.some((entry) =>
-    preferences.provider.values.some(
-      (selected) =>
-        selected === entry.providerId ||
-        RETIRED_PROVIDER_SUCCESSORS[selected] === entry.providerId,
-    ),
+function isAvailableOnSelectedService(title: MediaTitle, preferences: Preference): boolean {
+  return title.availability.some((entry) => isOnSelectedService(entry.providerId, preferences));
+}
+
+/**
+ * One availability entry's half of that question, split out because stage 4's
+ * reason line has to name the *specific* service it matched — "On Disney+, one
+ * of your services" is only true of the entry that matched, and asking the
+ * title-level question would tell you that something matched without saying
+ * what.
+ */
+function isOnSelectedService(providerId: string, preferences: Preference): boolean {
+  return preferences.provider.values.some(
+    (selected) =>
+      selected === providerId || RETIRED_PROVIDER_SUCCESSORS[selected] === providerId,
   );
 }
 

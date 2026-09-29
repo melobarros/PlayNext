@@ -58,7 +58,7 @@ export class ChoiceChips {
 
   protected optionClass(id: string): string {
     return this.isSelected(id)
-      ? `${CHIP_BASE} border-accent-500 bg-accent-500 text-white`
+      ? `${CHIP_BASE} border-accent-600 bg-accent-600 text-white`
       : `${CHIP_BASE} border-ink-600 bg-ink-800 text-chalk-300`;
   }
 

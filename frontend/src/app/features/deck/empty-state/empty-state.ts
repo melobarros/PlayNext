@@ -6,11 +6,15 @@ import { startRetake } from '../../quiz/quiz-logic/quiz-rules';
 /**
  * Why the deck has no card to show.
  *
- * Three different situations that all render as "nothing here", and the
+ * Four different situations that all render as "nothing here", and the
  * difference decides what the visitor can do about it. Naming them is what
  * keeps the shell from encoding that distinction in template branches.
+ *
+ * `'load-failed'` is not the shell's `loading`: that one means the answer has
+ * not arrived, and this one means it arrived empty. Only the second is
+ * something a visitor can act on.
  */
-export type DeckOutcome = 'needs-quiz' | 'no-matches' | 'exhausted';
+export type DeckOutcome = 'needs-quiz' | 'no-matches' | 'exhausted' | 'load-failed';
 
 /** What each outcome says. Copy, deliberately, is not the shell's business. */
 const OUTCOME_COPY: Record<DeckOutcome, { title: string; body: string }> = {
@@ -25,6 +29,10 @@ const OUTCOME_COPY: Record<DeckOutcome, { title: string; body: string }> = {
   exhausted: {
     title: "That's the whole deck",
     body: "You've seen everything that matches your answers.",
+  },
+  'load-failed': {
+    title: "Couldn't reach the catalog",
+    body: 'Check your connection, then try again.',
   },
 };
 
@@ -41,8 +49,12 @@ const OUTCOME_COPY: Record<DeckOutcome, { title: string; body: string }> = {
  * whole job, and this component is the only thing that needs to know. Starting
  * a new loop is the opposite: it stays on `/deck`, and re-entering the same
  * route would not rebuild the shell, so the live loop signal it must replace
- * belongs to the shell. That asymmetry is the boundary, not an oversight; the
- * loop itself is emitted upward.
+ * belongs to the shell. Retrying a failed catalog load has that same shape
+ * again — the request belongs to the shell — so it is emitted upward too.
+ *
+ * That asymmetry is the boundary, not an oversight: a decision this component
+ * can complete on its own it keeps, and one that lives in the shell's signals
+ * it emits.
  */
 @Component({
   selector: 'app-empty-state',
@@ -58,13 +70,33 @@ export class EmptyState {
   /** The shell starts the loop: the running session lives in its signal. */
   readonly startNewLoop = output<void>();
 
+  /** The shell reloads the catalog: the request lives in its signals. */
+  readonly retry = output<void>();
+
   protected readonly copy = computed(() => OUTCOME_COPY[this.outcome()]);
 
   /** A new loop only means something when there is a deck to walk again. */
   protected readonly canStartNewLoop = computed(() => this.outcome() === 'exhausted');
 
-  /** Only a taken quiz has an answer to widen, so only then can it be reset. */
-  protected readonly canResetFilters = computed(() => this.outcome() !== 'needs-quiz');
+  /**
+   * Only a failure to load is worth retrying.
+   *
+   * The other three are answers, not accidents: the quiz has not been taken,
+   * the filters exclude everything, or the loop has finished. Pressing again
+   * would return the same answer, which is the definition of a button that does
+   * nothing.
+   */
+  protected readonly canRetry = computed(() => this.outcome() === 'load-failed');
+
+  /**
+   * Widening the filters is the answer to a deck that is too narrow, and to a
+   * loop with nothing left in it — but not to a catalog that never answered.
+   * Offering "Reset Filters" for a failed load is the original bug in a
+   * different costume: it blames the visitor's answers for the network.
+   */
+  protected readonly canResetFilters = computed(
+    () => this.outcome() === 'no-matches' || this.outcome() === 'exhausted',
+  );
 
   /**
    * Reopens the quiz with the previous answers pre-filled (FR-014, US4

@@ -8,10 +8,25 @@
   <h1 class="text-xl font-semibold">{{ copy().title }}</h1>
   <p class="text-chalk-300">{{ copy().body }}</p>
 
-  @if (canResetFilters()) {
+  @if (canRetry()) {
+    <!--
+      The one outcome whose fix is a network call rather than a rewrite of the
+      visitor's answers, so it gets the primary slot. Retry and Reset Filters
+      are mutually exclusive by construction: the shell derives `outcome` from
+      a single expression, and `canRetry`/`canResetFilters` are two tests over
+      that one value — never two independent flags that could both be true.
+    -->
     <button
       type="button"
-      class="touch-target inline-flex items-center rounded-full bg-accent-500 px-6 font-medium text-white"
+      class="touch-target inline-flex items-center rounded-full bg-accent-600 px-6 font-medium text-white hover:bg-accent-500 active:brightness-90"
+      (click)="retry.emit()"
+    >
+      Try again
+    </button>
+  } @else if (canResetFilters()) {
+    <button
+      type="button"
+      class="touch-target inline-flex items-center rounded-full bg-accent-600 px-6 font-medium text-white hover:bg-accent-500 active:brightness-90"
       (click)="resetFilters()"
     >
       Reset Filters
@@ -24,7 +39,7 @@
     -->
     <a
       routerLink="/quiz"
-      class="touch-target inline-flex items-center rounded-full bg-accent-500 px-6 font-medium text-white"
+      class="touch-target inline-flex items-center rounded-full bg-accent-600 px-6 font-medium text-white hover:bg-accent-500 active:brightness-90"
     >
       Take the quiz
     </a>

@@ -22,13 +22,41 @@ import { Preference } from '../../../core/models/quiz';
  * produce two cards, not one card and a doubled history entry.
  *
  * Note what this does *not* do — and structurally cannot do: record a rating.
- * A swipe is a neutral skip (FR-004), and a `DeckSession` has no field in which
- * a rating could be smuggled.
+ * A `DeckSession` has no field in which one could be smuggled; ratings live in
+ * the interaction document, and this one only remembers what has been *seen*.
  */
 export function advance(session: DeckSession, titleId: string): DeckSession {
   if (session.shownTitleIds.includes(titleId)) return session;
 
   return { ...session, shownTitleIds: [...session.shownTitleIds, titleId] };
+}
+
+/**
+ * Undoes one advance: puts the title back at the front of the walk.
+ *
+ * The other half of `advance`, and it exists for the same reason the card is
+ * derived rather than stored. Un-showing an id is all it takes to bring that
+ * card back — `currentCard` walks the ranking in order and returns the first
+ * title not in `shownTitleIds`, so a rewound id is simply eligible again, and
+ * it reappears in its original position because the ranking never changed.
+ * Nothing is re-sorted and no cursor is restored, because there is no cursor.
+ *
+ * An id that is not in the walk returns the session **by reference**. That is
+ * not a micro-optimisation: the caller writes whatever comes back, and handing
+ * it a fresh object with identical contents would turn "nothing happened" into
+ * a disk write with a new `startedAt`-adjacent identity. Same reference means
+ * `goTo` can be called unconditionally and still be a no-op.
+ *
+ * The persisted shape is untouched — `shownTitleIds` is still the only field
+ * this module writes, so a document saved before Undo existed stays valid.
+ */
+export function rewind(session: DeckSession, titleId: string): DeckSession {
+  if (!session.shownTitleIds.includes(titleId)) return session;
+
+  return {
+    ...session,
+    shownTitleIds: session.shownTitleIds.filter((shown) => shown !== titleId),
+  };
 }
 
 /**
@@ -40,11 +68,16 @@ export function advance(session: DeckSession, titleId: string): DeckSession {
  * repeats within a loop — and re-checking here makes that promise hold at the
  * point of display regardless of how the ranking was produced. A `null` result
  * is a normal value: it is what the empty state renders (FR-014), not an error.
+ *
+ * Generic over the ranked item so it can hand back whatever the ranking
+ * produced — a `RankedTitle` arrives as a `RankedTitle`, `reason` and all —
+ * without this module having to know what the engine decided to attach. The
+ * only thing the walk needs from an item is its id.
  */
-export function currentCard(
+export function currentCard<T extends MediaTitle>(
   session: DeckSession,
-  ranked: readonly MediaTitle[],
-): MediaTitle | null {
+  ranked: readonly T[],
+): T | null {
   return ranked.find((title) => !session.shownTitleIds.includes(title.id)) ?? null;
 }
 

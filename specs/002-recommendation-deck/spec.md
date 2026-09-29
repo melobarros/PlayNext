@@ -10,12 +10,21 @@
 
 ## Clarifications
 
+### Session 2026-09-29
+
+- Q: A swipe already advances the deck. Should it also mean something? → A:
+  Yes. Swipe left records **Not Interested**, swipe right records **Want to
+  Watch**, with a hint naming the rating shown while the finger is down; both
+  are undoable. **Skip** becomes the only advance that records nothing. This
+  supersedes the 2026-09-25 answer below.
+
 ### Session 2026-09-25
 
 - Q: What does a swipe gesture on a recommendation card mean? → A: Swipe is a
   neutral skip (advances, records nothing); only the rating buttons rate;
   skipped titles stay excluded for the rest of the loop but may appear in
-  later loops.
+  later loops. *(Superseded 2026-09-29: the neutral skip moved to the Skip
+  button; see above.)*
 - Q: When the deck has no matches and the visitor taps "Reset Filters", what
   should happen next? → A: Return to the onboarding quiz with previous
   answers pre-filled so the visitor can widen their selections; completing
@@ -53,10 +62,11 @@ actions exist: the visitor can already decide what to watch.
 1. **Given** a visitor has completed the quiz, **When** the quiz summary
    action is tapped, **Then** the first recommendation card appears
    immediately with no further input required.
-2. **Given** a card is displayed, **When** the visitor swipes it away
-   (neutral skip) or taps the advance action, **Then** the next card
-   replaces it, one card at a time, and no rating is recorded by either
-   action.
+2. **Given** a card is displayed, **When** the visitor swipes it away or
+   taps the advance action, **Then** the next card replaces it, one card at
+   a time. A swipe records the rating its direction names (left: Not
+   Interested, right: Want to Watch); Skip is the advance that records
+   nothing.
 3. **Given** quiz preferences of Movie + Horror, **When** cards are
    presented, **Then** every card is a Horror movie, unless the visitor
    changed preferences.
@@ -195,10 +205,27 @@ browsable.
 - **FR-003**: Each card MUST show: title, release year, ratings, a synopsis,
   poster art, media type, and the streaming providers where the title is
   available.
-- **FR-004**: The visitor MUST be able to advance via a swipe gesture and
-  via an explicit tap action; every advance yields exactly one next card.
-  A swipe is a neutral skip — it records no rating; ratings are recorded
-  only through the rating buttons (FR-007).
+- **FR-004** *(amended 2026-09-29 — see the note below)*: The visitor MUST be
+  able to advance via a swipe gesture and via an explicit tap action; every
+  advance yields exactly one next card. A swipe leftward records
+  **Not Interested** and a swipe rightward records **Want to Watch**, shown as
+  a hint while the finger is still down and undoable afterwards like any other
+  rating. The explicit **Skip** action remains the one advance that records
+  nothing; the remaining four ratings are recorded through the rating buttons
+  (FR-007).
+
+  > **Amendment, 2026-09-29.** Originally: *"A swipe is a neutral skip — it
+  > records no rating; ratings are recorded only through the rating buttons."*
+  > The neutral-skip rule survives, but it moved from the swipe to the Skip
+  > button. A gesture that silently does nothing is a gesture the visitor has
+  > to be told not to use, and the two directions a swipe is universally taken
+  > to mean were going unused — one of them, *not interested*, being the
+  > exclusion FR-009 depends on. The gesture now routes through the same rating
+  > path as the buttons, so it is announced, counted and undoable without the
+  > gesture path knowing any of that exists. The pair was chosen for the
+  > reflex: a swipe makes the weaker claim in each direction
+  > (`notInterested`/`wantToWatch`), leaving `disliked`/`loved` — which weigh
+  > on the affinity score — to deliberate button presses.
 - **FR-005**: Suggestions MUST match the visitor's quiz preferences (media
   types, genres).
 - **FR-006**: The system MUST NOT suggest titles unavailable on the

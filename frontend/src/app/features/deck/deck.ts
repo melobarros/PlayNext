@@ -1,7 +1,7 @@
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { DeckSession } from '../../core/models/deck-session';
-import { Interaction, InteractionState } from '../../core/models/interaction';
+import { INTERACTION_STATE_LABELS, Interaction, InteractionState } from '../../core/models/interaction';
 import { MediaTitle } from '../../core/models/media-title';
 import { Preference } from '../../core/models/quiz';
 import { currentRegion } from '../../core/region';
@@ -14,9 +14,9 @@ import { Attribution } from '../../shared/attribution/attribution';
 import { toPreference } from '../quiz/quiz-logic/quiz-rules';
 import { Actions } from './actions/actions';
 import { Card } from './card/card';
-import { advance, currentCard, loopFor, startNewLoop } from './deck-logic/deck-session';
-import { rankTitles } from './deck-logic/recommend';
-import { PointerSample, swipeDecision } from './deck-logic/swipe';
+import { advance, currentCard, loopFor, rewind, startNewLoop } from './deck-logic/deck-session';
+import { RankedTitle, rankTitles } from './deck-logic/recommend';
+import { dismissThreshold, PointerSample, SwipeOutcome, swipeDecision } from './deck-logic/swipe';
 import { DeckOutcome, EmptyState } from './empty-state/empty-state';
 
 /**
@@ -27,11 +27,26 @@ import { DeckOutcome, EmptyState } from './empty-state/empty-state';
  * file's job is to be the only place that knows about Angular, storage, and the
  * visitor's gestures at once.
  *
- * **Only the action bar records a rating.** A swipe is a neutral skip (FR-004),
- * so the gesture path writes the loop document and nothing else; the interaction
- * document is written from `onRating` and `onWatchNow`, which are reachable only
- * from a button. That separation is what makes "a swipe records nothing" true by
- * construction rather than by remembering not to.
+ * **No verdict before the catalog has answered.** The deck has three states, not
+ * two: loading, loaded, and could-not-load. Two is what produced the original
+ * bug — a cold start rendered "Nothing matches right now" with a **Reset
+ * Filters** button while the request was still in flight, telling the visitor
+ * their answers were wrong when nothing had been asked yet. `showsSkeleton()` is
+ * that third state's branch, and `loadFailed` is the fourth thing that can go
+ * wrong: a load that finished with nothing, cached or otherwise.
+ *
+ * **Every rating goes through one door.** `onRating` is the only method that
+ * writes a rating, and the buttons, the swipe, the acknowledgement strip and
+ * Undo are all built on top of it. That is what makes the four agree without
+ * any of them knowing about the others: a swipe is announced and undoable
+ * because it *is* a rating, not because the gesture path remembered to be.
+ *
+ * **The swipe means the two things a swipe means.** Left records
+ * `notInterested`, right records `wantToWatch`, and the hint that fades in
+ * mid-drag is derived from the same verdict function that decides the rating —
+ * so what the pill promises is what gets written. `Skip` is the only advance
+ * that records nothing (FR-004), which keeps the neutral path exactly one
+ * action wide instead of two that behave differently.
  *
  * The current card is *derived*, never stored (research.md D5). That is what
  * makes "refresh mid-deck retains the current position" fall out for free:
@@ -73,17 +88,127 @@ export class Deck {
   );
 
   private readonly titles = signal<MediaTitle[]>([]);
+
+  /**
+   * Whether the catalog is still in flight. The template's first branch.
+   *
+   * A signal of this shell's own rather than a property of the service, because
+   * "loading" is a fact about *this* load: the service can be holding cached
+   * titles and still be fetching. It starts `true` so the first render is a
+   * skeleton — the deck cannot know there are no matches until it has looked,
+   * and saying so before looking is the bug this exists to prevent.
+   */
+  protected readonly loading = signal(true);
+
   private readonly rated = signal<Readonly<Record<string, Interaction>>>(
     this.interactions.read().interactions,
   );
 
+  /**
+   * The rating vocabulary, for the strip's wording.
+   *
+   * Re-exported to the template rather than duplicated as a `switch`, so the
+   * strip and the tile that produced it read from the same table — a rename
+   * cannot leave the button saying one thing and its acknowledgement another.
+   */
+  protected readonly stateLabels = INTERACTION_STATE_LABELS;
+
   /** The card surface, for its width (the swipe threshold) and pointer capture. */
   private readonly cardSurface = viewChild<ElementRef<HTMLElement>>('cardSurface');
+
+  /**
+   * The rating the visitor just gave, while it can still be taken back.
+   *
+   * A rating closes its card and moves on immediately, which is the point — a
+   * confirmation step between a tap and the next card would make the deck
+   * slower than scrolling, which is the thing it exists to replace. But the
+   * five tiles sit under a thumb and `Disliked` is one tile away from `Liked
+   * It`, so the mistake is not hypothetical, and until now the only way to fix
+   * one was to reload and hope the title came back.
+   *
+   * So the acknowledgement is an *offer to undo* rather than a prompt. It holds
+   * the last rating and nothing else: no stack, no history, no timer. The next
+   * action overwrites it, `Skip` and Watch Now clear it, and Undo consumes it —
+   * which means the strip can only ever describe a state that is still true.
+   */
+  protected readonly lastAction = signal<{ titleId: string; state: InteractionState } | null>(
+    null,
+  );
+
+  /**
+   * What a screen reader hears after a rating, since the strip cannot be read
+   * by everyone.
+   *
+   * The count is not decoration: it is the only confirmation that the rating
+   * *landed* rather than the card merely sliding away, and it is read from the
+   * store rather than counted here so it cannot drift from what was written.
+   * Empty before the first rating, and empty again after Undo — an announcement
+   * is a change, and re-announcing a state that has been retracted would leave
+   * the visitor hearing a rating they just took back.
+   */
+  protected readonly announcement = computed(() => {
+    const action = this.lastAction();
+    if (action === null) return '';
+
+    const { state } = action;
+    return `${INTERACTION_STATE_LABELS[state]}. ${Object.keys(this.rated()).length} rated.`;
+  });
 
   /** How far the card has been dragged, in pixels. 0 when it is centred. */
   protected readonly dragX = signal(0);
 
+  /**
+   * What the gesture in progress is heading toward, or `null` when there is no
+   * horizontal gesture to describe.
+   *
+   * A swipe used to be a neutral skip (FR-004), which made it the one gesture
+   * on this screen that did something the visitor could not name afterwards.
+   * Now it means the two things a swipe is universally taken to mean — left is
+   * *no*, right is *yes* — and this signal is how that gets said *before* the
+   * finger lifts, because a gesture whose consequence is only discoverable
+   * after the fact is a gesture nobody dares use.
+   *
+   * Keyed to the drag rather than to the verdict on purpose. Waiting for
+   * `swipeDecision` to commit would show the label at the exact instant it
+   * stops being a hint — the pill would blink into full opacity at the point
+   * of no return, which is the one moment the visitor no longer needs telling.
+   * Drawn from the displacement instead, it forms while they are deciding, and
+   * a drag that springs back takes the label with it.
+   *
+   * It carries the state rather than the wording so the pill and the strip
+   * below read from one vocabulary (`INTERACTION_STATE_LABELS`).
+   */
+  protected readonly swipeHint = signal<InteractionState | null>(null);
+
+  /**
+   * The hint's opacity: the drag's progress toward dismissal.
+   *
+   * Full exactly when the drag would commit on distance, so opacity *is* the
+   * gesture's progress bar — and a visitor can feel the threshold before they
+   * have to learn it by mistaking one card for another.
+   *
+   * A flick reaches the same full opacity at a shorter distance, because it
+   * commits on speed instead; that is deliberate rather than a hole in the
+   * mapping. `DISMISS_MIN_DISTANCE_PX` is the floor of the threshold, so this
+   * never promises full commitment further out than the gesture can commit.
+   */
+  protected readonly swipeHintOpacity = computed(() =>
+    Math.min(1, Math.abs(this.dragX()) / dismissThreshold(this.cardWidthPx())),
+  );
+
   protected readonly isDragging = signal(false);
+
+  /**
+   * The card's width, measured once per gesture.
+   *
+   * Read from the DOM at `pointerdown` and kept in a signal rather than queried
+   * on every pointermove: the layout does not change mid-drag, and a computed
+   * that read `getBoundingClientRect()` directly would be a non-reactive read
+   * inside a reactive graph — it would cache the first answer forever, which
+   * happens to be right here and is exactly the kind of accident that stops
+   * being right later.
+   */
+  private readonly cardWidthPx = signal(0);
 
   /** The gesture in progress. Empty between gestures. */
   private samples: PointerSample[] = [];
@@ -124,19 +249,53 @@ export class Deck {
   );
 
   /**
+   * Whether the skeleton belongs on screen.
+   *
+   * `loading()` alone is not enough, and the difference is the whole point of
+   * the state: a visitor who has not taken the quiz is not *waiting* for
+   * titles. No load is going to change their answer, so a skeleton would be a
+   * delay they cannot end by waiting while the prompt that actually moves them
+   * forward sits behind it. The empty state gets them immediately, and only a
+   * visitor who has asked for a deck is shown one being built.
+   */
+  protected readonly showsSkeleton = computed(() => this.loading() && !this.needsQuiz());
+
+  /**
+   * FR-013's other half: the load came back with nothing to show.
+   *
+   * Read as a pair, because neither half is a failure on its own. A fallback
+   * cache with titles in it is the degraded-but-working state the cached notice
+   * covers; an *empty* fallback is the one that means we could not reach the
+   * catalog and had nothing stored to fall back on.
+   *
+   * Derived rather than read off the service, because there is no error to
+   * subscribe to: `loadTitles` is contractually total — it completes with `[]`
+   * when the request fails *and* the cache is empty, rather than erroring, so
+   * that a network blip is never an unhandled rejection. The absence of titles
+   * under a fallback is therefore the failure, and it is the only signal there
+   * is.
+   */
+  protected readonly loadFailed = computed(
+    () => this.catalog.usingCachedTitles() && this.titles().length === 0,
+  );
+
+  /**
    * Why there is no card, for the empty state to explain and act on (FR-014).
    *
-   * Read only from the `@else` branch of the template, where `card()` is null
-   * by definition — which is what makes the final `'exhausted'` branch sound:
-   * there were titles, and the loop has walked past all of them.
+   * Read only from the template's final branch — the one that runs when the
+   * deck is *ready* and `card()` is null by definition. That is what makes the
+   * last two cases sound: `'load-failed'` means the catalog gave us nothing,
+   * and `'exhausted'` means it gave us titles and the loop has walked past all
+   * of them.
    */
   protected readonly outcome = computed<DeckOutcome>(() => {
     if (this.needsQuiz()) return 'needs-quiz';
+    if (this.loadFailed()) return 'load-failed';
     return this.hasNoMatches() ? 'no-matches' : 'exhausted';
   });
 
   constructor() {
-    this.catalog.loadTitles(this.region).subscribe((titles) => this.titles.set(titles));
+    this.load();
 
     // Warm the browser cache for the card *after* this one, and only that one
     // (research.md D6). A single card is on screen (FR-002), so preloading the
@@ -147,11 +306,41 @@ export class Deck {
     });
   }
 
+  /**
+   * FR-013's retry, from the empty state's button.
+   *
+   * Deliberately the same call the constructor makes, so a retry cannot end up
+   * on a different path than the first attempt: the only difference between the
+   * two is what the service answers this time.
+   */
+  protected reload(): void {
+    this.load();
+  }
+
+  /**
+   * Ask the catalog for titles, and be loading until it answers.
+   *
+   * The completion handler is total by contract (see `loadFailed`), which is
+   * what lets it be the only place `loading` is cleared — there is no error
+   * branch to forget, because there is no error branch.
+   */
+  private load(): void {
+    this.loading.set(true);
+    this.catalog.loadTitles(this.region).subscribe((titles) => {
+      this.titles.set(titles);
+      this.loading.set(false);
+    });
+  }
+
   /** Advance without rating — the explicit half of FR-004. */
   protected skip(): void {
     const current = this.card();
     if (current === null) return;
 
+    // Skipping is the visitor saying nothing about this title, so it retracts
+    // the offer to undo the *previous* one. Leaving a stale strip up would
+    // offer to un-rate a card that is no longer the last thing they did.
+    this.lastAction.set(null);
     this.advancePast(current.id);
   }
 
@@ -170,6 +359,7 @@ export class Deck {
 
     this.interactions.record(current.id, state);
     this.refreshRated();
+    this.lastAction.set({ titleId: current.id, state });
     this.advancePast(current.id);
   }
 
@@ -187,7 +377,40 @@ export class Deck {
     this.interactions.recordWatch(current.id);
     this.refreshRated();
 
+    // The loop is over and the visitor is leaving this screen: an offer to
+    // undo the rating before last is not something they can act on from Match
+    // Found, and the strip would still be sitting there if they came back.
+    this.lastAction.set(null);
+
     void this.router.navigate(['/deck/match', current.id]);
+  }
+
+  /**
+   * Takes back the last rating: un-rates the title and returns its card.
+   *
+   * Two writes, and both are needed. The interaction document is cleared so the
+   * title stops being excluded (FR-009) and stops voting on affinity; the loop
+   * document is rewound so the card that was closed to make room comes back.
+   * Undo one without the other and the visitor gets a title that is eligible
+   * again but still marked as seen — an empty-looking deck with a card missing
+   * from it, which is exactly the bug they just tried to correct.
+   *
+   * The pair cannot half-apply in a way they would see: both signals are set
+   * before the next render, and the card is *derived* from them, so there is no
+   * intermediate state where the rank has been recomputed against only one.
+   *
+   * `rewind` returns the session by reference when the id is not in the walk,
+   * so an Undo that arrives twice — a double tap on a strip that has already
+   * been consumed — writes the document it already has instead of a new one.
+   */
+  protected undo(): void {
+    const action = this.lastAction();
+    if (action === null) return;
+
+    this.interactions.remove(action.titleId);
+    this.refreshRated();
+    this.goTo(rewind(this.session(), action.titleId));
+    this.lastAction.set(null);
   }
 
   protected startLoop(): void {
@@ -196,7 +419,12 @@ export class Deck {
 
   protected onPointerDown(event: PointerEvent): void {
     this.samples = [sampleOf(event)];
+    this.cardWidthPx.set(this.cardWidth());
     this.isDragging.set(true);
+
+    // A gesture starts with nothing to say. Left over from a previous drag, the
+    // pill would be claiming a direction before this finger has moved.
+    this.swipeHint.set(null);
 
     // jsdom does not implement pointer capture, and it is a nicety rather than
     // a requirement — without it the gesture still works, it just stops if the
@@ -214,8 +442,11 @@ export class Deck {
     // answer for both a tap and a scroll, which are exactly the cases where the
     // card must hold still. Reusing the verdict keeps the axis rule in one
     // place instead of duplicating it here.
-    const moving = swipeDecision(this.samples, this.cardWidth()) !== 'none';
-    this.dragX.set(moving ? event.clientX - this.samples[0].x : 0);
+    const moving = swipeDecision(this.samples, this.cardWidthPx()) !== 'none';
+    const drag = moving ? event.clientX - this.samples[0].x : 0;
+
+    this.dragX.set(drag);
+    this.swipeHint.set(moving ? hintFor(drag < 0 ? 'dismiss-left' : 'dismiss-right') : null);
   }
 
   protected onPointerUp(event: PointerEvent): void {
@@ -225,14 +456,20 @@ export class Deck {
     this.isDragging.set(false);
     this.cardSurface()?.nativeElement.releasePointerCapture?.(event.pointerId);
 
-    const outcome = swipeDecision(this.samples, this.cardWidth());
+    const outcome = swipeDecision(this.samples, this.cardWidthPx());
     this.samples = [];
     this.dragX.set(0);
+    this.swipeHint.set(null);
 
-    if (outcome === 'dismiss-left' || outcome === 'dismiss-right') this.skip();
+    // The gesture routes into the *rating* path, not the skip path — which is
+    // what makes a swipe undoable, announced, and counted without any of those
+    // three having to know a gesture exists. `skip()` is now reached only from
+    // the button, so FR-004's neutral advance stays exactly one action wide.
+    const state = hintFor(outcome);
+    if (state !== null) this.onRating(state);
   }
 
-  private rankNow(shownTitleIds: readonly string[]): MediaTitle[] {
+  private rankNow(shownTitleIds: readonly string[]): RankedTitle[] {
     const preference = this.preference();
     if (preference === null) return [];
 
@@ -274,6 +511,27 @@ export class Deck {
 
 function sampleOf(event: PointerEvent): PointerSample {
   return { x: event.clientX, y: event.clientY, t: event.timeStamp };
+}
+
+/**
+ * What a swipe verdict means in the rating vocabulary.
+ *
+ * One table, used twice: the hint shown mid-gesture and the rating recorded on
+ * release. Deriving the second from the first is the point — a pill that
+ * promised "Want to Watch" while the release recorded `notInterested` would be
+ * worse than no pill at all, and this makes that impossible rather than
+ * unlikely.
+ *
+ * The two directions are asymmetric on purpose. Left is `notInterested` and not
+ * `disliked`: a swipe is a reflex, and `disliked` is a judgement about the
+ * title that also weighs against its genre in the affinity score. Right is
+ * `wantToWatch` and not `loved`, for the same reason in reverse — the strong
+ * claims stay on the buttons, where they are deliberate.
+ */
+function hintFor(outcome: SwipeOutcome): InteractionState | null {
+  if (outcome === 'dismiss-left') return 'notInterested';
+  if (outcome === 'dismiss-right') return 'wantToWatch';
+  return null;
 }
 
 /**

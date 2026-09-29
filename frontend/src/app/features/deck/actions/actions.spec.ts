@@ -280,6 +280,24 @@ describe('deck action bar', () => {
       }
     });
 
+    it('gives the labels room instead of five slivers (FR-017)', () => {
+      // Five columns at 360px leaves each label a column narrower than a thumb
+      // and roughly fourteen characters of room, so "Not Interested" wraps into
+      // a stack that is no longer a word. Three columns and a ragged second row
+      // keep the bar readable; five come back once there is width for them, and
+      // the type floor rises with it — 10px is below what a phone label needs.
+      build();
+
+      const grid = findButton('Loved It').parentElement;
+
+      expect(grid?.classList.contains('grid-cols-3')).toBe(true);
+      expect(grid?.classList.contains('md:grid-cols-5')).toBe(true);
+
+      for (const { label } of RATINGS) {
+        expect(findButton(label).classList.contains('text-xs')).toBe(true);
+      }
+    });
+
     it('sticks above the nav so no action scrolls out of reach (FR-017)', () => {
       // 003 moved the deck inside the navigation shell, so the viewport bottom
       // is no longer free: the nav is fixed there. Pinning the bar at

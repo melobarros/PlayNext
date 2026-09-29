@@ -4,7 +4,7 @@ import { provideRouter, Router } from '@angular/router';
 import { INTERACTION_STORAGE_KEY } from '../../../core/models/interaction';
 import { QuizState } from '../../../core/models/quiz';
 import { InteractionStore } from '../../../core/services/interaction-store';
-import { PreferenceStore } from '../../../core/services/preference-store';
+import { PreferenceStore, QUIZ_STATE_STORAGE_KEY } from '../../../core/services/preference-store';
 import { DeckOutcome, EmptyState } from './empty-state';
 
 /**
@@ -159,6 +159,64 @@ describe('the deck with nothing to show (FR-014, US4)', () => {
 
       expect(button('Reset Filters')).toBeUndefined();
       expect(root.querySelector('a[href="/quiz"]')).not.toBeNull();
+    });
+  });
+
+  describe('when the catalog could not be reached (FR-013)', () => {
+    it('says so, and never dresses the failure as an empty result', () => {
+      // The distinction the whole state exists for: "nothing matches" is an
+      // answer about the visitor's filters, and this is the absence of an
+      // answer. Saying the first when the second is true blames their answers
+      // for the network.
+      build('load-failed');
+
+      expect(text()).toContain("Couldn't reach the catalog");
+      expect(text()).not.toContain('Nothing matches');
+      expect(root.querySelector('[role="progressbar"]')).toBeNull();
+    });
+
+    it('offers the retry, and not the reset', () => {
+      // Reset Filters rewrites the visitor's quiz answers. They are not what
+      // failed, so offering it here is the original bug wearing a different
+      // label — and it would cost them a 30-second quiz to fix nothing.
+      build('load-failed');
+
+      expect(button('Try again')).toBeDefined();
+      expect(button('Reset Filters')).toBeUndefined();
+    });
+
+    it('offers no new loop, because there is no deck to walk again', () => {
+      build('load-failed');
+
+      expect(button('Start a new loop')).toBeUndefined();
+    });
+
+    it('asks the shell to retry, which is the only place the request lives', () => {
+      const retried = vi.fn();
+      build('load-failed');
+      fixture.componentInstance.retry.subscribe(retried);
+
+      tap('Try again');
+
+      expect(retried).toHaveBeenCalled();
+    });
+
+    it('touches nothing on disk when it retries', () => {
+      // Retry is not a reset by another name. Both documents are written
+      // *before* the tap and asserted unchanged after it, so neither
+      // assertion can pass by finding nothing on either side.
+      TestBed.inject(PreferenceStore).write(completedQuiz());
+      TestBed.inject(InteractionStore).record('rejected-title', 'disliked');
+      const quizBefore = localStorage.getItem(QUIZ_STATE_STORAGE_KEY);
+      const interactionsBefore = savedInteractions();
+
+      build('load-failed');
+      tap('Try again');
+
+      expect(quizBefore).not.toBeNull();
+      expect(interactionsBefore).not.toBeNull();
+      expect(localStorage.getItem(QUIZ_STATE_STORAGE_KEY)).toBe(quizBefore);
+      expect(savedInteractions()).toBe(interactionsBefore);
     });
   });
 

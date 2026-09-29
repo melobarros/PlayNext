@@ -50,11 +50,26 @@
           {{ title().title }}
         </h2>
 
-        <p class="shrink-0 rounded-full bg-ink-800 px-3 py-1 text-sm font-semibold text-accent-400">
+        <!-- Grey, not violet: the score is a fact about the title, not this
+             deck's decision, and the one violet on the card belongs to the
+             reason below (DESIGN.md, the One Violet Rule). -->
+        <p class="shrink-0 rounded-full bg-ink-800 px-3 py-1 text-sm font-semibold text-chalk-500">
           {{ rating() }}
           <span class="sr-only">out of 10</span>
         </p>
       </div>
+
+      <!-- Why this card is here, in the engine's own words. Inside the facts
+           column rather than its own row on the article: the poster and the
+           facts are the card's two halves, and a third direct child would
+           break that pairing (the synopsis test pins the first child).
+
+           `null` renders nothing at all — no placeholder, no "recommended
+           for you". A card that ranked on nothing in particular is allowed to
+           say nothing. -->
+      @if (title().reason; as reason) {
+        <p class="text-sm font-medium text-accent-400">{{ reason }}</p>
+      }
 
       <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-chalk-500">
         <span>{{ title().releaseYear }}</span>

@@ -86,7 +86,7 @@
 
       <button
         type="submit"
-        class="touch-target flex items-center justify-center rounded-full bg-accent-500 px-6 font-medium text-white transition-opacity disabled:opacity-60"
+        class="touch-target flex items-center justify-center rounded-full bg-accent-600 px-6 font-medium text-white transition-opacity hover:bg-accent-500 active:brightness-90 disabled:opacity-60"
         [disabled]="busy()"
       >
         Change password
@@ -145,7 +145,7 @@
         name="email"
         autocomplete="email"
         required
-        class="touch-target rounded-xl border border-ink-700 bg-ink-900 px-4 text-chalk-50 placeholder:text-chalk-600"
+        class="touch-target rounded-xl border border-ink-700 bg-ink-900 px-4 text-chalk-50 placeholder:text-chalk-500"
         placeholder="you@example.com"
         [value]="email()"
         (input)="onEmail($any($event.target).value)"
@@ -185,7 +185,7 @@
 
     <button
       type="submit"
-      class="touch-target flex items-center justify-center rounded-full bg-accent-500 px-6 font-medium text-white transition-opacity disabled:opacity-60"
+      class="touch-target flex items-center justify-center rounded-full bg-accent-600 px-6 font-medium text-white transition-opacity hover:bg-accent-500 active:brightness-90 disabled:opacity-60"
       [disabled]="busy()"
     >
       {{ isSignUp() ? 'Create account' : 'Sign in' }}
@@ -194,7 +194,7 @@
 
   <div class="mt-5 flex items-center gap-3">
     <span class="h-px flex-1 bg-ink-800"></span>
-    <span class="text-xs text-chalk-600">or</span>
+    <span class="text-xs text-chalk-500">or</span>
     <span class="h-px flex-1 bg-ink-800"></span>
   </div>
 
