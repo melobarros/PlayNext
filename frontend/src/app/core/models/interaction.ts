@@ -53,7 +53,7 @@ export const INTERACTION_STATE_LABELS: Record<InteractionState, string> = {
  * different kind of action and is rendered apart from these.
  */
 export const RATING_ACTIONS: readonly { state: InteractionState; label: string }[] = (
-  ['loved', 'liked', 'disliked', 'wantToWatch', 'notInterested'] as const
+  ['liked', 'disliked'] as const
 ).map((state) => ({ state, label: INTERACTION_STATE_LABELS[state] }));
 
 /**
@@ -142,8 +142,8 @@ interface WatchlistSurfaceDefinition {
  * without a home.
  */
 export const WATCHLIST_SURFACES: readonly WatchlistSurfaceDefinition[] = [
-  { id: 'wantToWatch', label: 'Want to Watch', states: ['wantToWatch'], kind: 'tab' },
-  { id: 'loved', label: 'Loved', states: ['loved', 'liked'], kind: 'tab' },
+  //{ id: 'wantToWatch', label: 'Want to Watch', states: ['wantToWatch'], kind: 'tab' },
+  { id: 'loved', label: 'Liked', states: ['loved', 'liked'], kind: 'tab' },
   { id: 'disliked', label: 'Disliked', states: ['disliked', 'notInterested'], kind: 'tab' },
   { id: 'history', label: 'History', states: ['watchingNow'], kind: 'log' },
 ];

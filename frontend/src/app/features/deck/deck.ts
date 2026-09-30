@@ -642,8 +642,8 @@ function sampleOf(event: PointerEvent): PointerSample {
  * claims stay on the buttons, where they are deliberate.
  */
 function hintFor(outcome: SwipeOutcome): InteractionState | null {
-  if (outcome === 'dismiss-left') return 'notInterested';
-  if (outcome === 'dismiss-right') return 'wantToWatch';
+  if (outcome === 'dismiss-left') return 'disliked';
+  if (outcome === 'dismiss-right') return 'liked';
   return null;
 }
 
