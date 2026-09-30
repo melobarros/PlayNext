@@ -1,7 +1,8 @@
 import {
   INTERACTION_STATES,
   INTERACTION_STATE_LABELS,
-  isExcluding,
+  isRated,
+  isRejection,
   surfaceFor,
   WATCHLIST_SURFACES,
   WATCHLIST_TABS,
@@ -71,21 +72,39 @@ describe('the rating vocabulary', () => {
     });
   });
 
-  describe('the exclusion rule', () => {
-    it('excludes exactly Disliked and Not Interested', () => {
-      // 003 FR-007: the deck's exclusion rule, restated so that adding a state
-      // forces a deliberate decision about whether it excludes.
-      const excluding = INTERACTION_STATES.filter(isExcluding);
+  describe('the rejection rule (the affinity signal)', () => {
+    it('counts exactly Disliked and Not Interested as rejections', () => {
+      // Restated in one place so that adding a state forces a deliberate
+      // decision about whether the deck should read it as "less like this".
+      const rejections = INTERACTION_STATES.filter(isRejection);
 
-      expect(excluding).toEqual(['disliked', 'notInterested']);
+      expect(rejections).toEqual(['disliked', 'notInterested']);
     });
 
-    it('leaves every non-excluding state eligible', () => {
-      // A merged tab must not imply a merged rule: Liked is listed under Loved
-      // but does not exclude, and Want to Watch excludes nothing either.
-      expect(isExcluding('liked')).toBe(false);
-      expect(isExcluding('loved')).toBe(false);
-      expect(isExcluding('wantToWatch')).toBe(false);
+    it('leaves the states that are not a judgement out of it', () => {
+      // A merged watchlist tab must not imply a merged rule: Liked is listed
+      // under Loved, and neither is a rejection. `watchingNow` is neither
+      // positive nor negative — having watched something says nothing yet about
+      // whether the visitor wants more of it.
+      expect(isRejection('liked')).toBe(false);
+      expect(isRejection('loved')).toBe(false);
+      expect(isRejection('wantToWatch')).toBe(false);
+      expect(isRejection('watchingNow')).toBe(false);
+    });
+  });
+
+  describe('the eligibility rule', () => {
+    it('keeps out every title the visitor has rated, and only those', () => {
+      // Deliberately *not* a state list, and this loop is the assertion: every
+      // state in the vocabulary excludes its title, so a seventh state is
+      // covered the day it is declared rather than the day someone remembers
+      // to add it here. Un-rated is the only thing that is eligible, which is
+      // what makes Undo — a delete — a complete way back in.
+      for (const state of INTERACTION_STATES) {
+        expect(isRated({ state, updatedAt: '2026-09-29T00:00:00.000Z' })).toBe(true);
+      }
+
+      expect(isRated(undefined)).toBe(false);
     });
   });
 

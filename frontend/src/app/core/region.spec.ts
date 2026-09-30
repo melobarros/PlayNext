@@ -1,5 +1,5 @@
 import { DEFAULT_REGION } from './models/quiz-options.data';
-import { currentRegion, deriveRegion } from './region';
+import { currentRegion, deriveRegion, regionLabel } from './region';
 
 /**
  * The region the catalog is scoped to (FR-005, research.md D14).
@@ -93,5 +93,38 @@ describe('currentRegion', () => {
     deviceLanguageIs(undefined);
 
     expect(currentRegion()).toBe(DEFAULT_REGION);
+  });
+});
+
+describe('regionLabel', () => {
+  it('names the country and keeps the code beside it', () => {
+    // Both, not one. "Czechia" and "Czech Republic" are one country under two
+    // spellings, and the code is the half that does not depend on which one
+    // this build happened to write down.
+    expect(regionLabel('BR')).toBe('Brazil (BR)');
+    expect(regionLabel('US')).toBe('United States (US)');
+  });
+
+  it('normalizes the case, as the region itself is normalized', () => {
+    // `deriveRegion` uppercases, and this is fed its output — but a caller that
+    // passed "br" should get the name rather than the fallback, which would
+    // read as "we have never heard of this country".
+    expect(regionLabel('br')).toBe('Brazil (BR)');
+    expect(regionLabel('gb')).toBe('United Kingdom (GB)');
+  });
+
+  it('shows the bare code for a country it does not name, and invents nothing', () => {
+    // The fallback is the point of the function. Rendering a country name we do
+    // not have would be a guess presented as a fact — the mistake this module
+    // already refuses to make when it declines to read a country out of "pt".
+    expect(regionLabel('ZW')).toBe('ZW');
+    expect(regionLabel('zw')).toBe('ZW');
+    expect(regionLabel('QQ')).toBe('QQ');
+  });
+
+  it('names every region the app can fall back to', () => {
+    // `DEFAULT_REGION` is the value a visitor with an unreadable language tag
+    // gets, which makes it the one region guaranteed to be shown to somebody.
+    expect(regionLabel(DEFAULT_REGION)).not.toBe(DEFAULT_REGION);
   });
 });

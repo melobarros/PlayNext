@@ -152,6 +152,26 @@ describe('title details', () => {
     return streamingLinks().map((anchor) => anchor.textContent?.trim() ?? '');
   }
 
+  /**
+   * The control that un-rates the title.
+   *
+   * Defined out here rather than beside the re-rating tests because two
+   * describes need it: the one about changing a rating, and the one about what
+   * that change does to the deck. Removal is the write both of them turn on —
+   * it is the only one that puts a title back.
+   */
+  function removeControl(): HTMLButtonElement {
+    const control = root.querySelector('[data-action="remove"]');
+    if (!(control instanceof HTMLButtonElement)) throw new Error('No Remove action');
+
+    return control;
+  }
+
+  function tapRemove(): void {
+    removeControl().click();
+    fixture.detectChanges();
+  }
+
   beforeEach(() => setCatalog([ARRIVAL, PARASITE]));
 
   afterEach(() => {
@@ -363,17 +383,6 @@ describe('title details', () => {
       fixture.detectChanges();
     }
 
-    function removeControl(): HTMLButtonElement {
-      const control = root.querySelector('[data-action="remove"]');
-      if (!(control instanceof HTMLButtonElement)) throw new Error('No Remove action');
-      return control;
-    }
-
-    function tapRemove(): void {
-      removeControl().click();
-      fixture.detectChanges();
-    }
-
     it('offers exactly the five ratings a card offers, in the same order', () => {
       saveRating('arrival', 'liked');
 
@@ -582,10 +591,18 @@ describe('title details', () => {
 
     beforeEach(() => setCatalog(DECK_CATALOG));
 
-    it('makes a title eligible again once it is re-rated away from Disliked', () => {
-      // US2 scenario 3 / FR-007, and the reason a mis-tapped Dislike is no
-      // longer permanent. `disliked` is one of only two excluding states, so
-      // changing it to any of the other four brings the title back.
+    it('keeps a mis-tapped Dislike out even when it is re-rated Loved', () => {
+      // Amended 2026-09-29: re-rating no longer brings a title back. The
+      // eligibility rule reads *presence* rather than the two rejections, so
+      // any recorded interaction excludes its title (FR-009) — and a re-rate is
+      // a new state on the same entry, not a removal. That is the correct
+      // reading of a deck whose job is finding something to watch: the visitor
+      // has judged this title, and judging it differently does not make it an
+      // open question again.
+      // Control on a clean deck first: Alpha leads it, so its absence below is
+      // the rating's doing and not some unrelated reason it was never there.
+      expect(firstCard(openDeck())).toBe('Alpha');
+
       localStorage.setItem(
         INTERACTION_STORAGE_KEY,
         JSON.stringify({
@@ -596,8 +613,38 @@ describe('title details', () => {
         }),
       );
 
+      // Two separate launches, as below — the second must not inherit the
+      // first one's injector or its live stores.
+      TestBed.resetTestingModule();
       build('alpha');
       reRate('loved');
+
+      expect(firstCard(openDeck())).toBe('Bravo');
+    });
+
+    it('makes a title eligible again when the rating is taken away', () => {
+      // The counterpart that keeps "no way back" from being true: Undo in the
+      // deck and Remove here are the same write — `InteractionStore.remove` —
+      // and since eligibility is derived from the document on every ranking,
+      // deleting the entry restores the title with nothing else to keep in
+      // step. Removing is the visitor's way to say "I never judged this".
+      localStorage.setItem(
+        INTERACTION_STORAGE_KEY,
+        JSON.stringify({
+          schemaVersion: 1,
+          interactions: { alpha: { state: 'disliked', updatedAt: '2026-09-26T10:00:00.000Z' } },
+          history: [],
+          updatedAt: '2026-09-26T10:00:00.000Z',
+        }),
+      );
+
+      // Control first, in the other direction: the Dislike is what is keeping
+      // Alpha away, so it is absent before the removal and present after.
+      expect(firstCard(openDeck())).toBe('Bravo');
+
+      TestBed.resetTestingModule();
+      build('alpha');
+      tapRemove();
 
       expect(firstCard(openDeck())).toBe('Alpha');
     });

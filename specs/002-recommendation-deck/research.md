@@ -215,7 +215,7 @@ rejected against. See `spec.md` FR-003, reworded to match.
 
 ---
 
-## D9. "Reset Filters" reuses spec 001's retake transition
+## D9. The preferences action (formerly "Reset Filters") reuses spec 001's retake transition
 
 **Decision**: The empty state's action calls spec 001's existing `startRetake`
 transition and navigates to `/quiz`, rather than clearing preferences in place.
@@ -416,7 +416,7 @@ so the server has no reason to give.
 rating buttons. Left records `notInterested` and right records `wantToWatch`, a
 hint pill names the rating while the finger is still down, and the acknowledgement
 strip's Undo takes it back. `Skip` becomes the one advance that records nothing
-(FR-004, amended 2026-09-29). Undo is two writes with no timer and no stack:
+(FR-004, amended 2026-09-29). Undo is two writes and no stack:
 `InteractionStore.remove` clears the rating, and a pure `rewind(session, titleId)`
 removes the id from the loop's `shownTitleIds`.
 
@@ -435,15 +435,16 @@ caller writes whatever comes back, so an equal-but-fresh object would turn
 strip indistinguishable from a real rewind.
 
 The acknowledgement is an offer, not a prompt: the strip holds the last rating and
-nothing else, and is cleared by the next action rather than by a clock. A timer
-would introduce the only `setTimeout` in the deck, and with it a window in which
-the strip describes a rating that is no longer the last one. It is deliberately
-not persisted either — it answers "what did you just do", which a reload cannot
-know, so a restored strip could invite undoing a tap from a session days ago.
+nothing else, and is cleared by the next action. It is deliberately not persisted
+either — it answers "what did you just do", which a reload cannot know, so a
+restored strip could invite undoing a tap from a session days ago. Its one clock
+is D16.
 
 **Alternatives considered**:
-- *A toast with a timeout* — rejected: the deck has no timers anywhere, and this
-  would add one to express something the next action already expresses exactly.
+- *A toast that only the clock dismisses* — rejected: the strip is also cleared by
+  the action that supersedes it, which is what makes it never describe a rating
+  that is no longer the last one. See D16 for the timer that was added on top,
+  and why.
 - *An undo stack (repeated Undo walks backwards)* — rejected: it needs history in
   a document whose shape is frozen at three keys, and "undo the last thing" is the
   only guarantee a visitor can form a mental model of.
@@ -462,3 +463,98 @@ on Undo. The animation is on the wrapper element and the drag transform is on th
 surface inside it, because a running CSS animation's `transform` beats an inline
 style — on one element, a drag begun during those 200ms would leave the card stuck
 under the finger, and swiping quickly is exactly when that happens.
+
+## D16. The undo offer withdraws itself after five seconds
+
+**Decision**: the acknowledgement strip stays for five seconds (`UNDO_WINDOW_MS`)
+and then removes itself. The count measures *idle* time: hovering the strip or
+moving focus into it stops it, and leaving restarts a full window. The timer is
+created inside an Angular `effect` and cleared by that effect's `onCleanup`, so
+it is owned by the state it belongs to, and `onRating` clears the hold before
+replacing the offer so a new rating always gets the whole window.
+
+**Rationale**: the request was three seconds, and the honest answer is that three
+is the reflex for a toast and the wrong reflex here — the visitor is not *reading*
+the strip, they are travelling past it. Their thumb is on `Loved It`, the tile
+they meant is one column over, and the manoeuvre is notice, aim, press. A strip
+that vanishes mid-reach is worse than one that never appeared, because it teaches
+the visitor the offer is unreliable and they stop counting on it. The costs are
+not symmetric: erring long costs one row of card height until the next tap, erring
+short makes a mis-tap permanent. Five seconds is where the deck lands.
+
+The hold exists because a countdown on a control fails WCAG 2.2.1 for exactly the
+visitor who needs it most. A keyboard user tabs toward Undo through every control
+before it; a pointer user has to travel there. Either way the mechanism is present,
+is being used, and would be removed by the clock anyway. Suspending on
+`focusin`/`pointerenter` makes the window a measure of inattention rather than of
+wall-clock time, which is what it always should have been.
+
+`effect` + `onCleanup` rather than a handle field and `ngOnDestroy` because it is
+correct by construction: cleanup runs on every re-run, not only on destroy, so a
+second rating's timer cannot be shadowed by a first one still pending — the bug
+that would withdraw a fresh offer early.
+
+**Alternatives considered**:
+- *Three seconds* — rejected above. If it is ever lowered, it should be an
+  argument rather than a tidy-up.
+- *No timer; cleared by the next action only* — this was the original decision
+  and the request reversed it. It survives in the code as the *other* way the
+  strip goes away, which is why the timer is additive rather than the mechanism.
+- *Resume the remaining time on `pointerleave`* — rejected: a visitor returning to
+  the strip is deciding, and a decision should not inherit a deadline they did not
+  know they were running against.
+- *A CSS animation with `animationend`* — rejected: it would not be pausable on
+  hover without duplicating the whole countdown in `animation-play-state`, and it
+  would need a reduced-motion fallback for a behaviour that is not motion.
+- *`aria-live` announcement of the withdrawal* — rejected: the announcement
+  already goes empty when the offer is consumed, and re-announcing a retraction
+  would be noise on a screen reader.
+
+## D17. Eligibility is "not rated at all"; rejection is a separate, narrower rule
+
+**Decision**: `isRated(interaction)` — presence of any recorded interaction, asked
+of the whole vocabulary rather than of a list of states — is filter 4 of
+`rankTitles` (FR-009, amended 2026-09-29). `isRejection(state)`, still exactly
+`disliked` and `notInterested`, survives as the negative half of the affinity
+signal in `genreSignals` and nothing else. `startNewLoop` continues to clear
+`shownTitleIds` and only that.
+
+**Rationale**: the two rules answer different questions and were conflated in one
+`EXCLUDING_STATES` list. Eligibility asks "should the deck spend a card on this?",
+and a title already judged, saved or watched is not an open question. Affinity
+asks "what does this rating say about taste?", and only a rejection says *less like
+this* — `Loved It` and `Want to Watch` also keep their title out of the deck, but
+counting them as rejections would sink every genre the visitor has ever enjoyed.
+
+The bug that forced the split is the loop boundary. `startNewLoop` clears the walk,
+because FR-010 is about not repeating a card *within* a loop; it does not clear the
+ratings, because a new loop is a new walk rather than a fresh memory. With
+eligibility keyed to two states, that left the other four free to return — so a
+visitor could tap Watch Now, open Match Found, start a new loop, and be handed the
+film they had just chosen. The deck's strongest claim, contradicted by its own
+first card.
+
+Stating eligibility as *presence* rather than as a list is what keeps it honest as
+the vocabulary grows: a seventh state is excluded the day it is declared rather
+than the day someone remembers to add it here, and `interaction.spec.ts` asserts
+exactly that by looping over `INTERACTION_STATES`.
+
+**Two consequences accepted**: rating a title now takes it out of the deck for
+good, so "a title is eligible again" is only reachable by *removing* the rating —
+which Undo and the watchlist's Remove both do, through the same
+`InteractionStore.remove`. And a visitor who rates every title their filters match
+reaches an empty deck that a new loop cannot refill, so `DeckOutcome` gained
+`'all-rated'`: it offers the preferences action, which is the only one that can
+change the situation, and not "Start a new loop", which would be a button that
+does nothing.
+
+**Alternatives considered**:
+- *Seed `startNewLoop`'s `shownTitleIds` from the rated ids* — rejected: it
+  collapses `shownTitleIds`' meaning ("seen, no opinion"), and it only patches the
+  loop boundary. Re-rating a disliked title to Loved It would still have made it
+  eligible again mid-loop.
+- *Keep the two-state list and add the other four* — rejected: the same rule stated
+  as a list, which is the version that goes stale.
+- *Let `watchingNow` back in after a loop, since the visitor may want to rewatch* —
+  rejected: the deck's job is deciding what to watch, and a title they have already
+  decided on is not a decision left to make. A rewatch is a watchlist action.

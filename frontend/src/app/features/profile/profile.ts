@@ -1,6 +1,12 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
+import { DimensionChoice, MEDIA_TYPE_LABELS, MediaType, QuizState } from '../../core/models/quiz';
+import { currentRegion, regionLabel } from '../../core/region';
 import { AuthOutcome, AuthService } from '../../core/services/auth.service';
+import { PreferenceStore } from '../../core/services/preference-store';
+import { QuizOptionsService } from '../../core/services/quiz-options.service';
 import { SyncService } from '../../core/services/sync.service';
+import { startRetake } from '../quiz/quiz-logic/quiz-rules';
 
 /**
  * What the screen says once the visitor is through a door.
@@ -13,6 +19,19 @@ import { SyncService } from '../../core/services/sync.service';
  */
 const SIGNED_UP = 'Account created — you are signed in.';
 const SIGNED_IN = 'Signed in.';
+
+/**
+ * The two answers that are not a list of names.
+ *
+ * Spelled out here rather than imported from `summary.ts`, which spells them
+ * the same way: a display string is the screen's, and the two screens are
+ * allowed to word things differently for their different readers. `ANY_LABEL`
+ * matches the quiz's own chip (`choice-chips.ts`), because a visitor who
+ * answered "Any / No preference" should read their answer back in the words
+ * they chose it in.
+ */
+const ANY_LABEL = 'Any / No preference';
+const EMPTY_LABEL = 'Nothing selected';
 
 /**
  * The Profile area: the always-available way to an account (US1, FR-001/002),
@@ -58,9 +77,67 @@ const SIGNED_IN = 'Signed in.';
 export class Profile {
   private readonly auth = inject(AuthService);
   private readonly sync = inject(SyncService);
+  private readonly preferences = inject(PreferenceStore);
+  private readonly options = inject(QuizOptionsService);
+  private readonly router = inject(Router);
 
   /** Who is signed in, or `null` — which is what chooses between the halves. */
   protected readonly session = this.auth.session;
+
+  /**
+   * The saved quiz, read once, at construction.
+   *
+   * Not a signal, and not re-read: nothing on this screen writes it, and the
+   * one thing that does — the button below — leaves for `/quiz`, which tears
+   * this component down. A signal here would be machinery for an update that
+   * cannot happen.
+   */
+  private readonly quiz = this.preferences.read();
+
+  /**
+   * The region the catalog is scoped to, shown rather than asked for.
+   *
+   * It is a browser fact, not a preference (`region.ts`), so there is nothing
+   * here to change — but "where does this app think I am?" is a fair question
+   * to have about a screen that lists streaming services, and the answer is
+   * otherwise nowhere in the product.
+   */
+  protected readonly region = currentRegion();
+
+  protected readonly regionName = regionLabel(this.region);
+
+  /**
+   * The visitor's answers, in the same words the quiz summary uses.
+   *
+   * The `describe*` helpers below are twins of `summary.ts`'s, deliberately
+   * duplicated rather than shared: they are four short lines over the same two
+   * lookups, and lifting them into a service to save them would give the app a
+   * "how to name a quiz answer" module that both screens reach for — which is
+   * how a display string becomes an API. The two are allowed to word things
+   * differently for their different readers.
+   *
+   * Three rows, not the summary's four. "Other platforms" is a modifier on the
+   * streaming-services answer rather than a dimension of its own, and on a card
+   * the visitor did not come here to read it reads as a fourth preference they
+   * never set. The quiz summary is where the whole answer belongs.
+   */
+  protected readonly answers: readonly { label: string; value: string }[] =
+    this.quiz === null
+      ? []
+      : [
+          { label: 'Watching', value: this.describeMediaTypes(this.quiz.mediaType) },
+          { label: 'Genres and themes', value: this.describeGenres(this.quiz.genre) },
+          { label: 'Streaming services', value: this.describeProviders(this.quiz.provider) },
+        ];
+
+  /**
+   * Whether there is a finished quiz to describe.
+   *
+   * `status` rather than the presence of the document: an unfinished quiz is a
+   * document too, and describing half-answered questions as the visitor's
+   * preferences would be this screen stating something they never decided.
+   */
+  protected readonly hasAnswers = this.quiz?.status === 'completed';
 
   /** The change form's two fields (FR-014). */
   protected readonly currentPassword = signal('');
@@ -102,6 +179,64 @@ export class Profile {
   protected readonly busy = signal(false);
 
   protected readonly isSignUp = computed(() => this.mode() === 'signup');
+
+  /**
+   * Reopens the quiz with the previous answers pre-filled (FR-014).
+   *
+   * The same transition the deck's empty state and its Match Found view perform,
+   * from a third place — and the one where the visitor goes looking for it. The
+   * header of `preference-store.ts` calls preferences device-local, and this is
+   * the screen that says so out loud: the card renders in both halves, because a
+   * signed-in visitor's answers are still *this device's* answers until the sync
+   * has run, and hiding the door behind a sign-in would make the app's most
+   * ordinary errand depend on an account the visitor may not want.
+   *
+   * A missing document is not an error here either. This screen is the guest's
+   * front door (FR-001), so a visitor who has never taken the quiz is the
+   * expected case — `/quiz` answers it by starting at the first question.
+   */
+  protected changePreferences(): void {
+    const state = this.preferences.read();
+    if (state !== null) this.preferences.write(startRetake(state));
+
+    void this.router.navigate(['/quiz']);
+  }
+
+  // --- naming the answers, as `summary.ts` names them ---------------------
+
+  private describeMediaTypes(choice: DimensionChoice<MediaType>): string {
+    if (choice.any) return ANY_LABEL;
+    if (choice.values.length === 0) return EMPTY_LABEL;
+    return choice.values.map((value) => MEDIA_TYPE_LABELS[value]).join(', ');
+  }
+
+  private describeGenres(choice: DimensionChoice<string>): string {
+    return this.describe(
+      choice,
+      new Map(this.options.getGenres().map((genre) => [genre.id, genre.displayName])),
+    );
+  }
+
+  /**
+   * Providers are named from the full catalog, retired services included.
+   *
+   * `getProvidersById` rather than the region's selectable list, for the reason
+   * its own doc gives: a saved answer may name a service the quiz no longer
+   * offers, and rendering the visitor's own selection as nothing would be this
+   * screen losing their answer rather than reporting it.
+   */
+  private describeProviders(choice: DimensionChoice<string>): string {
+    return this.describe(
+      choice,
+      new Map(this.options.getProvidersById().map((provider) => [provider.id, provider.displayName])),
+    );
+  }
+
+  private describe(choice: DimensionChoice<string>, labels: Map<string, string>): string {
+    if (choice.any) return ANY_LABEL;
+    if (choice.values.length === 0) return EMPTY_LABEL;
+    return choice.values.map((id) => labels.get(id) ?? id).join(', ');
+  }
 
   protected select(mode: 'signup' | 'signin'): void {
     this.mode.set(mode);

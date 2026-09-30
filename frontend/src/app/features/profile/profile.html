@@ -2,17 +2,88 @@
   <h1 class="text-2xl font-semibold text-chalk-50">Profile</h1>
 
   <!--
+    Who the visitor is here, in one line, whichever half they are in.
+
+    Hoisted out of the two halves so the preferences card can sit under it
+    without the halves having to render the card twice. Reading order is the
+    reason: identity, then what the app knows about them, then what they came
+    here to do — and on the guest half the sign-up pitch stays above the fold
+    instead of being pushed under a card.
+  -->
+  <p class="mt-1 text-sm text-chalk-500">
+    @if (session(); as account) {
+      Signed in as <span class="text-chalk-300">{{ account.email }}</span
+      >. Your ratings, watchlist and history are saved to this account.
+    } @else {
+      Save your ratings, watchlist and history to an account, and they follow you to any device.
+    }
+  </p>
+
+  <!--
+    Preferences, in both halves.
+
+    Both halves, because the answers are **device-local**: a signed-in visitor's
+    quiz lives in this browser until the sync has run, so hiding the door behind
+    a sign-in would make the app's most ordinary errand depend on an account the
+    visitor may not want. The card is also the reason the screen stopped feeling
+    pointless — it is the one place in the product that shows a visitor what
+    they told it, and the only way back to it that does not require the deck to
+    run dry first.
+  -->
+  <section class="mt-5 rounded-2xl border border-ink-800 bg-ink-900 p-4">
+    <h2 class="text-sm font-semibold text-chalk-300">Preferences</h2>
+
+    @if (hasAnswers) {
+      <dl class="mt-3 flex flex-col gap-2">
+        @for (answer of answers; track answer.label) {
+          <div>
+            <dt class="text-xs uppercase tracking-wide text-chalk-500">{{ answer.label }}</dt>
+            <dd class="mt-0.5 text-sm text-chalk-50">{{ answer.value }}</dd>
+          </div>
+        }
+      </dl>
+    } @else {
+      <p class="mt-2 text-sm text-chalk-500">
+        You have not finished the quiz yet, so the deck is still empty.
+      </p>
+    }
+
+    <!--
+      The region, shown rather than chosen. It is a browser fact (`region.ts`),
+      so there is nothing here to press — but "where does this app think I am?"
+      is a fair question about a screen that lists streaming services, and
+      without this line the answer is nowhere in the product.
+
+      The caption does two jobs. It names the mechanism, because the value can
+      look wrong to someone whose phone is set to a language they do not live
+      in — and it says where to change it, because the honest answer to "can I
+      pick a different one?" is that the device already has a setting for it.
+      A visitor left to guess would reasonably conclude the app got it wrong.
+    -->
+    <p class="mt-4 border-t border-ink-800 pt-3 text-sm text-chalk-500">
+      Region: <span class="text-chalk-50">{{ regionName }}</span>
+    </p>
+    <p class="mt-1 text-xs text-chalk-500">
+      From your device's language, used to find what streams where you are. Change it in your
+      device's language settings.
+    </p>
+
+    <button
+      type="button"
+      class="touch-target mt-4 flex w-full items-center justify-center rounded-full border border-ink-600 px-6 font-medium text-chalk-300"
+      (click)="changePreferences()"
+    >
+      Change preferences
+    </button>
+  </section>
+
+  <!--
     The two halves are exclusive. The `@if` is over the session rather than
     over a local flag, because the session is the server's answer and a second
     copy of it here is a copy that can disagree with `AuthService` — which is
     exactly what happens after a password change ends every session.
   -->
   @if (session(); as account) {
-    <p class="mt-1 text-sm text-chalk-500">
-      Signed in as <span class="text-chalk-300">{{ account.email }}</span
-      >. Your ratings, watchlist and history are saved to this account.
-    </p>
-
     <!--
       The summary, and the order is the point: who the visitor is signed in as
       and the way out, before anything they came here to do. The change form
@@ -25,7 +96,7 @@
     -->
     <button
       type="button"
-      class="touch-target mt-3 flex items-center justify-center rounded-full border border-ink-600 px-6 font-medium text-chalk-300 transition-opacity disabled:opacity-60"
+      class="touch-target mt-6 flex items-center justify-center rounded-full border border-ink-600 px-6 font-medium text-chalk-300 transition-opacity disabled:opacity-60"
       [disabled]="busy()"
       (click)="signOut()"
     >
@@ -93,10 +164,6 @@
       </button>
     </form>
   } @else {
-  <p class="mt-1 text-sm text-chalk-500">
-    Save your ratings, watchlist and history to an account, and they follow you to any device.
-  </p>
-
   <!--
     Real tab semantics, as the watchlist's tabs are: the two modes are one
     surface with two settings, and a screen reader should hear "tab, 1 of 2,
@@ -106,7 +173,7 @@
   <div
     role="tablist"
     aria-label="Create an account or sign in"
-    class="mt-5 flex gap-1 rounded-full border border-ink-700 bg-ink-900 p-1"
+    class="mt-6 flex gap-1 rounded-full border border-ink-700 bg-ink-900 p-1"
   >
     @for (option of modes; track option.id) {
       <button

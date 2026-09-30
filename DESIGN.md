@@ -421,6 +421,24 @@ The five-way rating control is the product's most-used element.
   from `md`**, each a Surface fill with a Line border, an icon above a 12px
   label. The ragged last row is the point: two short rows of words read as words,
   five slivers read as decoration.
+  **Trial in progress (2026-09-29):** the shipped bar is **four controls in two
+  rows** — Liked It and Disliked as tiles, Skip completing that row as a third
+  cell, then Watch Now full-width beneath. The question is whether five equal
+  answers was ever the right question, given that Want to Watch and Not
+  Interested are about the visitor's plans rather than the title's quality.
+  **Skip wears the tiles' box and a glyph of a different kind** — same height,
+  border and 12px label, but a double chevron where the verdicts carry closed
+  objects (a thumb up, a thumb down). The third cell of a verdict row is read as
+  a third verdict unless it is drawn otherwise, and with every cell now marked
+  the separation had to move from *presence* to *kind*: in a row of opinions, an
+  arrow reads as navigation, which is what Skip is. All five states stay in the
+  vocabulary: the swipes still
+  write the hidden two, and a title already rated Loved It still votes and still
+  shows its label everywhere else. `loved` is the one with a cost — nothing on
+  this screen writes it any more, so the visitor cannot say it more strongly
+  than Liked It, and the engine does not currently tell the two apart, so no
+  reach is lost (see `TRIAL_HIDDEN_STATES`). Reverting is deleting that list and
+  restoring the five-tile grid above.
 - **Detail variant:** the same grid, but transparent rather than filled and with
   no icons — the same five actions presented as two different components.
 - **Selected (detail):** Raised fill, Neon Violet Bright border and label, with
@@ -453,9 +471,15 @@ tiles sit under a thumb and Disliked is one tile from Liked It.
   above the action bar, with a Screen Grey "Rated Loved It" and a bordered
   capsule **Undo** at 44px.
 - **It is an offer, not a prompt.** Nothing blocks the next card, and the strip
-  holds the last rating and nothing else — no stack. It is cleared by the next
-  action, never by a clock, so there is no window in which it describes a rating
-  that is no longer the last one.
+  holds the last rating and nothing else — no stack. The next action clears it,
+  so it never describes a rating that is no longer the last one.
+- **It withdraws after 5s, and the count is idle time.** Hovering or focusing the
+  strip stops it; leaving restarts a full window. Three seconds was the request
+  and is the wrong number: the visitor is reaching *past* the strip for a
+  different tile, not reading it, and a strip that vanishes mid-reach teaches
+  them the offer is unreliable. Suspending on attention is also what keeps a
+  timed control inside WCAG 2.2.1 — the visitor who tabs toward Undo is the one
+  who needs it most.
 - **Not persisted.** It answers "what did you just do", which a reload cannot
   know.
 
@@ -486,6 +510,82 @@ What a gesture is *about* to record, shown while the finger is still down.
   visitor stops needing to be told.
 - `aria-hidden` — a picture of a decision being made with a hand. The rating it
   becomes is announced by the live region once it is actually written.
+
+### Empty state (deck, FR-014)
+
+Where "never a dead end" either holds or does not: the visitor is out of cards,
+so every outcome ends in something they can press. Five outcomes, and the one
+that renders decides which actions exist — never two independent flags.
+
+- **Two doors, and they are the only pair that ever share a screen.**
+  **Preferences** (filled, Deep) reopens the quiz with the previous answers
+  pre-filled, so the visit is re-aiming rather than starting over. **Start a new
+  loop** (underlined text) re-walks the deck without touching the answers, and
+  appears only when there is a deck left to walk. A third action, **Try again**
+  (filled), belongs to a catalog that never answered, and is mutually exclusive
+  with both.
+- **"Preferences", not "Reset Filters".** The old label named the engine's
+  mechanism; the deck shows one card at a time, so there is no list on screen to
+  have "too many filters" in. "Reset" also carries a whiff of "you did something
+  wrong", which is false when the loop simply ran out.
+- **Icons on both doors, sliders and a circular arrow.** Partial iconography is
+  worse than none — two controls side by side where one is marked reads as a
+  difference in kind that is not there — so the two that can co-occur are both
+  marked. The other two actions are always alone on their screen, which is what
+  makes two glyphs complete rather than half a job.
+- Glyphs are `aria-hidden`; the label is the accessible name.
+- **The action is not exclusive to this screen** (2026-09-29). The empty state
+  was the only door to the quiz, and it opens exactly when the deck runs dry —
+  so "where do I change my preferences?" had no answer anywhere else in the
+  product. The same transition (`startRetake` → `/quiz`, every answer kept) is
+  now also offered on **Match Found**, above *Start a new loop* in both of its
+  branches, and on **Profile**, in a card that reads the answers back before
+  offering to change them. Neither new site marks its controls: Match Found
+  carries *Watch trailer* and the nudge's pair, Profile carries the whole auth
+  surface, and a marked pair among them would make every bare control beside it
+  read as lesser. See **Preferences card (Profile)**.
+
+### Preferences card (Profile, FR-014)
+
+The one place in the product that shows a visitor what they told it, and the
+only route back to the quiz that does not require the deck to run dry first.
+
+- **A panel, on both halves of the screen.** Bordered 16px radius on Surface,
+  the same container as the quiz summary's answer list. It renders above the
+  `@if` that splits guest from signed-in, because the answers are device-local:
+  a signed-in visitor's quiz is still this browser's copy until the sync has
+  run, so the door must not depend on an account.
+- **The answers, read back in the words they were chosen in** — the quiz's own
+  labels, not the stored ids. Three rows, not the summary's four: *Other
+  platforms* is a modifier on the streaming-services answer rather than a
+  dimension of its own, and on a card it reads as a preference nobody set. The
+  summary is where the whole answer belongs.
+- **An unfinished quiz is described as unfinished.** An in-progress document is
+  still a document; rendering its two answered steps as the visitor's
+  preferences would be the screen stating something they never decided.
+- **The region is named, not offered.** It is a browser fact, so there is
+  nothing to press and no selector here — the caption names the mechanism and
+  says where to change it (the device's language settings). A visitor left to
+  guess would reasonably conclude the app got it wrong.
+- **One outlined button, full width.** *Change preferences*, secondary to
+  nothing on the guest half and secondary to *Sign out* on the signed-in one —
+  never filled, because the One Violet Rule reserves Deep for the action the
+  screen exists for, and on Profile that is signing up.
+- **Drawn like its neighbours.** The button and the notice region share the
+  screen with the auth controls, so it is outlined and unmarked, matching the
+  sign-out button beside it.
+
+### Quiz summary (FR-009, FR-012)
+
+- **One primary, one secondary.** *Start recommendations* is filled Deep;
+  *Change my answers* is outlined and full width beneath it.
+- **One retake, not two** (2026-09-29). The screen used to pair *Change my
+  answers* with *Start over* as two underlined text links, which was wrong
+  twice: they ran the same transition, and *Start over* promised the opposite of
+  what it did — `startRetake` keeps every answer. They were also the reason the
+  controls did not read as pressable, which is what the visitor reported.
+  Stepping back one question is the quiz's own **Back** button, which is where a
+  visitor looks for it.
 
 ### Poster
 

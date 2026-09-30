@@ -158,11 +158,31 @@ describe('quiz shell', () => {
     tap('Netflix', 'app-step-providers');
     tap('Finish');
 
-    tap('Start over');
+    tap('Change my answers');
 
     expect(text()).toContain('Step 1 of 3');
     const selected = root.querySelector('app-step-media-type button[aria-pressed="true"]');
     expect(selected?.textContent?.trim()).toBe('Movie');
     expect(saved()?.['status']).toBe('in-progress');
+  });
+
+  it('offers exactly one retake, and no link that promises to start over', () => {
+    // The pair this replaces ran the same transition under two labels —
+    // `startRetake` keeps every answer — so "Start over" was the more inviting
+    // of the two and the one that lied. A visitor who wants to step back one
+    // question has the quiz's own Back button for it.
+    build();
+    tap('Movie', 'app-step-media-type');
+    tap('Next');
+    tap('Comedy', 'app-step-genres');
+    tap('Next');
+    tap('Netflix', 'app-step-providers');
+    tap('Finish');
+
+    const labels = [...root.querySelectorAll('button')].map((button) =>
+      button.textContent?.trim(),
+    );
+    expect(labels).toContain('Change my answers');
+    expect(labels).not.toContain('Start over');
   });
 });

@@ -66,13 +66,34 @@
       </aside>
     }
 
-    <button
-      type="button"
-      class="touch-target mt-auto flex items-center justify-center rounded-full border border-ink-700 px-6 font-medium text-chalk-300"
-      (click)="startNewLoop()"
-    >
-      Start a new loop
-    </button>
+    <!--
+      The two ways out, stacked. Preferences sits first because it is the one
+      that changes what the *next* loop holds; "Start a new loop" walks a fresh
+      deck with the answers the visitor already gave.
+
+      Neither carries a glyph, and neither should start to: this screen also
+      carries "Watch trailer" and the nudge's two buttons, so marking this pair
+      would make every unmarked control beside it read as a lesser kind of thing
+      (DESIGN.md — partial marking is worse than none). The empty state marks its
+      pair precisely because those two are the only controls it ever renders
+      together.
+    -->
+    <div class="mt-auto flex flex-col gap-2 pt-6">
+      <button
+        type="button"
+        class="touch-target flex items-center justify-center rounded-full border border-ink-700 px-6 font-medium text-chalk-300"
+        (click)="changePreferences()"
+      >
+        Preferences
+      </button>
+      <button
+        type="button"
+        class="touch-target flex items-center justify-center rounded-full border border-ink-700 px-6 font-medium text-chalk-300"
+        (click)="startNewLoop()"
+      >
+        Start a new loop
+      </button>
+    </div>
   } @else {
     <!--
       The id resolved to nothing — a stale link, or a title retired since it was
@@ -87,6 +108,20 @@
         (click)="startNewLoop()"
       >
         Start a new loop
+      </button>
+
+      <!--
+        The same second door the found branch offers, in the same outlined
+        style. The order flips — here the loop is primary because there is no
+        title to have an opinion about, so the one thing this screen must not do
+        is leave the visitor with nothing to press (constitution II).
+      -->
+      <button
+        type="button"
+        class="touch-target inline-flex items-center rounded-full border border-ink-700 px-6 font-medium text-chalk-300"
+        (click)="changePreferences()"
+      >
+        Preferences
       </button>
     </section>
   }

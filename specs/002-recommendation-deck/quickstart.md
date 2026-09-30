@@ -76,7 +76,12 @@ implementation):
    rating recorded.
 6. **Watch Now (US2 scenarios 2–3)**: tap Watch Now → the loop stops, Match
    Found opens with working links to the official services, a trailer button
-   (opens in a new tab), and a start-new-loop action.
+   (opens in a new tab), a start-new-loop action, and — above it — a
+   **Preferences** action. Tap Preferences → the quiz reopens with every answer
+   pre-filled; complete it → the deck starts a **new loop** under the new
+   answers (the retake's `completedAt` postdates the session's `startedAt`, so
+   `loopFor` opens a fresh one). The same action is reachable from Profile, on
+   both halves.
 7. **Permanence (US3)**: rate a title Disliked, then reload and advance
    through 30+ cards → it never returns.
 8. **Un-dislike (contract check)**: in the console, set that title's
@@ -84,7 +89,7 @@ implementation):
    eligible again. This is the behavior spec 003 depends on.
 9. **Empty state (US4 scenarios 2–3)**: narrow the quiz answers until nothing
    matches (a rare genre + a service with no matching titles) → an empty state
-   with Reset Filters; tapping it reopens the quiz with previous answers
+   with **Preferences**; tapping it reopens the quiz with previous answers
    pre-filled, and completing it starts a new loop.
 10. **Offline (US4 scenario 4)**: load the deck, then DevTools → Network →
     Offline → keep swiping → already-loaded cards still work with an offline

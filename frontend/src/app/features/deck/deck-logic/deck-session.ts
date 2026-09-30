@@ -88,6 +88,12 @@ export function currentCard<T extends MediaTitle>(
  * over: the ratings that drive exclusions and affinity live in the interaction
  * document, so they keep applying to the new loop without this function
  * touching them (FR-009 and the spec's state transitions).
+ *
+ * What this clears is `shownTitleIds` and only that — "seen, no opinion". Every
+ * rated title stays out, which is what makes the loop genuinely new rather than
+ * merely reshuffled: a visitor who taps Watch Now and starts a new loop should
+ * not be handed the film they just chose, and would be if a restart also
+ * cleared the ratings.
  */
 export function startNewLoop(now: Date | string = new Date()): DeckSession {
   return createDeckSession(now);

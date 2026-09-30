@@ -1,4 +1,4 @@
-import { Interaction, InteractionState, isExcluding } from '../../../core/models/interaction';
+import { Interaction, InteractionState, isRated, isRejection } from '../../../core/models/interaction';
 import { MediaTitle } from '../../../core/models/media-title';
 import { Preference } from '../../../core/models/quiz';
 import {
@@ -222,12 +222,16 @@ function isEligible(
     return false;
   }
 
-  // 4 — previously rejected (FR-009, Feedback Loop invariant). The only place
-  // exclusion is decided, and it reads the *current* state, so spec 003's
-  // re-rating un-excludes a title with no extra mechanism.
-  if (isRejected(interactions[title.id])) return false;
+  // 4 — already rated (FR-009, Feedback Loop invariant). Every state, not just
+  // the two rejections: a title the visitor has judged, saved or watched is
+  // not an open question, and a new loop is a new *walk* rather than a fresh
+  // memory. Reading presence is what makes this survive the loop boundary,
+  // where filter 5 below is cleared and this one is not.
+  if (isRated(interactions[title.id])) return false;
 
-  // 5 — already advanced past this loop (FR-010).
+  // 5 — already advanced past this loop (FR-010). The one thing a new loop
+  // does forget, which is the point: nothing is repeated *within* a loop, but
+  // an unrated title is welcome back in the next one.
   return !shownTitleIds.includes(title.id);
 }
 
@@ -239,11 +243,6 @@ function isScorable(title: MediaTitle): boolean {
     Number.isFinite(title.voteCount) &&
     title.voteCount >= 0
   );
-}
-
-/** Filter 4's question, asked of a possibly-absent rating. */
-function isRejected(interaction: Interaction | undefined): boolean {
-  return interaction !== undefined && isExcluding(interaction.state);
 }
 
 /**
@@ -335,6 +334,11 @@ function historyAffinity(
  * catalog — including titles the filters will go on to drop. Computing this
  * after filtering would throw away the very signal the term exists to carry.
  *
+ * Since filter 4 drops every rated title, *everything* this reads is dropped by
+ * the time the sort runs. That is not a contradiction, it is the whole design:
+ * the rated titles are gone from the deck precisely because they have already
+ * said what they had to say, and this is where that gets heard.
+ *
  * A rated id the catalog does not know contributes nothing, which is correct:
  * we cannot infer a genre from a title we cannot see.
  */
@@ -353,7 +357,7 @@ function genreSignals(
     // about whether they want more of it.
     const target = POSITIVE_STATES.includes(state)
       ? lovedGenres
-      : isExcluding(state)
+      : isRejection(state)
         ? dislikedGenres
         : undefined;
 

@@ -1,11 +1,6 @@
 <main class="mx-auto flex min-h-dvh max-w-md flex-col px-5 pt-10 pb-8">
   @if (isSummary()) {
-    <app-summary
-      [state]="state()"
-      (start)="startRecommendations()"
-      (retake)="retake()"
-      (goBack)="back()"
-    />
+    <app-summary [state]="state()" (start)="startRecommendations()" (retake)="retake()" />
   } @else {
     <header>
       <p class="text-xs font-medium tracking-wide text-chalk-500 uppercase">

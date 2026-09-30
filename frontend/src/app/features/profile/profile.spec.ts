@@ -5,7 +5,7 @@ import {
   TestRequest,
 } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter, withComponentInputBinding } from '@angular/router';
+import { provideRouter, Router, withComponentInputBinding } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { routes } from '../../app.routes';
 import { sessionInterceptor } from '../../core/services/session.interceptor';
@@ -54,7 +54,12 @@ describe('profile', () => {
       // else, so a spec that left it out would be testing a client the app
       // does not have.
       providers: [
-        provideRouter([]),
+        // `/quiz` is stubbed because the preferences card navigates to it. An
+        // unmatched URL must never be the reason a navigation assertion passes
+        // or fails — and on the reveal-toggle test below, which presses every
+        // button on the screen, an unmatched route would be an unhandled
+        // rejection from a navigation nobody is asserting on.
+        provideRouter([{ path: 'quiz', children: [] }]),
         provideHttpClient(withInterceptors([sessionInterceptor])),
         provideHttpClientTesting(),
       ],
@@ -377,6 +382,13 @@ describe('profile', () => {
       type(field('password'), PASSWORD);
 
       for (const button of buttons()) {
+        // "Change preferences" legitimately leaves the screen for `/quiz`, so
+        // it is the one control this sweep must not press: the assertion below
+        // is about a password field surviving the controls that *stay*. Every
+        // other button on both halves is still pressed, which is what keeps the
+        // sweep honest.
+        if (/change preferences/i.test(button.textContent ?? '')) continue;
+
         button.click();
         fixture.detectChanges();
       }
@@ -882,6 +894,164 @@ describe('profile', () => {
         expect(alert()?.textContent).toContain('non alphanumeric');
         expect(localStorage.getItem('playnext:session')).not.toBeNull();
       });
+    });
+  });
+
+  describe('the preferences card (FR-014)', () => {
+    // The screen the visitor goes looking for this on. Before the card, the
+    // only door to the quiz was the deck's empty state — visible exactly when
+    // the deck runs dry — so "where do I change my preferences?" had no answer
+    // anywhere in the product.
+    //
+    // The document is seeded into LocalStorage rather than written through
+    // `PreferenceStore`, because the component reads it at construction and the
+    // store is only injectable once the module is configured, which `build()`
+    // does. The key is spelled literally for the same reason `ACCOUNT_DEVICE_KEYS`
+    // is: the key *name* is the contract.
+
+    const COMPLETED_AT = '2026-09-27T10:00:00.000Z';
+
+    /** A finished quiz, written the way the quiz writes one. */
+    function savedQuiz(overrides: Record<string, unknown> = {}): void {
+      localStorage.setItem(
+        'playnext:quiz-state',
+        JSON.stringify({
+          schemaVersion: 1,
+          status: 'completed',
+          step: 3,
+          mediaType: { values: ['movie', 'anime'], any: false },
+          genre: { values: ['horror'], any: false },
+          provider: { values: ['netflix'], any: false },
+          includeUnownedProviders: false,
+          completedAt: COMPLETED_AT,
+          updatedAt: COMPLETED_AT,
+          ...overrides,
+        }),
+      );
+    }
+
+    function savedQuizState(): Record<string, unknown> | null {
+      const raw = localStorage.getItem('playnext:quiz-state');
+      return raw ? JSON.parse(raw) : null;
+    }
+
+    /** What the device reports as its language, for one test. */
+    function deviceLanguageIs(tag: string): void {
+      Object.defineProperty(navigator, 'language', { value: tag, configurable: true });
+    }
+
+    const original = navigator.language;
+
+    afterEach(() => deviceLanguageIs(original));
+
+    function changeButton(): HTMLButtonElement {
+      const button = buttons().find((candidate) =>
+        /change preferences/i.test(candidate.textContent ?? ''),
+      );
+
+      if (!button) throw new Error('No preferences control on the Profile screen');
+
+      return button;
+    }
+
+    it('is on the guest half, which is who the screen is for (FR-001)', () => {
+      savedQuiz();
+
+      build();
+
+      expect(changeButton()).toBeTruthy();
+      expect(text()).toContain('Preferences');
+    });
+
+    it('is on the signed-in half too, because the answers are device-local', () => {
+      // The card is not account data. A signed-in visitor's quiz lives in this
+      // browser until the sync has run, and hiding the door behind a sign-in
+      // would make the app's most ordinary errand depend on an account.
+      savedQuiz();
+
+      build();
+      signIn();
+
+      expect(changeButton()).toBeTruthy();
+      expect(modes()).toHaveLength(0);
+    });
+
+    it('reads the answers back in the words the visitor chose them in', () => {
+      savedQuiz();
+
+      build();
+
+      expect(text()).toContain('Movie, Anime');
+      expect(text()).toContain('Horror');
+      expect(text()).toContain('Netflix');
+    });
+
+    it('says the quiz is unfinished rather than describing half an answer', () => {
+      // An in-progress document is still a document, and rendering its two
+      // answered steps as the visitor's preferences would be this screen
+      // stating something they never decided.
+      savedQuiz({ status: 'in-progress', step: 2, completedAt: undefined });
+
+      build();
+
+      expect(text()).toContain('not finished the quiz');
+      expect(text()).not.toContain('Horror');
+    });
+
+    it('says the same when there is no document at all', () => {
+      build();
+
+      expect(text()).toContain('not finished the quiz');
+    });
+
+    it('names the region, and where the number came from', () => {
+      // Named as the *device's language*, not as a location: nothing here reads
+      // a GPS, and a visitor whose phone is set to a language they do not live
+      // in would otherwise read the line as a bug.
+      deviceLanguageIs('pt-BR');
+      savedQuiz();
+
+      build();
+
+      expect(text()).toContain('Brazil (BR)');
+      expect(text()).toContain("device's language");
+    });
+
+    it('reopens the quiz at the beginning, no longer completed', () => {
+      savedQuiz();
+      build();
+
+      changeButton().click();
+      fixture.detectChanges();
+
+      expect(savedQuizState()?.['status']).toBe('in-progress');
+      expect(savedQuizState()?.['step']).toBe(1);
+      // `toPreference` gates on this: while it is set, the deck would keep
+      // treating the retake as finished and never show the quiz.
+      expect(savedQuizState()?.['completedAt']).toBeUndefined();
+    });
+
+    it('keeps every answer, so the visitor is re-aiming rather than starting over', () => {
+      savedQuiz();
+      build();
+
+      changeButton().click();
+      fixture.detectChanges();
+
+      expect(savedQuizState()?.['mediaType']).toEqual({ values: ['movie', 'anime'], any: false });
+      expect(savedQuizState()?.['genre']).toEqual({ values: ['horror'], any: false });
+    });
+
+    it('hands the visitor to the quiz', () => {
+      savedQuiz();
+      build();
+      const router = TestBed.inject(Router);
+      const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+      changeButton().click();
+      fixture.detectChanges();
+
+      expect(navigate).toHaveBeenCalledExactlyOnceWith(['/quiz']);
     });
   });
 

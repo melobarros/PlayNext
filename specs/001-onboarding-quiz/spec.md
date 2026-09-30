@@ -162,6 +162,15 @@ answers replace the old ones.
   through it again; their saved answers apply immediately.
 - **FR-012**: Returning visitors MUST be able to retake the quiz with
   previous answers pre-filled.
+  _(Extended 2026-09-29. The retake used to be offered from the summary alone,
+  and from a second link beside it labelled **"Start over"** — two controls
+  running the same transition under labels that promised different things,
+  since a retake keeps every answer. The pair is now one button on the summary,
+  **"Change my answers"**, and the same transition is offered from three places
+  outside the quiz: the deck's empty state (002 FR-014), the Match Found view,
+  and the Profile area (004). Stepping back a single question remains the
+  step-level **Back** action of FR-008, which is where a visitor looks for it.
+  Nothing about what a retake *does* has changed.)_
 - **FR-013**: If an options list cannot be loaded, the system MUST show a
   clear message with a Retry action; if the retry also fails, the system
   MUST fall back to a default option list with a small notice so the

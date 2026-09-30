@@ -1,18 +1,28 @@
 <!--
-  At 360px the five ratings sit in a 3×2 grid; from `md` they open into a single
-  row of five. One row of five at phone width leaves each label about 14
-  characters of room in a column narrower than a thumb, which is an unreadable
-  label rather than a compact one — the words are the label, so they get the
-  room. The ragged last row (3 + 2) is the point: two short rows of words read
-  as words, five slivers read as decoration. Every button keeps its 44px minimum
-  either way (FR-017), so the grid stays reachable without aiming.
+  PROVISIONAL — trial layout, 2026-09-29 (second pass). See
+  `TRIAL_HIDDEN_STATES` in `actions.ts` for what is being tried, what it costs,
+  and how to put it back.
 
-  Each cell is a glyph over its word. The word stays because it is the label the
-  visitor is recording — "Disliked" and "Not Interested" are a real distinction
-  and a shapes-only bar would make the visitor guess which is which. The icons
-  are `aria-hidden`, so a screen reader hears the label and not the graphic.
+  Four controls in two rows: the two verdicts the trial keeps, Skip completing
+  that row, then Watch Now full width beneath it.
+
+  Skip shares the tiles' box so the row reads as one bar — same height, same
+  border, same label size — but it is deliberately not *drawn* as one of them.
+  Every cell in the row now carries a glyph, so the separation had to move from
+  presence to *kind*: the verdicts are closed objects (a thumb up, a thumb down)
+  and Skip is `ICON_NEXT`, two open strokes pointing right. In a row of
+  opinions an arrow reads as navigation, which is what Skip is. That is the
+  whole of the separation: no dashed border, no colour the design system does
+  not already have. The risk it answers is real — the third cell of a verdict
+  row will be read as a third verdict — and the cost of not answering it is a
+  visitor who thinks they have disliked a title they only skipped.
+
+  Each verdict cell is a glyph over its word. The word stays because it is the
+  label the visitor is recording, and a shapes-only bar would make the visitor
+  guess. The icons are `aria-hidden`, so a screen reader hears the label and not
+  the graphic. Every control keeps its 44px minimum (FR-017).
 -->
-<div class="grid grid-cols-3 gap-1.5 md:grid-cols-5">
+<div class="grid grid-cols-3 gap-1.5">
   @for (action of ratings; track action.state) {
     <button
       type="button"
@@ -35,23 +45,39 @@
       {{ action.label }}
     </button>
   }
-</div>
 
-<div class="mt-2 flex items-center gap-2">
+  <!--
+    The neutral answer, and the only cell in this row that records nothing. It
+    is built exactly like a verdict cell — same box, same glyph over the same
+    word — because the difference is carried by the glyph itself, not by the
+    cell around it. See the header comment.
+  -->
   <button
     type="button"
-    class="touch-target inline-flex items-center justify-center rounded-full border border-ink-600 px-5 font-medium text-chalk-300"
+    class="touch-target flex flex-col items-center justify-center gap-1 rounded-xl border border-ink-700 bg-ink-900 px-0.5 py-1 text-center text-xs leading-tight font-medium text-chalk-300 hover:bg-ink-800 active:bg-ink-800"
     (click)="skipped.emit()"
   >
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+      class="h-5 w-5 shrink-0"
+    >
+      <path [attr.d]="nextIcon" />
+    </svg>
     Skip
   </button>
-
-  <!-- The product's headline action, so it takes the room that is left. -->
-  <button
-    type="button"
-    class="touch-target inline-flex flex-1 items-center justify-center rounded-full bg-accent-600 px-6 font-semibold text-white hover:bg-accent-500 active:brightness-90"
-    (click)="watchNow.emit()"
-  >
-    {{ 'Watch Now' }}
-  </button>
 </div>
+
+<!-- The product's headline action, and the only filled button in the bar. -->
+<button
+  type="button"
+  class="touch-target mt-2 inline-flex w-full items-center justify-center rounded-full bg-accent-600 px-6 font-semibold text-white hover:bg-accent-500 active:brightness-90"
+  (click)="watchNow.emit()"
+>
+  {{ 'Watch Now' }}
+</button>

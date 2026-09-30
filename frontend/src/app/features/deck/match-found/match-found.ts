@@ -7,9 +7,11 @@ import { AuthService } from '../../../core/services/auth.service';
 import { CatalogService } from '../../../core/services/catalog.service';
 import { DeckSessionStore } from '../../../core/services/deck-session-store';
 import { InteractionStore } from '../../../core/services/interaction-store';
+import { PreferenceStore } from '../../../core/services/preference-store';
 import { WaysToWatch } from '../../../shared/ways-to-watch/ways-to-watch';
 import { isNudgeDismissed, rememberNudgeDismissal } from './account-nudge';
 import { startNewLoop } from '../deck-logic/deck-session';
+import { startRetake } from '../../quiz/quiz-logic/quiz-rules';
 
 /**
  * Match Found: the end of a decision, and the start of watching something.
@@ -38,6 +40,7 @@ export class MatchFound {
   private readonly catalog = inject(CatalogService);
   private readonly sessions = inject(DeckSessionStore);
   private readonly interactions = inject(InteractionStore);
+  private readonly preferences = inject(PreferenceStore);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
 
@@ -111,5 +114,34 @@ export class MatchFound {
   protected startNewLoop(): void {
     this.sessions.write(startNewLoop());
     void this.router.navigate(['/deck']);
+  }
+
+  /**
+   * Reopens the quiz with the previous answers pre-filled.
+   *
+   * The same transition the deck's empty state performs (FR-014), reached from a
+   * second place because the question behind it — *"where do I change my
+   * preferences?"* — arrives here too, and not only when the deck runs dry. This
+   * is the screen where a visitor has just been handed a title, which is exactly
+   * when "not like this" is worth saying; making them walk the whole deck to the
+   * empty state to say it would be the app hiding its own front door. The
+   * transition itself is spec 001's `startRetake`, reused rather than restated —
+   * it already knows a retake means step 1, `in-progress`, every answer kept.
+   *
+   * `startNewLoop` is deliberately *not* called on the way out. Re-completing the
+   * quiz stamps a new `completedAt`, and `loopFor` starts a fresh loop when that
+   * stamp postdates the session's `startedAt` — so the new answers land the
+   * visitor on a new loop with nothing handed over between here and there.
+   *
+   * A missing document is not an error. This view resolves from the URL alone
+   * (research.md D10), so a visitor with a cleared device can arrive with no quiz
+   * to reopen — and `/quiz` answers that by starting at the first question, which
+   * is the honest thing to show someone who has no saved answers.
+   */
+  protected changePreferences(): void {
+    const state = this.preferences.read();
+    if (state !== null) this.preferences.write(startRetake(state));
+
+    void this.router.navigate(['/quiz']);
   }
 }

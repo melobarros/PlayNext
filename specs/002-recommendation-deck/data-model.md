@@ -137,7 +137,7 @@ then opens the Match Found view for that title id.
 | card shown | any of the five rating buttons | `interactions[titleId]` written; advance |
 | card shown | Watch Now | `watchingNow` interaction + history entry; loop stops → Match Found |
 | Match Found | start a new loop | `shownTitleIds: []`, new `startedAt`; exclusions keep applying |
-| filtered set empty | Reset Filters | hand off to spec 001's quiz via `startRetake` |
+| filtered set empty | Preferences | hand off to spec 001's quiz via `startRetake` |
 | any | refresh | current card recomputed and identical |
 
 ## Validation Rules

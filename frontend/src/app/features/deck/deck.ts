@@ -20,6 +20,28 @@ import { dismissThreshold, PointerSample, SwipeOutcome, swipeDecision } from './
 import { DeckOutcome, EmptyState } from './empty-state/empty-state';
 
 /**
+ * How long the offer to undo a rating stands before it withdraws itself.
+ *
+ * Five seconds, and the number is argued rather than picked. Three is the
+ * reflex — it is what a toast usually gets — and it is wrong here, because the
+ * visitor is not reading the strip, they are *reaching past it*. Their thumb is
+ * on `Disliked`, the tile they meant is `Liked It` one column over, and the
+ * whole manoeuvre is: notice, aim, press. Three seconds does not cover the
+ * middle step for anyone who has to look down first, and a strip that vanishes
+ * mid-reach is worse than one that never appeared — it teaches the visitor that
+ * the offer is not reliable, so they stop counting on it.
+ *
+ * The cost of erring long is one row of card height, and only until the next
+ * tap. The cost of erring short is the mistake becoming permanent. Those are
+ * not symmetric, so this errs long.
+ *
+ * Exported for the test that pins the number rather than the behaviour: the
+ * boundary is worth checking either side of, but a test that reads the constant
+ * to compute its own expectation would pass just as happily at three seconds.
+ */
+export const UNDO_WINDOW_MS = 5000;
+
+/**
  * The recommendation loop.
  *
  * The shell holds state and wires events; every decision it makes is delegated
@@ -127,13 +149,33 @@ export class Deck {
    * one was to reload and hope the title came back.
    *
    * So the acknowledgement is an *offer to undo* rather than a prompt. It holds
-   * the last rating and nothing else: no stack, no history, no timer. The next
-   * action overwrites it, `Skip` and Watch Now clear it, and Undo consumes it —
-   * which means the strip can only ever describe a state that is still true.
+   * the last rating and nothing else: no stack and no history. The next action
+   * overwrites it, `Skip` and Watch Now clear it, Undo consumes it, and after
+   * `UNDO_WINDOW_MS` it withdraws itself — which means the strip can only ever
+   * describe a state that is still true.
    */
   protected readonly lastAction = signal<{ titleId: string; state: InteractionState } | null>(
     null,
   );
+
+  /**
+   * Whether the visitor is currently *at* the strip, which suspends its
+   * withdrawal.
+   *
+   * A countdown on a control is a promise with an expiry date, and the one
+   * visitor who cannot race it is the one who needs it most: a keyboard user
+   * tabs toward Undo through every control before it, and a pointer user has to
+   * travel there. Taking the button away underneath either of them would fail
+   * WCAG 2.2.1 outright — the mechanism exists, the visitor is using it, and
+   * the clock removes it anyway.
+   *
+   * So the window measures *idle* time, not wall-clock time. Hovering or
+   * focusing the strip stops the count; leaving it starts a fresh full window
+   * rather than resuming a partial one, because a visitor who has come back to
+   * the strip is deciding, and a decision should not inherit a deadline they
+   * did not know they were running against.
+   */
+  protected readonly undoHeld = signal(false);
 
   /**
    * What a screen reader hears after a rating, since the strip cannot be read
@@ -249,6 +291,22 @@ export class Deck {
   );
 
   /**
+   * What the catalog offers under these answers, ignoring history entirely.
+   *
+   * This exists to tell two empty decks apart, which `eligible()` above cannot:
+   * it applies the rating filter as well, so it is empty both when nothing in
+   * the catalog matches the quiz answers and when the visitor has rated
+   * everything that does. Those are different sentences and different advice —
+   * widening the filters is the fix for the first, and it is also the fix for
+   * the second, but only because a new loop would be futile there.
+   *
+   * Ranking with an empty document is the cheapest way to ask the narrower
+   * question, and it costs nothing to keep: it does not read the ratings, so it
+   * recomputes when the answers or the catalog change and not once per rating.
+   */
+  private readonly matchesFilters = computed(() => this.rankWithoutHistory().length);
+
+  /**
    * Whether the skeleton belongs on screen.
    *
    * `loading()` alone is not enough, and the difference is the whole point of
@@ -284,14 +342,23 @@ export class Deck {
    *
    * Read only from the template's final branch — the one that runs when the
    * deck is *ready* and `card()` is null by definition. That is what makes the
-   * last two cases sound: `'load-failed'` means the catalog gave us nothing,
-   * and `'exhausted'` means it gave us titles and the loop has walked past all
-   * of them.
+   * cases sound: `'load-failed'` means the catalog gave us nothing,
+   * `'exhausted'` means it gave us titles and the loop has walked past all of
+   * them, and the other two split the same emptiness by *which* input caused
+   * it — the answers (`'no-matches'`) or the visitor's own ratings
+   * (`'all-rated'`).
+   *
+   * That last distinction only exists because rating a title now removes it
+   * for good: the visitor who has judged everything the catalog offers under
+   * their filters lands on an empty deck they cannot walk out of. Offering
+   * them a new loop would be a button that does nothing, which is why
+   * `EmptyState` reads this value rather than the emptiness alone.
    */
   protected readonly outcome = computed<DeckOutcome>(() => {
     if (this.needsQuiz()) return 'needs-quiz';
     if (this.loadFailed()) return 'load-failed';
-    return this.hasNoMatches() ? 'no-matches' : 'exhausted';
+    if (!this.hasNoMatches()) return 'exhausted';
+    return this.matchesFilters() > 0 ? 'all-rated' : 'no-matches';
   });
 
   constructor() {
@@ -303,6 +370,23 @@ export class Deck {
     effect(() => {
       const upcoming = this.nextPosterUrl();
       if (upcoming !== null) void preloadPoster(upcoming);
+    });
+
+    // The undo window. Read both signals *before* deciding, so the effect
+    // depends on the pair: a new rating restarts the count, and reaching for
+    // the strip during it stops the count.
+    effect((onCleanup) => {
+      const action = this.lastAction();
+      if (action === null || this.undoHeld()) return;
+
+      // Owned by the effect rather than by a field and `ngOnDestroy`, which is
+      // what makes it correct by construction: `onCleanup` runs on every
+      // re-run as well as on destroy, so the old timer cannot outlive the state
+      // it belonged to. Without that, rating twice in quick succession would
+      // leave the first rating's timer to fire against the second rating's
+      // strip — dismissing an offer the visitor never got a window for.
+      const timer = setTimeout(() => this.lastAction.set(null), UNDO_WINDOW_MS);
+      onCleanup(() => clearTimeout(timer));
     });
   }
 
@@ -359,6 +443,12 @@ export class Deck {
 
     this.interactions.record(current.id, state);
     this.refreshRated();
+
+    // Cleared before the offer is replaced, so the new strip always gets the
+    // full window. Left standing, a rating given while the pointer happened to
+    // rest over the previous strip's footprint would open its own offer already
+    // suspended — held by a visitor who is not there.
+    this.undoHeld.set(false);
     this.lastAction.set({ titleId: current.id, state });
     this.advancePast(current.id);
   }
@@ -366,9 +456,13 @@ export class Deck {
   /**
    * The visitor has decided what to watch (FR-008, US2 scenario 2).
    *
-   * The loop stops rather than advances: the chosen card stays on screen, so a
+   * The loop stops rather than advances — nothing is marked as shown — so a
    * back-navigation from Match Found returns to the decision that was made
-   * instead of the next thing in the deck.
+   * instead of to the next thing in the deck. What the visitor finds there is
+   * the card *after* the one they chose, because the chosen title left the
+   * deck the moment it was rated, exactly as it would have for Loved It. That
+   * is not the loop moving on underneath them: it is the title's own decision
+   * taking effect, and it is why they are never offered it again.
    */
   protected onWatchNow(): void {
     const current = this.card();
@@ -470,10 +564,29 @@ export class Deck {
   }
 
   private rankNow(shownTitleIds: readonly string[]): RankedTitle[] {
+    return this.rank(this.rated(), shownTitleIds);
+  }
+
+  /**
+   * The same ranking with the visitor's history withheld — the counterfactual
+   * "what would the deck hold if they had rated nothing?".
+   *
+   * Only `matchesFilters` reads it, and only to name the reason an empty deck
+   * is empty. Kept as its own method rather than a flag on `rankNow` so the
+   * two questions stay visibly different at every call site.
+   */
+  private rankWithoutHistory(): RankedTitle[] {
+    return this.rank({}, []);
+  }
+
+  private rank(
+    rated: Readonly<Record<string, Interaction>>,
+    shownTitleIds: readonly string[],
+  ): RankedTitle[] {
     const preference = this.preference();
     if (preference === null) return [];
 
-    return rankTitles(this.titles(), preference, this.rated(), shownTitleIds);
+    return rankTitles(this.titles(), preference, rated, shownTitleIds);
   }
 
   private readPreference(): Preference | null {

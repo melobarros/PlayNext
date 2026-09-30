@@ -173,15 +173,21 @@
         also where the eye already is after tapping a tile, and it costs the
         deck a row of height only while there is something to say.
 
-        Timer-free by construction. It is cleared by the next action, not by the
-        clock, so there is no window in which it describes a rating that is no
-        longer the last one — and no `setTimeout` to keep alive when the screen
-        is torn down.
+        The offer withdraws itself after five seconds, which is the one timer on
+        this screen and the reason `undoHeld` exists: the strip reports where
+        the pointer and the focus are, and the count stops while either is on
+        it. Nothing else here is on a clock — every other way the strip goes
+        away is an action the visitor took — so a strip on screen always
+        describes the last thing they did.
       -->
       @if (lastAction(); as action) {
         <div
           data-undo-strip
           class="mb-2 flex items-center justify-between gap-3 rounded-xl bg-ink-800 px-3 py-2"
+          (pointerenter)="undoHeld.set(true)"
+          (pointerleave)="undoHeld.set(false)"
+          (focusin)="undoHeld.set(true)"
+          (focusout)="undoHeld.set(false)"
         >
           <p class="min-w-0 truncate text-sm text-chalk-300">
             Rated {{ stateLabels[action.state] }}

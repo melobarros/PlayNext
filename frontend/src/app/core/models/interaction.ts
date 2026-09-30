@@ -57,19 +57,50 @@ export const RATING_ACTIONS: readonly { state: InteractionState; label: string }
 ).map((state) => ({ state, label: INTERACTION_STATE_LABELS[state] }));
 
 /**
- * **Only `disliked` and `notInterested` exclude a title** from suggestions
- * (FR-009).
+ * The two states that are a **rejection**: the visitor has said no to this
+ * title, and the deck reads that as a statement about its genres too.
  *
- * Every other state — including `loved` and `wantToWatch` — leaves the title
- * eligible to be suggested again. That is what lets spec 003's "un-dislike"
- * work with no extra bookkeeping: change the state, and the title is eligible
- * on the next ranking.
+ * This is not the eligibility rule — that is `isRated` below, and it is wider.
+ * This is the negative half of the affinity signal `rankTitles` weighs, which
+ * is why it stays narrow: `loved` and `wantToWatch` also keep their title out
+ * of the next deck, but neither of them says "less like this", and counting
+ * them here would sink every genre the visitor has ever enjoyed.
  */
-export const EXCLUDING_STATES: readonly InteractionState[] = ['disliked', 'notInterested'];
+export const REJECTION_STATES: readonly InteractionState[] = ['disliked', 'notInterested'];
 
-/** Whether a state removes its title from future suggestions. */
-export function isExcluding(state: InteractionState): boolean {
-  return EXCLUDING_STATES.includes(state);
+/** Whether a state is a rejection, for the affinity signal. */
+export function isRejection(state: InteractionState): boolean {
+  return REJECTION_STATES.includes(state);
+}
+
+/**
+ * **A title the visitor has already rated is never suggested again** (FR-009).
+ *
+ * Asked of the whole vocabulary rather than of two of its states, because the
+ * deck's job is to find something to watch and a title already judged is not
+ * an open question: `loved` or `liked` is a decision already made,
+ * `wantToWatch` is already saved, `watchingNow` is already watched, and the
+ * two rejections were already refused. Every one of those is a reason not to
+ * spend a card on it.
+ *
+ * It matters most at a loop boundary. `startNewLoop` clears the walk and
+ * nothing else, so before this rule existed a visitor could tap Watch Now,
+ * open Match Found, start a new loop, and be handed the film they had just
+ * chosen — the deck's strongest claim about itself, contradicted by its own
+ * first card.
+ *
+ * Stated as *presence* rather than as a list of states, which is what keeps it
+ * honest as the vocabulary grows: a seventh state is excluded the day it is
+ * added, rather than the day someone remembers to add it here.
+ *
+ * **Un-rating is the way back in.** `InteractionStore.remove` is what Undo
+ * calls, and since eligibility is derived from the current document on every
+ * ranking rather than recorded in a parallel exclusion list, deleting the
+ * entry restores the title with nothing else to keep in step. Spec 003's
+ * "un-dislike" needs the same property and gets it from the same place.
+ */
+export function isRated(interaction: Interaction | undefined): boolean {
+  return interaction !== undefined;
 }
 
 /** Where a recorded rating can be found again (003 FR-003). */

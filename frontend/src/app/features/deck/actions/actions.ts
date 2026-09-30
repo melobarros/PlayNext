@@ -1,32 +1,46 @@
 import { Component, output } from '@angular/core';
 import { InteractionState, RATING_ACTIONS } from '../../../core/models/interaction';
+import { ICON_NEXT, RATING_ICONS } from '../../../shared/icons';
 
 /**
- * The glyph for each rating, as a 24×24 stroke path (Feather-style geometry).
+ * **Provisional — a trial run, 2026-09-29. Not the design.**
  *
- * Presentation, not vocabulary: `interaction.ts` owns the states and the words
- * for them, and an icon is neither. It lives beside the bar that draws it, and
- * a `Record` over `InteractionState` means adding a state is a compile error
- * here rather than a button with a blank square in it.
+ * The bar is specified to offer all five ratings (FR-007), and it still
+ * *records* all five: the swipe writes `notInterested` and `wantToWatch`
+ * exactly as it did, and a rating already stored under any state is untouched.
+ * What is being tried is only what the bar *shows* — three fewer tiles, and a
+ * Skip that has moved up into the row the verdicts are in.
  *
- * `watchingNow` has no cell in this bar — it is the loop's exit, not a rating —
- * but the record is total, so it carries the play glyph it would use.
+ * The question being felt out is whether five equal answers is really the right
+ * question. Two of them are not judgements of the title at all — "Want to
+ * Watch" and "Not Interested" are about the visitor's plans and attention, not
+ * about whether the film is any good — and putting them in the same row as
+ * Liked and Disliked invites the reading that all five are equally strong
+ * opinions. What is left is the verdict, and the one answer that is explicitly
+ * not one.
  *
- * The repo has no icon library and this is the only icon in it; six paths are
- * cheaper than a dependency, and `d` is bound as an attribute rather than
- * sanitized HTML because Angular's sanitizer strips `<svg>` outright.
+ * **`loved` is the third state off the bar, and it is the one to think about.**
+ * Nothing on this screen will write it any more — the swipe writes the two
+ * weaker claims and no button writes this one. That is *not* a capability the
+ * deck loses, because the engine does not currently tell the two apart:
+ * `POSITIVE_STATES` in `recommend.ts` reads `loved` and `liked` as the same
+ * "more like this", so a Liked It tap already votes for the title's genres and
+ * already produces the "Because you loved …" reason line. What ends is the
+ * visitor's ability to say it *more strongly*, and with it the only input a
+ * future "a love outranks a like" rule could have. Put the tile back if that
+ * gradation is worth a fourth control; the state, its label and its glyph all
+ * stay live either way, and a title already rated `loved` still votes.
+ *
+ * **To revert**: delete this list and the `.filter` below it, restoring
+ * `protected readonly ratings = RATING_ACTIONS`, and put the five-tile grid
+ * back in `actions.html` with Skip and Watch Now sharing a row beneath it. The
+ * spec's `RATINGS` constant marks the same boundary.
  */
-export const RATING_ICONS: Record<InteractionState, string> = {
-  loved:
-    'M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z',
-  liked:
-    'M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3',
-  disliked:
-    'M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17',
-  wantToWatch: 'M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z',
-  notInterested: 'M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20zM15 9l-6 6M9 9l6 6',
-  watchingNow: 'M5 3l14 9-14 9V3z',
-};
+const TRIAL_HIDDEN_STATES: readonly InteractionState[] = [
+  'loved',
+  'wantToWatch',
+  'notInterested',
+];
 
 /**
  * The deck's action bar (FR-007, FR-008).
@@ -59,7 +73,12 @@ export class Actions {
   /** Advance without rating — the tap half of FR-004. */
   readonly skipped = output<void>();
 
-  protected readonly ratings = RATING_ACTIONS;
+  protected readonly ratings = RATING_ACTIONS.filter(
+    (action) => !TRIAL_HIDDEN_STATES.includes(action.state),
+  );
 
   protected readonly icons = RATING_ICONS;
+
+  /** Skip's glyph — an arrow, not a verdict. See `ICON_NEXT` for why. */
+  protected readonly nextIcon = ICON_NEXT;
 }

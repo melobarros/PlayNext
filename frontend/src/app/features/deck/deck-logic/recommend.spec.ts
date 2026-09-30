@@ -380,10 +380,14 @@ describe('rankTitles — hard filters', () => {
       expect(result.map((t) => t.id)).toEqual(['fresh']);
     });
 
-    it('leaves a title alone when it was rated something else', () => {
-      // Filter 4 is about rejection, not about being rated. The positive states
-      // — and `watchingNow`, which is neither — must not remove a title from
-      // the deck, or rating anything at all would shrink the visitor's options.
+    it('suggests nothing the visitor has already rated, whatever they said', () => {
+      // **Amended 2026-09-29.** This used to assert the opposite for the four
+      // non-rejections, on the grounds that removing them would shrink the
+      // visitor's options. Shrinking them is correct: a new loop is a new
+      // *walk*, not a fresh memory, and a title already judged, saved or
+      // watched is not an open question. Leaving them in shrank something
+      // worse instead — the deck's credibility, the moment a visitor tapped
+      // Watch Now, started a new loop, and was handed the film they just chose.
       const catalog = [title('a'), title('b'), title('c'), title('d')];
       const interactions = {
         a: rated('loved'),
@@ -392,15 +396,35 @@ describe('rankTitles — hard filters', () => {
         d: rated('watchingNow'),
       };
 
-      const result = rankTitles(catalog, preference(), interactions, []);
-
-      expect(result.map((t) => t.id).sort()).toEqual(['a', 'b', 'c', 'd']);
+      expect(rankTitles(catalog, preference(), interactions, [])).toEqual([]);
     });
 
-    it('makes a title eligible again when it is re-rated away from rejected', () => {
-      // Spec 003 FR-007 depends on this: "un-disliking" needs no extra
-      // mechanism, because eligibility is derived from the current state on
-      // every ranking rather than recorded in a separate exclusion list.
+    it('does not hand back the movie they chose, when a new loop starts', () => {
+      // The path that produced the report, stated as the visitor walks it:
+      // Watch Now on a film, Match Found, "Start a new loop" — and the same
+      // poster again. `startNewLoop` clears `shownTitleIds` and nothing else,
+      // so filter 4 is the only thing standing between a rated title and the
+      // top of the next deck.
+      const catalog = [title('watched'), title('loved'), title('fresh')];
+      const interactions = {
+        watched: rated('watchingNow'),
+        loved: rated('loved'),
+      };
+
+      const newLoop = rankTitles(catalog, preference(), interactions, []);
+
+      expect(newLoop.map((t) => t.id)).toEqual(['fresh']);
+    });
+
+    it('puts a title back when the rating is taken away', () => {
+      // Un-rating is the only way back in, and it is how Undo works: the
+      // document *is* the rule, so deleting the entry restores eligibility with
+      // nothing else to keep in step. Spec 003 FR-007's "un-dislike" needs the
+      // same property, and gets it from the same place.
+      //
+      // Note what is deliberately no longer covered here: re-rating a disliked
+      // title as loved does not put it back, because it is still rated. Only
+      // removal does.
       const catalog = [title('changed-their-mind')];
 
       const rejected = rankTitles(
@@ -409,15 +433,10 @@ describe('rankTitles — hard filters', () => {
         { 'changed-their-mind': rated('disliked') },
         [],
       );
-      const reRated = rankTitles(
-        catalog,
-        preference(),
-        { 'changed-their-mind': rated('loved') },
-        [],
-      );
+      const unRated = rankTitles(catalog, preference(), {}, []);
 
       expect(rejected).toEqual([]);
-      expect(reRated.map((t) => t.id)).toEqual(['changed-their-mind']);
+      expect(unRated.map((t) => t.id)).toEqual(['changed-their-mind']);
     });
 
     it('stays excluded when the loop restarts, though a merely-shown title returns', () => {
@@ -667,8 +686,14 @@ describe('rankTitles — score and order', () => {
       const withHistory = rankTitles(catalog, preference(), interactions, []).map((t) => t.id);
       const withoutHistory = rankTitles(catalog, preference(), noInteractions, []).map((t) => t.id);
 
+      // The loved title is gone from the second list — filter 4 takes it, as it
+      // takes every rated title. The lift is therefore observed where the term
+      // actually does its work: on a title the visitor has *never rated*, which
+      // is the whole point of generalizing from their taste. `another-horror`
+      // and `a-comedy` swap places between the two runs, and nothing else about
+      // the catalog changed.
       expect(withoutHistory).toEqual(['a-comedy', 'another-horror', 'loved-horror']);
-      expect(withHistory).toEqual(['another-horror', 'loved-horror', 'a-comedy']);
+      expect(withHistory).toEqual(['another-horror', 'a-comedy']);
     });
 
     it('sinks titles wearing a genre the visitor rejected, and can go negative', () => {
@@ -688,7 +713,12 @@ describe('rankTitles — score and order', () => {
     });
 
     it('counts wantToWatch and liked as positive, like loved', () => {
-      for (const state of ['liked', 'wantToWatch'] as const) {
+      // Positive for the *affinity* term, that is — which is a different
+      // question from whether the title comes back. It does not: every state in
+      // the vocabulary keeps its title out of the deck (filter 4), and what is
+      // being pinned here is that the same three states that say "no" to a
+      // suggestion still say "more like this" to its genre.
+      for (const state of ['loved', 'liked', 'wantToWatch'] as const) {
         const catalog = [
           title('rated-horror', { genres: ['horror'] }),
           title('a-comedy', { genres: ['comedy'] }),
@@ -699,7 +729,7 @@ describe('rankTitles — score and order', () => {
           (t) => t.id,
         );
 
-        expect(result).toEqual(['another-horror', 'rated-horror', 'a-comedy']);
+        expect(result).toEqual(['another-horror', 'a-comedy']);
       }
     });
   });

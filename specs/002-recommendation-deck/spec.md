@@ -29,7 +29,8 @@
   should happen next? → A: Return to the onboarding quiz with previous
   answers pre-filled so the visitor can widen their selections; completing
   the quiz starts a new loop. Disliked/Not Interested exclusions remain
-  intact.
+  intact. *(The action is labelled **Preferences** as of 2026-09-29; the
+  answer is otherwise unchanged — see FR-014.)*
 - Q: On the Match Found view, should the trailer play inline or open as an
   external link? → A: External link — a button opens the trailer on the
   official trailer service in a new tab; no third-party player code loads
@@ -168,8 +169,8 @@ browsable.
    with a visible notice that they are offline-cached.
 2. **Given** no titles match the current filters, **When** the deck
    requests suggestions, **Then** an empty state appears with a 1-click
-   Reset Filters action.
-3. **Given** the empty state, **When** the visitor taps Reset Filters,
+   Preferences action.
+3. **Given** the empty state, **When** the visitor taps Preferences,
    **Then** the onboarding quiz reopens with previous answers pre-filled,
    and completing it starts a new loop.
 4. **Given** the connection drops mid-session, **When** the visitor swipes
@@ -234,15 +235,38 @@ browsable.
 - **FR-007**: Each card MUST offer one-tap actions for Loved It, Liked It,
   Disliked, Want to Watch, and Not Interested; rating a card records the
   rating and advances to the next card.
+  _(Trial in progress, 2026-09-29: the shipped action bar shows two of the
+  five — Liked It and Disliked — with Skip sharing that row and Watch Now on
+  its own below it. All five states stay in the vocabulary, and four of them
+  remain recordable here: the left and right swipes still write Not
+  Interested and Want to Watch. Loved It is the one this screen can no longer
+  produce, and the cost is narrower than it sounds — the engine reads `loved`
+  and `liked` as the same positive signal today, so nothing the deck can
+  reach is lost. What the visitor loses is the ability to say it *more
+  strongly*. This is a layout experiment, not a change to the requirement,
+  and it reverts by deleting `TRIAL_HIDDEN_STATES` in `actions.ts`.)_
 - **FR-008**: The Watch Now action MUST stop the loop and open a Match
   Found view with direct links to the official streaming services where the
   title is available, a button that opens the trailer on the official
   trailer service in a new tab when a trailer exists, and a start-new-loop
   action. No third-party player code loads on the page.
-- **FR-009**: Titles rated Disliked or Not Interested MUST NOT be suggested
-  again to the same visitor, in the current session or any later session.
+- **FR-009**: A title the visitor has rated MUST NOT be suggested again to
+  the same visitor, in the current session or any later session. Removing
+  the rating is the only way back: eligibility is read from presence, so
+  "not rated" is the single condition that makes a title suggestible.
+  _(Amended 2026-09-29. The requirement named Disliked and Not Interested
+  only, which left a rating of Loved It, Liked It, Want to Watch or Watch
+  Now free to come back — and `FR-010`'s loop restart cleared the one list
+  that was keeping it away, so a visitor could tap Watch Now, start a new
+  loop, and be handed the film they had just chosen. Every rating is now
+  equally final. The two rejections keep their second job — they are the
+  negative half of the affinity signal — but they are no longer the
+  eligibility rule.)_
 - **FR-010**: A title already shown in the current loop MUST NOT reappear
-  until the loop is exhausted or restarted.
+  until the loop is exhausted or restarted. Starting a new loop clears the
+  record of what has been *shown* and nothing else: it is a new walk, not a
+  fresh memory, so every rating still applies (FR-009). A title that was
+  skipped is welcome back in the next loop; a title that was rated is not.
 - **FR-011**: With identical preferences and history, the system MUST
   produce the same card sequence (deterministic, reproducible).
 - **FR-012**: The next card MUST be ready for display within 300ms of the
@@ -250,9 +274,37 @@ browsable.
 - **FR-013**: When the external media data provider is unreachable, the
   system MUST serve cached fallback suggestions with a visible notice.
 - **FR-014**: When no titles match the current filters, the system MUST
-  show an empty state with a 1-click Reset Filters action that returns the
+  show an empty state with a 1-click **Preferences** action that returns the
   visitor to the onboarding quiz with their previous answers pre-filled so
-  they can widen their selections; completing the quiz starts a new loop.
+  they can re-aim their selections; completing the quiz starts a new loop.
+  The empty state MUST name the cause and offer only actions that can
+  change it: a new loop is offered when the walk ran out of cards, never
+  when the visitor has already rated every title the filters match — there,
+  the ratings are what emptied the deck and only re-aiming the filters can
+  refill it (FR-009). Every action the empty state offers MUST be drawn like
+  the others on the same screen: where two can appear together, both carry an
+  icon or neither does.
+
+  > **Amendment, 2026-09-29 (reachability).** The action was reachable only from
+  > the empty state, which opens exactly when the deck runs dry — so *"where do
+  > I change my preferences?"* had no answer anywhere else in the product, and
+  > the visitor had to walk the whole deck to reach the door. The same
+  > transition (spec 001's `startRetake`, every answer kept) is now also offered
+  > on the **Match Found** view, in both of its branches, above the
+  > start-new-loop action; and on the **Profile area** (spec 004), in a card
+  > that reads the answers back before offering to change them. Neither new
+  > site marks its controls — partial iconography is worse than none, and both
+  > screens carry other bare controls (DESIGN.md). The empty state's own
+  > behaviour is unchanged, and it stays the one that names the *cause*.
+  >
+  > **Amendment, 2026-09-29.** The action was called **"Reset Filters"**. The
+  > behaviour is untouched — it is still one tap, it still writes the retake and
+  > still lands on the quiz with the answers kept — but the label named the
+  > engine's mechanism rather than the visitor's errand. The deck shows one card
+  > at a time, so there is no list on screen to have "too many filters" in;
+  > *romance* becoming *action* is re-aiming, not narrowing. *Reset* also
+  > implies the visitor did something wrong, which is false in the `exhausted`
+  > case, where they did nothing but keep going.
 - **FR-015**: During a connection loss, the system MUST allow browsing of
   already-loaded cards and MUST show an offline notice.
 - **FR-016**: A failed poster image MUST fall back to a placeholder; the
@@ -318,9 +370,10 @@ browsable.
 - Registered-user accounts and server-side preference sync are out of scope
   (auth spec, 004); the deck must work fully for guests with device-local
   state.
-- "Reset Filters" returns the visitor to the onboarding quiz with previous
-  answers pre-filled; completing it starts a new loop. Disliked/Not
-  Interested exclusions are unaffected by resetting filters.
+- The **Preferences** action (formerly "Reset Filters") returns the visitor
+  to the onboarding quiz with previous answers pre-filled; completing it
+  starts a new loop. Disliked/Not Interested exclusions are unaffected by
+  re-aiming the filters.
 - Deterministic weighted scoring uses tags, genres, ratings, and user
   history per the PRD; the scoring algorithm itself is an implementation
   detail, but its output must be reproducible (FR-011).

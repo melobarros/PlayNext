@@ -11,10 +11,10 @@
   @if (canRetry()) {
     <!--
       The one outcome whose fix is a network call rather than a rewrite of the
-      visitor's answers, so it gets the primary slot. Retry and Reset Filters
-      are mutually exclusive by construction: the shell derives `outcome` from
-      a single expression, and `canRetry`/`canResetFilters` are two tests over
-      that one value — never two independent flags that could both be true.
+      visitor's answers, so it gets the primary slot. Retry and the preferences
+      action are mutually exclusive by construction: the shell derives `outcome`
+      from a single expression, and `canRetry`/`canResetFilters` are two tests
+      over that one value — never two independent flags that could both be true.
     -->
     <button
       type="button"
@@ -24,12 +24,34 @@
       Try again
     </button>
   } @else if (canResetFilters()) {
+    <!--
+      "Preferences", not "Reset Filters". The button does the same thing it
+      always did — writes a retake and hands the visitor to `/quiz` — but the
+      old label named the engine's mechanism, and the visitor is not narrowing a
+      list, they are re-aiming. The deck shows one card at a time: there is no
+      list on screen to have "too many filters" in. "Reset" also carries a whiff
+      of "you did something wrong", which is false in the `exhausted` case,
+      where the visitor did nothing but keep going. See `canResetFilters` for
+      why the identifier kept the old name.
+    -->
     <button
       type="button"
-      class="touch-target inline-flex items-center rounded-full bg-accent-600 px-6 font-medium text-white hover:bg-accent-500 active:brightness-90"
+      class="touch-target inline-flex items-center gap-2 rounded-full bg-accent-600 px-6 font-medium text-white hover:bg-accent-500 active:brightness-90"
       (click)="resetFilters()"
     >
-      Reset Filters
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+        class="h-5 w-5 shrink-0"
+      >
+        <path [attr.d]="preferencesIcon" />
+      </svg>
+      Preferences
     </button>
   } @else {
     <!--
@@ -46,11 +68,32 @@
   }
 
   @if (canStartNewLoop()) {
+    <!--
+      The second door, and the only one that stays on `/deck`. It is marked with
+      a glyph for the same reason the preferences action is: the two are the
+      only pair this component ever renders together, and two buttons side by
+      side where one carries an icon and the other does not reads as a
+      difference in kind that is not there. Between them they cover every
+      outcome — the other two actions never appear beside a marked button — so
+      marking these two is complete, not partial.
+    -->
     <button
       type="button"
-      class="touch-target inline-flex items-center rounded-full px-6 font-medium text-chalk-300 underline"
+      class="touch-target inline-flex items-center gap-2 rounded-full px-6 font-medium text-chalk-300 underline"
       (click)="startNewLoop.emit()"
     >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+        class="h-5 w-5 shrink-0"
+      >
+        <path [attr.d]="newLoopIcon" />
+      </svg>
       Start a new loop
     </button>
   }

@@ -212,6 +212,14 @@ stays in control of the account.
   lock-in; the nudge MUST never block or delay the core loop.
 - **FR-002**: The Profile area MUST offer account creation with email and
   password, and sign-in with Google.
+  _(Note, 2026-09-29. The Profile area also gained a **preferences card** —
+  the visitor's quiz answers read back in their own words, the region the
+  catalog is scoped to, and a **Change preferences** action that reopens the
+  quiz through spec 001's `startRetake` (002 FR-014). It is rendered on **both**
+  halves of the screen, because the answers are device-local: a signed-in
+  visitor's quiz is still this browser's copy until the sync has run, so the
+  door must not depend on an account. This is an addition to what the area
+  offers, not a change to FR-001 or FR-002.)_
 - **FR-003**: When a guest with saved data registers, the system MUST
   automatically migrate their preferences, ratings, watchlist, and
   watching history into the new account with nothing lost, and MUST sign

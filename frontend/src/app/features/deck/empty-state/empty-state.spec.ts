@@ -107,10 +107,12 @@ describe('the deck with nothing to show (FR-014, US4)', () => {
       expect(text()).toContain('Nothing matches');
     });
 
-    it('offers the 1-click Reset Filters action (FR-014)', () => {
+    it('offers the 1-click preferences action (FR-014)', () => {
+      // Labelled "Preferences" rather than "Reset Filters": the visitor is
+      // re-aiming, not narrowing, and there is no list on screen to narrow.
       build('no-matches');
 
-      expect(button('Reset Filters')).toBeDefined();
+      expect(button('Preferences')).toBeDefined();
     });
 
     it('does not offer a new loop, which would land on this same screen', () => {
@@ -128,7 +130,7 @@ describe('the deck with nothing to show (FR-014, US4)', () => {
       // everything that matches them. Widening is still the way out.
       build('exhausted');
 
-      expect(button('Reset Filters')).toBeDefined();
+      expect(button('Preferences')).toBeDefined();
     });
 
     it('still offers the new loop, because there is a deck to walk again', () => {
@@ -152,12 +154,11 @@ describe('the deck with nothing to show (FR-014, US4)', () => {
 
   describe('when the quiz has not been taken', () => {
     it('sends the visitor to the quiz, and offers no reset', () => {
-      // There is nothing to reset — no answers have been given. A Reset
-      // Filters button here would write a retake over a document that does
-      // not exist.
+      // There is nothing to reset — no answers have been given. A preferences
+      // button here would write a retake over a document that does not exist.
       build('needs-quiz');
 
-      expect(button('Reset Filters')).toBeUndefined();
+      expect(button('Preferences')).toBeUndefined();
       expect(root.querySelector('a[href="/quiz"]')).not.toBeNull();
     });
   });
@@ -176,13 +177,14 @@ describe('the deck with nothing to show (FR-014, US4)', () => {
     });
 
     it('offers the retry, and not the reset', () => {
-      // Reset Filters rewrites the visitor's quiz answers. They are not what
-      // failed, so offering it here is the original bug wearing a different
-      // label — and it would cost them a 30-second quiz to fix nothing.
+      // The preferences action rewrites the visitor's quiz answers. They are
+      // not what failed, so offering it here is the original bug wearing a
+      // different label — and it would cost them a 30-second quiz to fix
+      // nothing.
       build('load-failed');
 
       expect(button('Try again')).toBeDefined();
-      expect(button('Reset Filters')).toBeUndefined();
+      expect(button('Preferences')).toBeUndefined();
     });
 
     it('offers no new loop, because there is no deck to walk again', () => {
@@ -220,7 +222,60 @@ describe('the deck with nothing to show (FR-014, US4)', () => {
     });
   });
 
-  describe('Reset Filters (US4 scenario 3, research.md D9)', () => {
+  describe('the glyphs on the two doors', () => {
+    /** Every outcome the shell can hand this component. */
+    const OUTCOMES: readonly DeckOutcome[] = [
+      'needs-quiz',
+      'no-matches',
+      'exhausted',
+      'all-rated',
+      'load-failed',
+    ];
+
+    /** Buttons and links alike: the quiz action is an `<a>`, and it counts. */
+    function controls(): HTMLElement[] {
+      return [...root.querySelectorAll<HTMLElement>('button, a')];
+    }
+
+    it('marks both doors, hidden from the accessibility tree', () => {
+      build('exhausted');
+
+      for (const label of ['Preferences', 'Start a new loop']) {
+        const icons = [...(button(label)?.querySelectorAll('svg') ?? [])];
+
+        expect(icons).toHaveLength(1);
+        expect(icons[0].getAttribute('aria-hidden')).toBe('true');
+        expect(icons[0].querySelector('path')?.getAttribute('d')).toBeTruthy();
+        // The namespace is the difference between a glyph and a blank square:
+        // an `<svg>` created in the HTML namespace is in the DOM, has its `d`,
+        // and draws nothing at all.
+        expect(icons[0].namespaceURI).toBe('http://www.w3.org/2000/svg');
+      }
+    });
+
+    it('never shows a marked control beside a bare one', () => {
+      // Partial iconography is worse than none: two controls side by side where
+      // one carries a glyph and one does not reads as a difference in kind that
+      // is not there. It holds here because the only outcome that renders two
+      // controls is `exhausted`, and both of those are marked — but that is a
+      // fact about the branch structure, which can change, so this walks every
+      // outcome and checks the claim instead of trusting the structure to keep
+      // making it.
+      for (const outcome of OUTCOMES) {
+        build(outcome);
+
+        const marked = controls().filter((control) => control.querySelector('svg'));
+        const bare = controls().filter((control) => !control.querySelector('svg'));
+
+        expect({ outcome, mixed: marked.length > 0 && bare.length > 0 }).toEqual({
+          outcome,
+          mixed: false,
+        });
+      }
+    });
+  });
+
+  describe('the preferences action (US4 scenario 3, research.md D9)', () => {
     beforeEach(() => {
       TestBed.inject(PreferenceStore).write(completedQuiz());
     });
@@ -228,7 +283,7 @@ describe('the deck with nothing to show (FR-014, US4)', () => {
     it('reopens the quiz at the beginning, no longer completed', () => {
       build('no-matches');
 
-      tap('Reset Filters');
+      tap('Preferences');
 
       const reopened = TestBed.inject(PreferenceStore).read();
       expect(reopened?.status).toBe('in-progress');
@@ -241,7 +296,7 @@ describe('the deck with nothing to show (FR-014, US4)', () => {
     it('keeps every answer, so the visitor widens rather than starts over', () => {
       build('no-matches');
 
-      tap('Reset Filters');
+      tap('Preferences');
 
       const reopened = TestBed.inject(PreferenceStore).read();
       expect(reopened?.mediaType).toEqual({ values: ['movie'], any: false });
@@ -254,7 +309,7 @@ describe('the deck with nothing to show (FR-014, US4)', () => {
       const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
 
       build('no-matches');
-      tap('Reset Filters');
+      tap('Preferences');
 
       expect(navigate).toHaveBeenCalledWith(['/quiz']);
     });
@@ -269,7 +324,7 @@ describe('the deck with nothing to show (FR-014, US4)', () => {
       const before = savedInteractions();
 
       build('no-matches');
-      tap('Reset Filters');
+      tap('Preferences');
 
       expect(savedInteractions()).toBe(before);
       expect(TestBed.inject(InteractionStore).read().interactions['rejected-title']?.state).toBe(

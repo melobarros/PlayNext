@@ -11,6 +11,13 @@ const EMPTY_LABEL = 'Nothing selected';
  *
  * It also hosts the retake entry point, since retaking is something a visitor
  * decides after seeing what they picked (FR-012).
+ *
+ * **One retake, not two.** The screen used to offer "Change my answers" and
+ * "Start over" as a pair of text links, which was wrong twice over: they ran
+ * the same transition (`startRetake` keeps every answer), and "Start over"
+ * promised the opposite of what it did. Stepping back a question is the quiz's
+ * own Back button, which is where a visitor looks for it; what this screen owes
+ * them is the way to re-aim the whole thing.
  */
 @Component({
   selector: 'app-summary',
@@ -35,22 +42,23 @@ const EMPTY_LABEL = 'Nothing selected';
       Start recommendations
     </button>
 
-    <div class="mt-3 flex items-center justify-center gap-4">
-      <button
-        type="button"
-        class="touch-target text-sm text-chalk-500 underline-offset-4 hover:underline"
-        (click)="goBack.emit()"
-      >
-        Change my answers
-      </button>
-      <button
-        type="button"
-        class="touch-target text-sm text-chalk-500 underline-offset-4 hover:underline"
-        (click)="retake.emit()"
-      >
-        Start over
-      </button>
-    </div>
+    <!--
+      One secondary action, drawn like one. It was two lines of underlined text
+      — "Change my answers" and "Start over" — and neither read as pressable,
+      which the visitor said out loud. It is also only one errand: startRetake
+      keeps every answer, so the pair did the same thing under two labels, and
+      the more inviting of the two ("Start over") was the one that lied.
+
+      Full width and outlined rather than filled, because "Start recommendations"
+      above it is the primary action and this screen must not offer two.
+    -->
+    <button
+      type="button"
+      class="touch-target mt-3 inline-flex w-full items-center justify-center rounded-full border border-ink-600 px-6 font-medium text-chalk-300"
+      (click)="retake.emit()"
+    >
+      Change my answers
+    </button>
   `,
 })
 export class Summary {
@@ -60,7 +68,6 @@ export class Summary {
 
   readonly start = output<void>();
   readonly retake = output<void>();
-  readonly goBack = output<void>();
 
   protected readonly rows = computed(() => {
     const state = this.state();

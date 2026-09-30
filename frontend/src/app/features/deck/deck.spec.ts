@@ -17,7 +17,7 @@ import { CatalogService } from '../../core/services/catalog.service';
 import { Connectivity } from '../../core/services/connectivity';
 import { InteractionStore } from '../../core/services/interaction-store';
 import { PreferenceStore } from '../../core/services/preference-store';
-import { Deck } from './deck';
+import { Deck, UNDO_WINDOW_MS } from './deck';
 
 /**
  * End-to-end coverage of the deck shell: the US1 acceptance scenarios, driven
@@ -714,26 +714,26 @@ describe('deck shell', () => {
       completeQuiz();
       build();
 
-      tap('Loved It');
+      tap('Liked It');
 
-      expect(announcement()).toMatch(/^Loved It\. 1 rated\.$/);
+      expect(announcement()).toMatch(/^Liked It\. 1 rated\.$/);
     });
 
     it('counts every rating, not just the last one', () => {
       completeQuiz();
       build();
 
-      tap('Loved It');
       tap('Liked It');
+      tap('Disliked');
 
-      expect(announcement()).toMatch(/^Liked It\. 2 rated\.$/);
+      expect(announcement()).toMatch(/^Disliked\. 2 rated\.$/);
     });
 
     it('offers the undo, reachable without aiming (FR-017)', () => {
       completeQuiz();
       build();
 
-      tap('Loved It');
+      tap('Liked It');
 
       const undo = button('Undo');
       expect(undo).toBeDefined();
@@ -748,7 +748,7 @@ describe('deck shell', () => {
       completeQuiz();
       build();
 
-      tap('Loved It');
+      tap('Liked It');
 
       const footer = root.querySelector('footer');
       expect(footer?.firstElementChild).toBe(strip());
@@ -767,7 +767,7 @@ describe('deck shell', () => {
       // The whole point: a mis-tap costs one tap to fix, not a reload.
       completeQuiz();
       build();
-      tap('Loved It');
+      tap('Liked It');
       expect(shownTitle()).toBe('Bravo');
 
       tap('Undo');
@@ -797,13 +797,13 @@ describe('deck shell', () => {
       completeQuiz();
       catalog = manyTitles(6);
       build();
-      tap('Loved It');
+      tap('Liked It');
       tap('Disliked');
 
       tap('Undo');
 
       expect(shownTitle()).toBe('Title 1');
-      expect(savedInteractions()['title-00']?.state).toBe('loved');
+      expect(savedInteractions()['title-00']?.state).toBe('liked');
       expect(savedInteractions()['title-01']).toBeUndefined();
     });
 
@@ -813,7 +813,7 @@ describe('deck shell', () => {
       // the undo stack this deliberately is not.
       completeQuiz();
       build();
-      tap('Loved It');
+      tap('Liked It');
 
       tap('Undo');
 
@@ -827,7 +827,7 @@ describe('deck shell', () => {
       // longer the last thing they did.
       completeQuiz();
       build();
-      tap('Loved It');
+      tap('Liked It');
 
       tap('Skip');
 
@@ -843,7 +843,7 @@ describe('deck shell', () => {
       // have already acted on by finding a movie to watch.
       completeQuiz();
       build();
-      tap('Loved It');
+      tap('Liked It');
 
       // The navigation is stubbed, not followed: this spec has no `/deck/match`
       // route, and letting the router really leave would reject in the
@@ -864,12 +864,143 @@ describe('deck shell', () => {
       // to retract it does not.
       completeQuiz();
       build();
-      tap('Loved It');
+      tap('Liked It');
 
       build();
 
       expect(strip()).toBeNull();
-      expect(savedInteractions()['alpha']?.state).toBe('loved');
+      expect(savedInteractions()['alpha']?.state).toBe('liked');
+    });
+
+    describe('the window it stands for', () => {
+      /**
+       * The one clock on this screen, and the reason it is faked.
+       *
+       * The window is five seconds of real time, which no test should spend
+       * waiting — and which no test *can* wait for and still be about the
+       * boundary. Fake timers make "just before" and "just after" both
+       * expressible instead of approximate.
+       */
+      beforeEach(() => vi.useFakeTimers());
+      afterEach(() => vi.useRealTimers());
+
+      /** Lets the clock run, then lets the view catch up with what it changed. */
+      function wait(ms: number): void {
+        vi.advanceTimersByTime(ms);
+        fixture.detectChanges();
+      }
+
+      /**
+       * Says the visitor is at the strip, or has left it — and lets the effect
+       * run before the clock does.
+       *
+       * The flush is not politeness. An Angular effect is *scheduled*, not
+       * synchronous, so without this the effect has not re-run by the time the
+       * clock starts moving: the timer it is supposed to start does not exist
+       * yet to be advanced past, and the test would fail for a reason that has
+       * nothing to do with the behaviour it is checking.
+       */
+      function hold(event: 'pointerenter' | 'pointerleave' | 'focusin' | 'focusout'): void {
+        strip()?.dispatchEvent(new Event(event));
+        fixture.detectChanges();
+      }
+
+      it('withdraws itself, so the deck gets its row of height back', () => {
+        completeQuiz();
+        build();
+        tap('Liked It');
+
+        wait(UNDO_WINDOW_MS - 1);
+        expect(strip()).not.toBeNull();
+
+        wait(1);
+        expect(strip()).toBeNull();
+        expect(announcement()).toBe('');
+      });
+
+      it('is long enough to notice, aim and reach a different tile', () => {
+        // The number itself, pinned. Three seconds is the reflex for a toast
+        // and the wrong reflex here: the visitor is not reading the strip, they
+        // are travelling *past* it to the tile they meant, and a strip that
+        // vanishes mid-reach teaches them the offer is unreliable. If this
+        // assertion is ever lowered, it should be an argument rather than a
+        // tidy-up.
+        expect(UNDO_WINDOW_MS).toBe(5000);
+      });
+
+      it('stops counting while the pointer is on it', () => {
+        // WCAG 2.2.1: a control that removes itself while the visitor is using
+        // it fails outright. Hovering is the pointer's way of saying "I am
+        // using this", so the clock stops for as long as it is true.
+        completeQuiz();
+        build();
+        tap('Liked It');
+
+        hold('pointerenter');
+        wait(UNDO_WINDOW_MS * 3);
+
+        expect(strip()).not.toBeNull();
+
+        hold('pointerleave');
+        wait(UNDO_WINDOW_MS);
+
+        expect(strip()).toBeNull();
+      });
+
+      it('stops counting while the keyboard is on it', () => {
+        // The same rule for the visitor who has no pointer at all, and who is
+        // slower to arrive by construction: tabbing to Undo means passing every
+        // control before it. Without this branch the strip would be gone before
+        // they got there, every time.
+        completeQuiz();
+        build();
+        tap('Liked It');
+
+        hold('focusin');
+        wait(UNDO_WINDOW_MS * 3);
+
+        expect(strip()).not.toBeNull();
+
+        hold('focusout');
+        wait(UNDO_WINDOW_MS);
+
+        expect(strip()).toBeNull();
+      });
+
+      it('gives a new rating the whole window, not what is left of the last one', () => {
+        // The failure this prevents is a second rating inheriting the first
+        // one's clock and being withdrawn almost immediately — which is what a
+        // single timer reset on every change would do if the reset were missed.
+        // `onRating` clears the hold first, so a rating given while the pointer
+        // happened to rest on the previous strip opens its own full window.
+        completeQuiz();
+        build();
+        tap('Liked It');
+        hold('pointerenter');
+
+        wait(UNDO_WINDOW_MS - 100);
+        tap('Disliked');
+
+        wait(UNDO_WINDOW_MS - 1);
+        expect(strip()?.textContent).toContain('Disliked');
+
+        wait(1);
+        expect(strip()).toBeNull();
+      });
+
+      it('leaves nothing running once it has fired', () => {
+        // The timer is owned by the effect that created it, so the cleanup runs
+        // on the re-run and not only on destroy. Two ratings in a row must
+        // leave exactly one pending timer — a stray one would fire against a
+        // strip it does not own and withdraw an offer the visitor just received.
+        completeQuiz();
+        build();
+
+        tap('Liked It');
+        tap('Disliked');
+
+        expect(vi.getTimerCount()).toBe(1);
+      });
     });
   });
 
@@ -970,8 +1101,13 @@ describe('deck shell', () => {
       catalog = manyTitles(20);
       build();
 
+      // The two rejections, reached by the two different routes that write
+      // them: the tile, and the left swipe. Since the 2026-09-29 trial hides
+      // the Not Interested tile, the gesture is the only way to record it from
+      // this screen — which makes this the test that proves the gesture writes
+      // the same state the tile used to.
       tap('Disliked');
-      tap('Not Interested');
+      swipe(-200);
       walk(20);
       tap('Start a new loop');
 
@@ -1101,7 +1237,7 @@ describe('deck shell', () => {
 
       expect(cards()).toHaveLength(0);
       expect(root.querySelector('[role="progressbar"]')).toBeNull();
-      expect(button('Reset Filters')).toBeDefined();
+      expect(button('Preferences')).toBeDefined();
       // The reason, not just the action: an exhausted deck offers the same
       // button, and telling this visitor they had "seen everything" when
       // their filters matched nothing would be a different lie.
@@ -1195,7 +1331,7 @@ describe('deck shell', () => {
       // The banners sit in the flow above the card. Anything that took the
       // actions off screen — an overlay, a full-height banner — would leave
       // the visitor able to see a card and unable to decide on it.
-      for (const label of ['Loved It', 'Skip', 'Watch Now']) {
+      for (const label of ['Liked It', 'Disliked', 'Skip', 'Watch Now']) {
         expect(button(label)).toBeDefined();
       }
     });
@@ -1279,7 +1415,7 @@ describe('deck shell', () => {
 
       // The bug, stated as a test.
       expect(text()).not.toContain('Nothing matches');
-      expect(button('Reset Filters')).toBeUndefined();
+      expect(button('Preferences')).toBeUndefined();
       expect(root.querySelector('[data-card-skeleton]')).not.toBeNull();
       expect(cards()).toHaveLength(0);
       // There is no progress to report, so there is no progressbar to report
@@ -1333,7 +1469,7 @@ describe('deck shell', () => {
       expect(text()).toContain("Couldn't reach the catalog");
       expect(button('Try again')).toBeDefined();
       // The failure is the network's, not the visitor's answers.
-      expect(button('Reset Filters')).toBeUndefined();
+      expect(button('Preferences')).toBeUndefined();
       // And there is no deck to walk again, so no new loop to offer.
       expect(button('Start a new loop')).toBeUndefined();
       // "Showing saved results" is a promise about results that do not exist.

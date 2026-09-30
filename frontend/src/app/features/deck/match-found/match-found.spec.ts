@@ -5,9 +5,12 @@ import { provideRouter, Router } from '@angular/router';
 import { Observable, of } from 'rxjs';
 import { DECK_SESSION_STORAGE_KEY } from '../../../core/models/deck-session';
 import { MediaTitle } from '../../../core/models/media-title';
+import { QuizState } from '../../../core/models/quiz';
 import { SESSION_SCHEMA_VERSION, SESSION_STORAGE_KEY } from '../../../core/models/session';
 import { CatalogService } from '../../../core/services/catalog.service';
+import { DeckSessionStore } from '../../../core/services/deck-session-store';
 import { InteractionStore } from '../../../core/services/interaction-store';
+import { PreferenceStore } from '../../../core/services/preference-store';
 import { ACCOUNT_NUDGE_STORAGE_KEY } from './account-nudge';
 import { MatchFound } from './match-found';
 
@@ -54,6 +57,23 @@ const WITHOUT_TRAILER: MediaTitle = {
 };
 
 const CATALOG: MediaTitle[] = [WITH_TRAILER, WITHOUT_TRAILER];
+
+const COMPLETED_AT = '2026-09-26T10:00:00.000Z';
+
+/** A finished quiz, answered Movie + Horror + Netflix. */
+function completedQuiz(): QuizState {
+  return {
+    schemaVersion: 1,
+    status: 'completed',
+    step: 3,
+    mediaType: { values: ['movie'], any: false },
+    genre: { values: ['horror'], any: false },
+    provider: { values: ['netflix'], any: false },
+    includeUnownedProviders: false,
+    completedAt: COMPLETED_AT,
+    updatedAt: COMPLETED_AT,
+  };
+}
 
 class FakeCatalogService {
   loadTitles(_region: string): Observable<MediaTitle[]> {
@@ -140,7 +160,12 @@ describe('match found', () => {
 
     TestBed.configureTestingModule({
       providers: [
-        provideRouter([{ path: 'deck', children: [] }]),
+        // Both destinations are stubbed: an unmatched URL must never be the
+        // reason a navigation assertion passes or fails.
+        provideRouter([
+          { path: 'deck', children: [] },
+          { path: 'quiz', children: [] },
+        ]),
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: CatalogService, useValue: new FakeCatalogService() },
@@ -259,6 +284,104 @@ describe('match found', () => {
       tap('Start a new loop');
 
       expect(navigate).toHaveBeenCalledExactlyOnceWith(['/deck']);
+    });
+  });
+
+  describe('changing preferences (FR-014)', () => {
+    // The same transition the empty state performs, offered from a second place.
+    // The question — "where do I change my preferences?" — arrives on this
+    // screen too, and this is the screen where a visitor has just been handed a
+    // title and may want to say "not like this". Making them walk the whole deck
+    // to the empty state to say it would be the app hiding its own front door.
+    //
+    // Tested through the real `PreferenceStore` rather than a spy, for the same
+    // reason the empty state is: what matters is that the document left behind
+    // is one `/quiz` can actually reopen, not that some method was called.
+    beforeEach(() => {
+      TestBed.inject(PreferenceStore).write(completedQuiz());
+    });
+
+    it('is offered in both states, because neither is a dead end', () => {
+      // Constitution II. The two branches are different screens as far as the
+      // visitor is concerned — one has a title, one does not — and both have to
+      // end in something pressable.
+      build('t0');
+      expect(() => tap('Preferences')).not.toThrow();
+
+      build('t-does-not-exist');
+      expect(() => tap('Preferences')).not.toThrow();
+    });
+
+    it('reopens the quiz at the beginning, no longer completed', () => {
+      build('t0');
+
+      tap('Preferences');
+
+      const reopened = TestBed.inject(PreferenceStore).read();
+      expect(reopened?.status).toBe('in-progress');
+      expect(reopened?.step).toBe(1);
+      // `toPreference` gates on this: while it is set, the deck would keep
+      // treating the retake as finished and never show the quiz.
+      expect(reopened?.completedAt).toBeUndefined();
+    });
+
+    it('keeps every answer, so the visitor is re-aiming rather than starting over', () => {
+      build('t0');
+
+      tap('Preferences');
+
+      const reopened = TestBed.inject(PreferenceStore).read();
+      expect(reopened?.mediaType).toEqual({ values: ['movie'], any: false });
+      expect(reopened?.genre).toEqual({ values: ['horror'], any: false });
+      expect(reopened?.provider).toEqual({ values: ['netflix'], any: false });
+    });
+
+    it('hands the visitor to the quiz', () => {
+      const router = TestBed.inject(Router);
+      const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+      build('t0');
+      tap('Preferences');
+
+      expect(navigate).toHaveBeenCalledExactlyOnceWith(['/quiz']);
+    });
+
+    it('leaves the finished loop where it is', () => {
+      // Starting a new loop and re-aiming are different errands. This one hands
+      // the visitor to `/quiz`, and `loopFor` starts a fresh loop on its own
+      // once the retake is completed — a stamp the quiz writes, not this view.
+      TestBed.inject(DeckSessionStore).write({
+        schemaVersion: 1,
+        startedAt: '2026-09-26T09:00:00.000Z',
+        shownTitleIds: ['t0', 't1'],
+      });
+
+      build('t0');
+      tap('Preferences');
+
+      expect(savedSession()?.['shownTitleIds']).toEqual(['t0', 't1']);
+    });
+  });
+
+  describe('changing preferences on a device with no saved quiz', () => {
+    // Its own block, and deliberately *not* inside the one above: that one seeds
+    // a completed quiz, and `PreferenceStore` keeps an in-memory copy of every
+    // write, so a `localStorage.clear()` there would still read back the seeded
+    // document and the test would prove nothing.
+    //
+    // The case is reachable because this view resolves from the URL alone
+    // (research.md D10): a visitor with a cleared device, or a link opened on a
+    // new one, lands here with nothing to reopen. There is nothing to pre-fill
+    // and nothing worth writing — but a screen whose only exit is a new loop
+    // would be the dead end the spec forbids, so the door still opens.
+    it('opens the quiz anyway, and writes no document it would have to invent', () => {
+      const preferences = TestBed.inject(PreferenceStore);
+      expect(preferences.read()).toBeNull();
+
+      build('t0');
+
+      expect(() => tap('Preferences')).not.toThrow();
+      expect(preferences.read()).toBeNull();
     });
   });
 
