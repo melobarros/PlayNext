@@ -51,7 +51,7 @@ export class Watchlist {
   private readonly document = signal<InteractionDocument>(this.interactions.read());
 
   /** Which tab is showing. Opens on Want to Watch, the first of the three. */
-  protected readonly active = signal<WatchlistSurface>('wantToWatch');
+  protected readonly active = signal<WatchlistSurface>('loved');
 
   protected readonly tabs = WATCHLIST_TABS;
 
