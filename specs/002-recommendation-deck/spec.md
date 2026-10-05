@@ -65,9 +65,9 @@ actions exist: the visitor can already decide what to watch.
    immediately with no further input required.
 2. **Given** a card is displayed, **When** the visitor swipes it away or
    taps the advance action, **Then** the next card replaces it, one card at
-   a time. A swipe records the rating its direction names (left: Not
-   Interested, right: Want to Watch); Skip is the advance that records
-   nothing.
+   a time. A swipe records the rating its direction names (left: Disliked,
+   right: Liked — amended 2026-09-30, see FR-004); Skip is the advance that
+   records nothing.
 3. **Given** quiz preferences of Movie + Horror, **When** cards are
    presented, **Then** every card is a Horror movie, unless the visitor
    changed preferences.
@@ -84,7 +84,10 @@ actions exist: the visitor can already decide what to watch.
 
 On each card the visitor has one-tap rating actions: Loved It, Liked It,
 Disliked, Want to Watch, Not Interested — plus the primary "Watch Now"
-action. Rating a card immediately advances to the next suggestion and
+action. _(Amended 2026-09-30: the shipped bar offers Liked It and Disliked,
+as FR-007 now records. The three weaker actions are described here as they
+were specified; nothing on the deck writes them any more.)_ Rating a card
+immediately advances to the next suggestion and
 remembers the rating. "Watch Now" stops the loop and opens a Match Found
 view with direct links to the official streaming services where the title is
 available, the trailer when one exists, and an action to start a new
@@ -104,7 +107,9 @@ visitor completes a decision with a path to actually watch the title.
 
 1. **Given** a card is displayed, **When** the visitor taps Loved It, Liked
    It, Disliked, Want to Watch, or Not Interested, **Then** the rating is
-   recorded and the next card appears.
+   recorded and the next card appears. _(Amended 2026-09-30: the two the bar
+   offers, Liked It and Disliked, are the ones a visitor can tap; the other
+   three are no longer reachable from this screen — see FR-007.)_
 2. **Given** a card is displayed, **When** the visitor taps Watch Now,
    **Then** the loop stops and the Match Found view opens for that title.
 3. **Given** the Match Found view, **When** the visitor looks at it, **Then**
@@ -206,14 +211,13 @@ browsable.
 - **FR-003**: Each card MUST show: title, release year, ratings, a synopsis,
   poster art, media type, and the streaming providers where the title is
   available.
-- **FR-004** *(amended 2026-09-29 — see the note below)*: The visitor MUST be
-  able to advance via a swipe gesture and via an explicit tap action; every
-  advance yields exactly one next card. A swipe leftward records
-  **Not Interested** and a swipe rightward records **Want to Watch**, shown as
-  a hint while the finger is still down and undoable afterwards like any other
-  rating. The explicit **Skip** action remains the one advance that records
-  nothing; the remaining four ratings are recorded through the rating buttons
-  (FR-007).
+- **FR-004** *(amended 2026-09-29 and 2026-09-30 — see the notes below)*: The
+  visitor MUST be able to advance via a swipe gesture and via an explicit tap
+  action; every advance yields exactly one next card. A swipe leftward records
+  **Disliked** and a swipe rightward records **Liked**, shown as a hint while
+  the finger is still down and undoable afterwards like any other rating. The
+  explicit **Skip** action remains the one advance that records nothing; both
+  ratings are recorded through the rating buttons (FR-007).
 
   > **Amendment, 2026-09-29.** Originally: *"A swipe is a neutral skip — it
   > records no rating; ratings are recorded only through the rating buttons."*
@@ -227,6 +231,13 @@ browsable.
   > reflex: a swipe makes the weaker claim in each direction
   > (`notInterested`/`wantToWatch`), leaving `disliked`/`loved` — which weigh
   > on the affinity score — to deliberate button presses.
+  >
+  > **Amendment, 2026-09-30** ("simplify rating states to like/dislike"). The
+  > weaker pair the swipes used to write is gone with the rest of the
+  > narrowing, so the reflex and the verdict are now the same claim: left
+  > records `disliked` and right records `liked`, exactly what the matching
+  > button records, from the same table (`hintFor` in `deck.ts`) that draws
+  > the mid-gesture hint. The gesture path itself is unchanged.
 - **FR-005**: Suggestions MUST match the visitor's quiz preferences (media
   types, genres).
 - **FR-006**: The system MUST NOT suggest titles unavailable on the
@@ -235,16 +246,16 @@ browsable.
 - **FR-007**: Each card MUST offer one-tap actions for Loved It, Liked It,
   Disliked, Want to Watch, and Not Interested; rating a card records the
   rating and advances to the next card.
-  _(Trial in progress, 2026-09-29: the shipped action bar shows two of the
-  five — Liked It and Disliked — with Skip sharing that row and Watch Now on
-  its own below it. All five states stay in the vocabulary, and four of them
-  remain recordable here: the left and right swipes still write Not
-  Interested and Want to Watch. Loved It is the one this screen can no longer
-  produce, and the cost is narrower than it sounds — the engine reads `loved`
-  and `liked` as the same positive signal today, so nothing the deck can
-  reach is lost. What the visitor loses is the ability to say it *more
-  strongly*. This is a layout experiment, not a change to the requirement,
-  and it reverts by deleting `TRIAL_HIDDEN_STATES` in `actions.ts`.)_
+  _(Amended 2026-09-30, "simplify rating states to like/dislike". The shipped
+  action bar offers two of the five — Liked It and Disliked — with Skip
+  sharing that row and Watch Now on its own below it, and the left and right
+  swipes write the same two. Loved It, Want to Watch and Not Interested stay
+  in the vocabulary, because documents written before this date hold them: the
+  watchlist still lists such a rating, filing Want to Watch under its Liked
+  tab and Not Interested under Disliked. What ends is the deck's ability to
+  write them. The engine reads `loved` and `liked` as the same positive
+  signal, so nothing the deck can reach is lost; what the visitor loses is the
+  ability to say it *more strongly*.)_
 - **FR-008**: The Watch Now action MUST stop the loop and open a Match
   Found view with direct links to the official streaming services where the
   title is available, a button that opens the trailer on the official

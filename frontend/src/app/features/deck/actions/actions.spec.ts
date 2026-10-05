@@ -62,19 +62,11 @@ function fixtureTitles(): MediaTitle[] {
 }
 
 /**
- * The rating actions the bar currently offers, and the state each means.
+ * The rating actions the bar offers, and the state each means.
  *
- * **Two, not five, for the duration of the 2026-09-29 trial** — the same
- * boundary `TRIAL_HIDDEN_STATES` draws in `actions.ts`, restated here because a
- * test that reads its expectations from the code under test proves nothing.
- * `RATING_ACTIONS` below is still the five-state contract, and the tests that
- * are about the *vocabulary* rather than the *bar* read from it.
- *
- * When the trial ends, fold this back into the full five:
- *
- * ```ts
- * const RATINGS = RATING_ACTIONS.map((action) => ({ label: action.label, state: action.state }));
- * ```
+ * Restated here rather than read from `RATING_ACTIONS`, because a test that
+ * reads its expectations from the code under test proves nothing. The wording
+ * test below is what keeps the two in step.
  */
 const RATINGS: readonly { label: string; state: InteractionState }[] = [
   { label: 'Liked It', state: 'liked' },
@@ -82,14 +74,11 @@ const RATINGS: readonly { label: string; state: InteractionState }[] = [
 ];
 
 /**
- * The three the trial took off the bar.
+ * The three states that lost their tiles on 2026-09-30.
  *
- * Two of them stay recordable by swipe, so "hidden" is only ever about tiles.
- * `loved` does not: with its tile gone there is no control on this screen that
- * writes it, and the tests below say so rather than pretending the state is
- * merely out of sight. It is still in the vocabulary, still labelled, and still
- * written by the watchlist's re-rating control — which is what the assertions
- * here pin, because losing the tile must not become losing the state.
+ * They stay in the vocabulary — documents written before that date hold them,
+ * and the watchlist lists them — so "hidden" is only ever about tiles on this
+ * screen. The assertions below pin both halves: no button, and still a label.
  */
 const HIDDEN_RATINGS: readonly { label: string; state: InteractionState }[] = [
   { label: 'Loved It', state: 'loved' },
@@ -216,17 +205,17 @@ describe('deck action bar', () => {
       }
     });
 
-    it('hides the three answers the trial took off the bar', () => {
-      // The provisional half. All three states are still in the vocabulary and
-      // still written by something — the swipe writes two of them, the
-      // watchlist's re-rating control writes the third — so the point of this
-      // test is that removing their tiles removed *only* their tiles.
+    it('offers none of the three states that lost their tiles', () => {
+      // Removing their tiles removed *only* their tiles: all three are still in
+      // the vocabulary and still labelled, so an older document's ratings stay
+      // readable in the watchlist. What is gone is the ability to record them
+      // from this screen.
       build();
 
       for (const { label, state } of HIDDEN_RATINGS) {
         expect(() => findButton(label)).toThrow();
         expect(INTERACTION_STATE_LABELS[state]).toBeTruthy();
-        expect(RATING_ACTIONS.map((action) => action.state)).toContain(state);
+        expect(RATING_ACTIONS.map((action) => action.state)).not.toContain(state);
       }
     });
 
@@ -495,30 +484,15 @@ describe('deck action bar', () => {
     it('labels each rating action in the shared vocabulary', () => {
       // Pins the label/state pairing in one place, so a rename on either side
       // of the action bar fails here rather than silently mis-recording.
-      //
-      // Read from `RATING_ACTIONS`, not from the bar: the contract is five
-      // states in this order, and the trial hides three of them without being
-      // allowed to reorder or rename what is left. That is exactly the drift
-      // this test exists to catch, and it should keep catching it while the
-      // trial runs.
-      expect(RATING_ACTIONS.map((action) => action.label)).toEqual([
-        'Loved It',
-        'Liked It',
-        'Disliked',
-        'Want to Watch',
-        'Not Interested',
-      ]);
+      expect(RATING_ACTIONS.map((action) => action.label)).toEqual(['Liked It', 'Disliked']);
 
-      // The bar shows a *subsequence* of that order, in that order. It stopped
-      // being a prefix when the trial hid `loved`, which leads the vocabulary —
-      // "the first N" is no longer the right way to say it. What has not
-      // changed is the part worth pinning: the bar may drop entries, and may
-      // never reorder or rename the ones it keeps.
-      const vocabulary = RATING_ACTIONS.map((action) => action.label);
-      const positions = RATINGS.map((rating) => vocabulary.indexOf(rating.label));
-
-      expect(positions.every((position) => position >= 0)).toBe(true);
-      expect(positions).toEqual([...positions].sort((first, second) => first - second));
+      // And the bar offers exactly that contract, in that order: nothing
+      // dropped, nothing renamed, nothing reordered. The local `RATINGS` is the
+      // independent half of this assertion — it is written out by hand, so the
+      // two drifting apart is what fails rather than what is compared.
+      expect(RATINGS.map((rating) => rating.label)).toEqual(
+        RATING_ACTIONS.map((action) => action.label),
+      );
     });
 
     it('has a label for every state the visitor can record', () => {

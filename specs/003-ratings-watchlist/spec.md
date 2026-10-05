@@ -45,6 +45,14 @@ it is streaming. The visitor can open an entry to see the title's details
 and streaming links, and everything they rated earlier is still there when
 they come back — across refreshes and browser restarts.
 
+_(Amended 2026-09-30, "simplify rating states to like/dislike". The deck now
+writes only Liked and Disliked, so the strip is **two tabs** — **Liked**
+(holding `liked`, and `loved` and `wantToWatch` from documents written
+before that date) and **Disliked** (holding `disliked` and `notInterested`) —
+with the watching history as the log beside them. Want to Watch is no longer
+a tab of its own: nothing writes the state any more, and the entries that
+hold it are reachable under Liked. Everything else in this story stands.)_
+
 **Why this priority**: The watchlist is the PRD's "Watchlist & History
 View", the second item in the app's bottom navigation, and the place where
 the visitor's deck decisions accumulate into a personal collection. Without
@@ -59,11 +67,15 @@ tab with its details; refresh and confirm nothing is lost.
 1. **Given** a visitor rated a title Want to Watch in the deck, **When**
    they open the Watchlist, **Then** that title appears in the Want to
    Watch tab with poster, title, year, and streaming availability.
+   _(Amended 2026-09-30: the state is written by no build after 2026-09-30,
+   so the tab is gone; a rating that still holds it appears under Liked.)_
 2. **Given** a visitor rated titles Loved, Liked, Disliked, and Not
    Interested, **When** they view the Watchlist, **Then** the Liked title
-   appears in the Loved tab, the Disliked and Not Interested titles both
+   appears in the Liked tab, the Disliked and Not Interested titles both
    appear in the Disliked tab, and each entry is labelled with its own state
-   so the two are told apart.
+   so the two are told apart. _(Amended 2026-09-30: "the Liked tab" was "the
+   Loved tab" before the rename; a Loved title appears there too, as FR-001
+   now says.)_
 3. **Given** a watchlist entry, **When** the visitor taps it, **Then** the
    title's details open with its streaming links.
 4. **Given** a visitor with saved ratings, **When** they refresh the page
@@ -164,23 +176,37 @@ confirm the links are still correct.
 
 ### Functional Requirements
 
-- **FR-001**: The Watchlist MUST organize ratings into three tabs: Want to
-  Watch, Loved, and Disliked. The Loved tab MUST also include titles rated
-  Liked, and the Disliked tab MUST also include titles rated Not Interested;
-  each entry MUST be labelled with its own state, so a merged tab is never
-  ambiguous.
+- **FR-001** *(amended 2026-09-30 — see the note below)*: The Watchlist MUST
+  organize ratings into tabs. The **Liked** tab MUST include titles rated
+  Liked, together with Loved and Want to Watch, which no build after
+  2026-09-30 writes; the **Disliked** tab MUST include titles rated Disliked
+  and Not Interested. Each entry MUST be labelled with its own state, so a
+  merged tab is never ambiguous. The watching history is the log beside them,
+  not a tab.
+
+  > **Amendment, 2026-09-30** ("simplify rating states to like/dislike").
+  > Originally: *"three tabs: Want to Watch, Loved, and Disliked. The Loved
+  > tab MUST also include titles rated Liked…"* The deck writes only two
+  > states now, so Want to Watch has no writer and its tab was dropped; its
+  > entries stay reachable by folding the state into Liked, which is what
+  > keeps FR-003's "no recorded rating may be unreachable" true. The Liked tab
+  > is the old Loved tab, renamed and widened.
 - **FR-002**: Each entry MUST show poster, title, year, rating state, and
   streaming availability.
 - **FR-003**: Every rating recorded in the deck (Loved, Liked, Disliked,
   Want to Watch, Not Interested, Watching Now) MUST be stored and MUST be
   visible somewhere in the watchlist or history — no recorded rating may be
-  unreachable. The watchlist shows Loved and Liked under the Loved tab,
-  Want to Watch under its own tab, Disliked and Not Interested under the
-  Disliked tab, plus the watching history.
+  unreachable. The watchlist shows Loved, Liked and Want to Watch under the
+  Liked tab, Disliked and Not Interested under the Disliked tab, plus the
+  watching history.
 - **FR-004**: The visitor MUST be able to change a title's rating to any of
   the other five states (Loved, Liked, Disliked, Want to Watch, Not
   Interested) from the watchlist; "Watching Now" is set only by the deck's
   Watch Now action, never from the watchlist.
+  _(Amended 2026-09-30: the re-rate control offers the same two verdicts the
+  deck does, Liked and Disliked. A title holding one of the three legacy
+  states can be moved off it, but no legacy state can be moved onto. Removal
+  (FR-005) is unchanged.)_
 - **FR-005**: The visitor MUST be able to remove a rating entirely,
   returning the title to an unrated state.
 - **FR-006**: The system MUST keep exactly one rating per visitor per
@@ -236,10 +262,11 @@ confirm the links are still correct.
 
 ## Assumptions
 
-- Tabs: Want to Watch, Loved, Disliked — with the Loved tab also showing
-  Liked titles and the Disliked tab also showing Not Interested titles. Every
-  recorded state is listed somewhere, so any rating the visitor makes can be
-  found and changed again; nothing is written to storage and then hidden.
+- Tabs: Liked — holding Loved, Liked and Want to Watch titles — and Disliked,
+  holding Disliked and Not Interested titles. Every recorded state is listed
+  somewhere, so any rating the visitor makes can be found and changed again;
+  nothing is written to storage and then hidden. _(Amended 2026-09-30: was
+  three tabs — Want to Watch, Loved, Disliked; see FR-001.)_
 - The deck spec (002) owns the rating buttons and card advancing; this spec
   owns persistence, the watchlist and history views, re-rating, and the
   exclusion contract with the deck.

@@ -163,8 +163,10 @@ describe('watchlist entries', () => {
       const grouped = groupBySurface(watchlistEntries(document, []));
       const ids = (surface: WatchlistSurface) => grouped[surface].map((entry) => entry.titleId);
 
-      expect(ids('wantToWatch')).toEqual(['a']);
-      expect(ids('loved')).toEqual(['b', 'c']);
+      // Equal timestamps, so each bucket keeps the id tie-break's order. The
+      // positives share one tab and the rejections the other; `wantToWatch` has
+      // been in the first bucket since its own tab was removed (2026-09-30).
+      expect(ids('loved')).toEqual(['a', 'b', 'c']);
       expect(ids('disliked')).toEqual(['d', 'e']);
       expect(ids('history')).toEqual(['f']);
     });
@@ -233,7 +235,7 @@ describe('watchlist entries', () => {
             { titleId: 'b', state: 'liked', updatedAt: '2026-09-26T10:00:00.000Z' },
           ]),
         ),
-      ).toEqual({ wantToWatch: 1, loved: 1, disliked: 0 });
+      ).toEqual({ loved: 2, disliked: 0 });
 
       // One new rating moves exactly one tab by exactly one — the property a
       // separately-maintained counter is most likely to break.
@@ -245,7 +247,7 @@ describe('watchlist entries', () => {
             { titleId: 'c', state: 'loved', updatedAt: '2026-09-26T11:00:00.000Z' },
           ]),
         ),
-      ).toEqual({ wantToWatch: 1, loved: 2, disliked: 0 });
+      ).toEqual({ loved: 3, disliked: 0 });
     });
 
     it('keeps the ordering within each surface', () => {
@@ -371,11 +373,10 @@ describe('watchlist entries', () => {
 
       expect(total).toBe(SIZE);
       // 500 = 6 x 83 + 2, so the first two states in the cycle appear 84 times
-      // and the rest 83. The merged tabs sum their two states rather than
-      // sharing a count, which is what makes 168 and 166 different numbers.
-      expect(grouped.loved).toHaveLength(168); // loved 84 + liked 84
+      // and the rest 83. The merged tabs sum their states rather than sharing a
+      // count, which is what makes 251 and 166 different numbers.
+      expect(grouped.loved).toHaveLength(251); // loved 84 + liked 84 + wantToWatch 83
       expect(grouped.disliked).toHaveLength(166); // disliked 83 + notInterested 83
-      expect(grouped.wantToWatch).toHaveLength(83);
       expect(grouped.history).toHaveLength(83);
     });
 

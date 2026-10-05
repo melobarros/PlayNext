@@ -44,10 +44,15 @@ describe('the rating vocabulary', () => {
       expect(new Set(listed).size).toBe(listed.length);
     });
 
-    it('shows Liked under the Loved tab and Not Interested under the Disliked one', () => {
+    it('shows the positive trio under Liked and both rejections under Disliked', () => {
       // FR-001: the two merged tabs, and the reason each entry carries its own
-      // state label rather than the tab's.
+      // state label rather than the tab's. `wantToWatch` joined the Liked tab on
+      // 2026-09-30 when its own tab was removed — it stays listed because the
+      // documents that hold it were written by a build that offered the tab.
+      expect(surfaceFor('loved')).toBe('loved');
       expect(surfaceFor('liked')).toBe('loved');
+      expect(surfaceFor('wantToWatch')).toBe('loved');
+      expect(surfaceFor('disliked')).toBe('disliked');
       expect(surfaceFor('notInterested')).toBe('disliked');
     });
 
@@ -58,16 +63,12 @@ describe('the rating vocabulary', () => {
       expect(WATCHLIST_TABS.flatMap((tab) => tab.states)).not.toContain('watchingNow');
     });
 
-    it('renders three tabs, all of them marked as tabs', () => {
-      expect(WATCHLIST_TABS.map((tab) => tab.id)).toEqual(['wantToWatch', 'loved', 'disliked']);
+    it('renders two tabs, both of them marked as tabs', () => {
+      expect(WATCHLIST_TABS.map((tab) => tab.id)).toEqual(['loved', 'disliked']);
     });
 
     it('names each surface for the visitor', () => {
-      expect(WATCHLIST_TABS.map((tab) => tab.label)).toEqual([
-        'Want to Watch',
-        'Loved',
-        'Disliked',
-      ]);
+      expect(WATCHLIST_TABS.map((tab) => tab.label)).toEqual(['Liked', 'Disliked']);
       expect(WATCHLIST_SURFACES.find((s) => s.id === 'history')?.label).toBe('History');
     });
   });

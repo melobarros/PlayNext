@@ -70,12 +70,17 @@ delisted title from becoming a rating that can never be cleared.
 
 The mapping from state to surface (research D3). One table, three consumers.
 
+_(Amended 2026-09-30 — the shipped table, after the deck narrowed to
+like/dislike; see 003's FR-001 for why Want to Watch lost its surface.)_
+
 | Surface | States |
 |---------|--------|
-| Want to Watch | `wantToWatch` |
-| Loved | `loved`, `liked` |
+| Liked | `loved`, `liked`, `wantToWatch` |
 | Disliked | `disliked`, `notInterested` |
 | History | `watchingNow` |
+
+The original table had four rows — Want to Watch alone, Loved holding
+`loved`/`liked`, Disliked and History as above.
 
 Every state in `INTERACTION_STATES` appears exactly once, and a test asserts
 that: a state added to the vocabulary without a surface would otherwise be

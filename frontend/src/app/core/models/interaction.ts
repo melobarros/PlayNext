@@ -11,9 +11,15 @@
 /**
  * The rating vocabulary.
  *
- * Six states, and every one of them is reachable from the deck's rating bar.
- * A swipe records two of them — `notInterested` to the left, `wantToWatch` to
- * the right — and the neutral advance, `Skip`, records none.
+ * Six states, and the deck offers two of them: the bar shows `liked` and
+ * `disliked`, the swipe writes the same pair, and the neutral advance, `Skip`,
+ * records none (2026-09-30, "simplify rating states to like/dislike").
+ *
+ * `loved`, `wantToWatch` and `notInterested` are no longer written by anything
+ * on the deck. They stay in the vocabulary because documents written before
+ * that change still hold them: a stored rating must keep a surface and a label,
+ * or a visitor's own history would become unreadable rather than merely
+ * unrecordable.
  */
 export type InteractionState =
   'loved' | 'liked' | 'disliked' | 'wantToWatch' | 'notInterested' | 'watchingNow';
@@ -46,8 +52,10 @@ export const INTERACTION_STATE_LABELS: Record<InteractionState, string> = {
 };
 
 /**
- * The five actions a card offers (FR-007), in the order they are shown.
+ * The two actions a card offers (FR-007, amended 2026-09-30), in the order they
+ * are shown.
  *
+ * Two verdicts, and Skip beside them as the answer that is explicitly not one.
  * `watchingNow` is deliberately absent: it is not a rating. Ratings judge a
  * title and move on; Watch Now stops the loop and opens Match Found, which is a
  * different kind of action and is rendered apart from these.
@@ -104,7 +112,7 @@ export function isRated(interaction: Interaction | undefined): boolean {
 }
 
 /** Where a recorded rating can be found again (003 FR-003). */
-export type WatchlistSurface = 'wantToWatch' | 'loved' | 'disliked' | 'history';
+export type WatchlistSurface = 'loved' | 'disliked' | 'history';
 
 interface WatchlistSurfaceDefinition {
   id: WatchlistSurface;
@@ -124,13 +132,19 @@ interface WatchlistSurfaceDefinition {
  * control and the empty-state logic all read, so they cannot disagree
  * (research.md D3).
  *
- * Two rows reconcile a vocabulary of six states with a product that offers
- * three tabs. `liked` sits with `loved`, which is how the PRD already described
- * the Loved tab. `notInterested` sits with `disliked`, which the clarification
- * of 2026-09-26 settled: leaving it out made a rating the visitor could record
- * and then never find again — a dead end, which the constitution's Principle II
- * forbids. Each entry still carries its own label, so a merged tab is never
- * ambiguous about which of the two it is.
+ * Three rows reconcile a vocabulary of six states with a product that offers
+ * two tabs and a history. `liked` and `wantToWatch` sit with `loved` — the tab
+ * was always described as the visitor's saved titles, and it is labelled
+ * "Liked" since 2026-09-30. `notInterested` sits with `disliked`, which the
+ * clarification of 2026-09-26 settled: leaving it out made a rating the visitor
+ * could record and then never find again — a dead end, which the constitution's
+ * Principle II forbids. Each entry still carries its own label, so a merged tab
+ * is never ambiguous about which of the three it is.
+ *
+ * `wantToWatch` lost its own tab on 2026-09-30 with the rest of the
+ * want-to-watch flow, and folding it in here rather than dropping it is what
+ * keeps ratings written before that date reachable — `surfaceFor` is total, and
+ * a document that still holds one must not crash the screen that lists it.
  *
  * `watchingNow` appears in no tab by design (003 FR-004): it is set only by the
  * deck's Watch Now action. Its surface is the history, which is why the history
@@ -142,13 +156,12 @@ interface WatchlistSurfaceDefinition {
  * without a home.
  */
 export const WATCHLIST_SURFACES: readonly WatchlistSurfaceDefinition[] = [
-  //{ id: 'wantToWatch', label: 'Want to Watch', states: ['wantToWatch'], kind: 'tab' },
-  { id: 'loved', label: 'Liked', states: ['loved', 'liked'], kind: 'tab' },
+  { id: 'loved', label: 'Liked', states: ['loved', 'liked', 'wantToWatch'], kind: 'tab' },
   { id: 'disliked', label: 'Disliked', states: ['disliked', 'notInterested'], kind: 'tab' },
   { id: 'history', label: 'History', states: ['watchingNow'], kind: 'log' },
 ];
 
-/** The three surfaces the watchlist renders as tabs, in tab-strip order. */
+/** The surfaces the watchlist renders as tabs, in tab-strip order. */
 export const WATCHLIST_TABS: readonly WatchlistSurfaceDefinition[] = WATCHLIST_SURFACES.filter(
   (surface) => surface.kind === 'tab',
 );

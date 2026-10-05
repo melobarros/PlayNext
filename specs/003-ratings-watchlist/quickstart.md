@@ -70,7 +70,7 @@ implementation):
 | Test | Covers |
 |------|--------|
 | Every rating in the deck appears in its tab immediately | FR-003, SC-001 |
-| Liked appears in the Loved tab; Not Interested in the Disliked tab, labelled | FR-001, US1 scenario 2 |
+| Liked appears in the Liked tab; Not Interested in the Disliked tab, labelled | FR-001, US1 scenario 2 |
 | Re-rating moves an entry between tabs, and never duplicates it | FR-004, FR-006, SC-004 |
 | Removing a rating makes the title eligible in the deck again | FR-005, FR-007, SC-002 |
 | Re-rating away from Disliked makes the title eligible again | FR-007, SC-002 |
@@ -82,22 +82,30 @@ implementation):
 
 ## Manual validation walkthrough (acceptance scenarios)
 
-1. **Tabs (US1 scenario 1)**: rate a title Want to Watch in the deck, open the
-   Watchlist → it is in the Want to Watch tab with poster, title, year and
-   streaming availability.
-2. **Merged tabs (US1 scenario 2)**: rate titles Loved, Liked, Disliked and Not
-   Interested → Liked is in the Loved tab; Disliked and Not Interested are both
-   in the Disliked tab, each labelled with its own state so they are told apart.
+_Re-based 2026-09-30 on the two-verdict deck ("simplify rating states to
+like/dislike"): steps that asked for a Want to Watch or Loved rating from the
+deck could no longer be performed, because the bar writes neither. The seeded
+state in step 2 replaces them, and is the step that proves the three legacy
+states are still reachable rather than merely still in the vocabulary._
+
+1. **Tabs (US1 scenario 1)**: rate a title Liked It in the deck, open the
+   Watchlist → it is in the Liked tab with poster, title, year and streaming
+   availability.
+2. **Merged tabs (US1 scenario 2)**: rate a title Liked and another Disliked →
+   each is in its own tab. Then seed `playnext:interactions` with a `loved`, a
+   `wantToWatch` and a `notInterested` entry, written the way a build before
+   2026-09-30 wrote them, and reload → the three appear in the Liked, Liked and
+   Disliked tabs respectively, each labelled with its own state.
 3. **Details (US1 scenario 3)**: tap an entry → the title's details open with
    its streaming links.
 4. **Persistence (US1 scenario 4)**: reload the page, and reopen the browser →
    every tab and entry is intact.
-5. **Re-rate (US2 scenario 1)**: from the Disliked tab, change a title to Loved
-   → it moves to the Loved tab.
-6. **Remove (US2 scenario 2)**: remove a Want to Watch entry → it leaves the
-   tab without disturbing the others, and the other tabs still render.
+5. **Re-rate (US2 scenario 1)**: from the Disliked tab, change a title to Liked
+   → it moves to the Liked tab.
+6. **Remove (US2 scenario 2)**: remove a Liked entry → it leaves the tab without
+   disturbing the others, and the other tab still renders.
 7. **Deck respects the change (US2 scenarios 3–4, SC-002)**: after changing a
-   title from Disliked to Loved, start a new deck loop → the title can be
+   title from Disliked to Liked, start a new deck loop → the title can be
    suggested again. Then rate a title Disliked from the watchlist → the deck
    excludes it.
 8. **History (US3 scenarios 1–3)**: lock in two choices with Watch Now; open the

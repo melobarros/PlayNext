@@ -556,28 +556,29 @@ describe('deck shell', () => {
       // Confirms the pass really was the whole deck, not an early exit.
       expect(cards()).toHaveLength(0);
       expect(savedInteractions()).toEqual({
-        bravo: expect.objectContaining({ state: 'notInterested' }),
+        bravo: expect.objectContaining({ state: 'disliked' }),
       });
     });
 
-    it('takes a leftward swipe as Not Interested (FR-009)', () => {
-      // `notInterested` excludes the title from later loops, which is what
-      // makes a left swipe worth making: it is remembered, not just an exit.
+    it('takes a leftward swipe as Disliked (FR-009)', () => {
+      // The title is excluded from later loops, which is what makes a left
+      // swipe worth making: it is remembered, not just an exit. Since
+      // 2026-09-30 it records the same verdict the Disliked button does.
       completeQuiz();
       build();
 
       swipe(-200);
 
-      expect(savedInteractions()['alpha']?.state).toBe('notInterested');
+      expect(savedInteractions()['alpha']?.state).toBe('disliked');
     });
 
-    it('takes a rightward swipe as Want to Watch', () => {
+    it('takes a rightward swipe as Liked', () => {
       completeQuiz();
       build();
 
       swipe(200);
 
-      expect(savedInteractions()['alpha']?.state).toBe('wantToWatch');
+      expect(savedInteractions()['alpha']?.state).toBe('liked');
     });
 
     it('acknowledges a swipe exactly as it acknowledges a tap', () => {
@@ -588,9 +589,9 @@ describe('deck shell', () => {
 
       swipe(-200);
 
-      expect(root.querySelector('[data-undo-strip]')?.textContent).toContain('Not Interested');
+      expect(root.querySelector('[data-undo-strip]')?.textContent).toContain('Disliked');
       expect(root.querySelector('[aria-live="polite"]')?.textContent).toMatch(
-        /^Not Interested\. 1 rated\.$/,
+        /^Disliked\. 1 rated\.$/,
       );
     });
 
@@ -637,7 +638,7 @@ describe('deck shell', () => {
 
       drag(-200);
 
-      expect(hint()?.textContent?.trim()).toBe('Not Interested');
+      expect(hint()?.textContent?.trim()).toBe('Disliked');
     });
 
     it('names the rating a rightward drag is about to record', () => {
@@ -646,7 +647,7 @@ describe('deck shell', () => {
 
       drag(200);
 
-      expect(hint()?.textContent?.trim()).toBe('Want to Watch');
+      expect(hint()?.textContent?.trim()).toBe('Liked It');
     });
 
     it('sits on the side the card is leaving, and fades in with the drag', () => {
@@ -1101,11 +1102,10 @@ describe('deck shell', () => {
       catalog = manyTitles(20);
       build();
 
-      // The two rejections, reached by the two different routes that write
-      // them: the tile, and the left swipe. Since the 2026-09-29 trial hides
-      // the Not Interested tile, the gesture is the only way to record it from
-      // this screen — which makes this the test that proves the gesture writes
-      // the same state the tile used to.
+      // Two rejections, reached by the two routes that write one: the tile and
+      // the left swipe. Since 2026-09-30 both write `disliked`, which is what
+      // makes this the test that proves a gesture is a rating like any other —
+      // the same state, the same exclusion, the same permanence.
       tap('Disliked');
       swipe(-200);
       walk(20);

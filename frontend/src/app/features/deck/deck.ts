@@ -63,12 +63,12 @@ export const UNDO_WINDOW_MS = 5000;
  * any of them knowing about the others: a swipe is announced and undoable
  * because it *is* a rating, not because the gesture path remembered to be.
  *
- * **The swipe means the two things a swipe means.** Left records
- * `notInterested`, right records `wantToWatch`, and the hint that fades in
- * mid-drag is derived from the same verdict function that decides the rating —
- * so what the pill promises is what gets written. `Skip` is the only advance
- * that records nothing (FR-004), which keeps the neutral path exactly one
- * action wide instead of two that behave differently.
+ * **The swipe means the two things a swipe means.** Left records `disliked`,
+ * right records `liked` — the same two verdicts the buttons offer — and the
+ * hint that fades in mid-drag is derived from the same verdict function that
+ * decides the rating, so what the pill promises is what gets written. `Skip` is
+ * the only advance that records nothing (FR-004), which keeps the neutral path
+ * exactly one action wide instead of two that behave differently.
  *
  * The current card is *derived*, never stored (research.md D5). That is what
  * makes "refresh mid-deck retains the current position" fall out for free:
@@ -635,11 +635,13 @@ function sampleOf(event: PointerEvent): PointerSample {
  * worse than no pill at all, and this makes that impossible rather than
  * unlikely.
  *
- * The two directions are asymmetric on purpose. Left is `notInterested` and not
- * `disliked`: a swipe is a reflex, and `disliked` is a judgement about the
- * title that also weighs against its genre in the affinity score. Right is
- * `wantToWatch` and not `loved`, for the same reason in reverse — the strong
- * claims stay on the buttons, where they are deliberate.
+ * The two directions record the same two verdicts the buttons do (2026-09-30).
+ * They used to be deliberately weaker than the bar — left `notInterested`
+ * rather than `disliked`, right `wantToWatch` rather than `loved`, on the
+ * theory that a gesture is a reflex and the strong claims belonged on the
+ * buttons. With the bar narrowed to like/dislike the reflex and the verdict are
+ * the same claim, so a swipe now records exactly what the matching button
+ * would; the pill and the undo strip say the same words either way.
  */
 function hintFor(outcome: SwipeOutcome): InteractionState | null {
   if (outcome === 'dismiss-left') return 'disliked';

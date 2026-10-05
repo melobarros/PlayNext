@@ -15,12 +15,12 @@ import { Watchlist } from './watchlist';
  * `InteractionStore` and a fixture catalog.
  *
  * The fixture holds one title per state, so "which tab did it land in" is a
- * question with exactly one right answer per title. Two of the six states share
- * a tab by design (FR-001), and the tests covering those are the ones worth
- * reading: a merged tab whose rows stopped carrying their own labels would sail
- * past any test that only counted rows. So those assertions look for a string
- * **only a row can supply** — `Liked It` and `Not Interested` are not tab
- * names, and no tab strip can produce them.
+ * question with exactly one right answer per title. Four of the six states
+ * share a tab by design (FR-001), and the tests covering those are the ones
+ * worth reading: a merged tab whose rows stopped carrying their own labels
+ * would sail past any test that only counted rows. So those assertions look for
+ * a string **only a row can supply** — `Loved It`, `Liked It`, `Want to Watch`
+ * and `Not Interested` are not tab names, and no tab strip can produce them.
  */
 
 function title(id: string, name: string, providerId = 'netflix'): MediaTitle {
@@ -170,20 +170,25 @@ describe('watchlist', () => {
   });
 
   describe('the tabs (FR-001)', () => {
-    it('offers three tabs, in the order the table declares them', () => {
+    it('offers two tabs, in the order the table declares them', () => {
       build();
 
       expect(tabs().map((tab) => tab.textContent?.trim())).toEqual([
-        expect.stringContaining('Want to Watch'),
-        expect.stringContaining('Loved'),
+        expect.stringContaining('Liked'),
         expect.stringContaining('Disliked'),
       ]);
     });
 
-    it('opens on Want to Watch', () => {
+    it('opens on Liked', () => {
       build();
 
-      expect(rows()).toEqual(['/watchlist/title/t-want']);
+      // Newest first, so the fixture's ascending timestamps read backwards.
+      expect(rows()).toEqual([
+        '/watchlist/title/t-hulu',
+        '/watchlist/title/t-liked',
+        '/watchlist/title/t-loved',
+        '/watchlist/title/t-want',
+      ]);
     });
 
     it('counts each tab’s entries, so an empty tab is visible before it is opened', () => {
@@ -191,28 +196,36 @@ describe('watchlist', () => {
       // renders (data-model.md), so it cannot disagree with what is beneath it.
       build();
 
-      expect(tabNamed('Want to Watch').textContent).toContain('1');
-      expect(tabNamed('Loved').textContent).toContain('3');
+      expect(tabNamed('Liked').textContent).toContain('4');
       expect(tabNamed('Disliked').textContent).toContain('2');
     });
   });
 
   describe('where each rating lands (US1 scenarios 1 and 2)', () => {
-    it('puts Want to Watch under its own tab', () => {
+    it('keeps a Want to Watch rating from an older build reachable', () => {
+      // 2026-09-30 removed the Want to Watch tab; the ratings written while it
+      // existed still have to be listed somewhere. `Want to Watch` is not a tab
+      // name, so seeing it here is the row labelling itself.
       build();
 
-      openTab('Want to Watch');
+      openTab('Liked');
 
-      expect(rows()).toEqual(['/watchlist/title/t-want']);
+      expect(rows()).toContain('/watchlist/title/t-want');
+      expect(rowTexts().some((row) => row.includes('Want to Watch'))).toBe(true);
     });
 
-    it('puts Loved and Liked together under Loved', () => {
+    it('puts Loved, Liked and Want to Watch together under Liked', () => {
       build();
 
-      openTab('Loved');
+      openTab('Liked');
 
       expect(rows().sort()).toEqual(
-        ['/watchlist/title/t-hulu', '/watchlist/title/t-liked', '/watchlist/title/t-loved'].sort(),
+        [
+          '/watchlist/title/t-hulu',
+          '/watchlist/title/t-liked',
+          '/watchlist/title/t-loved',
+          '/watchlist/title/t-want',
+        ].sort(),
       );
     });
 
@@ -231,7 +244,7 @@ describe('watchlist', () => {
       // passing at all is proof the row is labelling itself (FR-001).
       build();
 
-      openTab('Loved');
+      openTab('Liked');
 
       expect(rowTexts().some((row) => row.includes('Loved It'))).toBe(true);
       expect(rowTexts().some((row) => row.includes('Liked It'))).toBe(true);
@@ -253,7 +266,7 @@ describe('watchlist', () => {
       // (research.md D3). US3 builds it.
       build();
 
-      for (const label of ['Want to Watch', 'Loved', 'Disliked']) {
+      for (const label of ['Liked', 'Disliked']) {
         openTab(label);
         expect(rows()).not.toContain('/watchlist/title/t-watching');
       }
@@ -264,7 +277,7 @@ describe('watchlist', () => {
     it('shows poster, title, year, state and availability', () => {
       build();
 
-      openTab('Loved');
+      openTab('Liked');
 
       expect(root.querySelectorAll('app-poster').length).toBeGreaterThan(0);
       expect(text()).toContain('Adored');
@@ -298,7 +311,7 @@ describe('watchlist', () => {
 
       build();
 
-      expect(tabNamed('Loved').textContent).toContain('1');
+      expect(tabNamed('Liked').textContent).toContain('1');
       expect(tabNamed('Disliked').textContent).toContain('1');
     });
   });
@@ -310,7 +323,7 @@ describe('watchlist', () => {
       saveRatings({ 't-loved': 'loved' });
 
       build();
-      openTab('Want to Watch');
+      openTab('Disliked');
 
       expect(rows()).toEqual([]);
       expect(text().toLowerCase()).toContain('deck');
@@ -320,7 +333,7 @@ describe('watchlist', () => {
       saveRatings({ 't-loved': 'loved' });
 
       build();
-      openTab('Want to Watch');
+      openTab('Disliked');
 
       expect(root.querySelector('a[href="/deck"]')).not.toBeNull();
     });
@@ -339,7 +352,7 @@ describe('watchlist', () => {
 
       build();
 
-      expect(tabs()).toHaveLength(3);
+      expect(tabs()).toHaveLength(2);
     });
   });
 
@@ -353,7 +366,7 @@ describe('watchlist', () => {
 
       build();
 
-      expect(rows()).toHaveLength(1);
+      expect(rows().length).toBeGreaterThan(0);
       expect(text()).toContain("You're offline");
     });
 

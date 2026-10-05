@@ -8,6 +8,7 @@ import {
   INTERACTION_STATE_LABELS,
   INTERACTION_STORAGE_KEY,
   InteractionState,
+  RATING_ACTIONS,
 } from '../../../core/models/interaction';
 import { MediaTitle } from '../../../core/models/media-title';
 import { CatalogService } from '../../../core/services/catalog.service';
@@ -303,7 +304,7 @@ describe('watching history', () => {
       const screen = harness.fixture.nativeElement as HTMLElement;
 
       expect(screen.querySelector('app-detail')).not.toBeNull();
-      expect(screen.querySelectorAll('[data-rating]')).toHaveLength(5);
+      expect(screen.querySelectorAll('[data-rating]')).toHaveLength(RATING_ACTIONS.length);
     });
   });
 

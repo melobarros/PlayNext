@@ -245,8 +245,8 @@ One size sits outside that scale and is deliberate: the TMDB attribution sentenc
 at **9px** — it is required to be less prominent than the app's own marks. The
 deck's rating tile labels were the other, at 10px, until the bar was rebuilt:
 five labels in one phone-width row left each about fourteen characters of room,
-and an unreadable label is not a compact one. They are **12px** on a 3×2 grid at
-phone width and a single row of five from `md`.
+and an unreadable label is not a compact one. They are **12px** now, on the
+three-cell bar the deck ships — two verdicts and Skip.
 
 ### Named Rules
 
@@ -341,7 +341,7 @@ The rest is a short, deliberate ramp:
   one hero surface in the product, and its radius is what says so.
 - **16px** (`rounded-2xl`) — list rows, panels, the summary block, the checkbox
   panel. Everything that groups content.
-- **12px** (`rounded-xl`) — text inputs and the five rating tiles.
+- **12px** (`rounded-xl`) — text inputs and the rating tiles.
 - **8px** (`rounded-lg`) — inline notice banners, and nothing else.
 - **Square** — the poster, the nav, the two bars, and the attribution. The
   poster has no radius of its own; it is rounded only where a card clips it with
@@ -415,38 +415,35 @@ The rest is a short, deliberate ramp:
 
 ### Rating tiles (signature component)
 
-The five-way rating control is the product's most-used element.
+The rating control is the product's most-used element, and since 2026-09-30 it
+asks **two questions**: Liked It and Disliked.
 
-- **Deck variant:** capsules in a **3×2 grid at phone width, a single row of five
-  from `md`**, each a Surface fill with a Line border, an icon above a 12px
-  label. The ragged last row is the point: two short rows of words read as words,
-  five slivers read as decoration.
-  **Trial in progress (2026-09-29):** the shipped bar is **four controls in two
-  rows** — Liked It and Disliked as tiles, Skip completing that row as a third
-  cell, then Watch Now full-width beneath. The question is whether five equal
-  answers was ever the right question, given that Want to Watch and Not
-  Interested are about the visitor's plans rather than the title's quality.
+- **Deck variant:** three cells in a single row at every width — Liked It and
+  Disliked as tiles, Skip completing the row — each a Surface fill with a Line
+  border, an icon above a 12px label. Watch Now sits full-width beneath, alone.
   **Skip wears the tiles' box and a glyph of a different kind** — same height,
   border and 12px label, but a double chevron where the verdicts carry closed
   objects (a thumb up, a thumb down). The third cell of a verdict row is read as
   a third verdict unless it is drawn otherwise, and with every cell now marked
   the separation had to move from *presence* to *kind*: in a row of opinions, an
-  arrow reads as navigation, which is what Skip is. All five states stay in the
-  vocabulary: the swipes still
-  write the hidden two, and a title already rated Loved It still votes and still
-  shows its label everywhere else. `loved` is the one with a cost — nothing on
-  this screen writes it any more, so the visitor cannot say it more strongly
-  than Liked It, and the engine does not currently tell the two apart, so no
-  reach is lost (see `TRIAL_HIDDEN_STATES`). Reverting is deleting that list and
-  restoring the five-tile grid above.
-- **Detail variant:** the same grid, but transparent rather than filled and with
-  no icons — the same five actions presented as two different components.
+  arrow reads as navigation, which is what Skip is.
+  **Loved It, Want to Watch and Not Interested left the bar on 2026-09-30**
+  ("simplify rating states to like/dislike"), and the left and right swipes —
+  which used to write the last two — now write Disliked and Liked. All three
+  states stay in the vocabulary, because documents written before that date hold
+  them and the watchlist still lists them; Want to Watch files under Liked and
+  Not Interested under Disliked. `loved` is the one with a cost — nothing writes
+  it any more, so the visitor cannot say it more strongly than Liked It. The
+  engine reads `loved` and `liked` as the same positive signal, so no reach is
+  lost.
+- **Detail variant:** a two-column grid, transparent rather than filled and with
+  no icons — the same two actions presented by two different components.
 - **Selected (detail):** Raised fill, Neon Violet Bright border and label, with
   `aria-pressed`. The deck variant has no selected state at all.
 - **Hover / active (deck):** Raised fill on hover; on press the border goes Neon
   Violet Bright over a Raised fill. Both, not one — a rating tile is a decision,
   and the press is where the visitor commits to it.
-- Every tile keeps its 44px minimum at both widths.
+- Every tile keeps its 44px minimum.
 
 ### Reason line (deck card)
 
@@ -464,11 +461,11 @@ differentiation, and the reason the card is not just a poster with a title.
 
 ### Undo strip (deck)
 
-The acknowledgement of a rating, and the only way back from a mis-tap. The five
-tiles sit under a thumb and Disliked is one tile from Liked It.
+The acknowledgement of a rating, and the only way back from a mis-tap. The tiles
+sit under a thumb and Disliked is one cell from Liked It.
 
 - **Style:** a Raised fill with a 12px radius, sitting inside the footer directly
-  above the action bar, with a Screen Grey "Rated Loved It" and a bordered
+  above the action bar, with a Screen Grey "Rated Liked It" and a bordered
   capsule **Undo** at 44px.
 - **It is an offer, not a prompt.** Nothing blocks the next card, and the strip
   holds the last rating and nothing else — no stack. The next action clears it,

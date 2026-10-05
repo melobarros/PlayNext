@@ -15,7 +15,7 @@ import { Entry } from './entry/entry';
 import { groupBySurface, WatchlistEntry, watchlistEntries } from './watchlist-logic/entries';
 
 /**
- * The watchlist: three tabs over the visitor's ratings (US1, FR-001).
+ * The watchlist: two tabs over the visitor's ratings (US1, FR-001).
  *
  * A **derived view**. There is no fourth storage key and nothing is cached: the
  * rows are computed from the interaction document plus the catalog every time
@@ -50,7 +50,7 @@ export class Watchlist {
 
   private readonly document = signal<InteractionDocument>(this.interactions.read());
 
-  /** Which tab is showing. Opens on Want to Watch, the first of the three. */
+  /** Which tab is showing. Opens on Liked, the first of the two. */
   protected readonly active = signal<WatchlistSurface>('loved');
 
   protected readonly tabs = WATCHLIST_TABS;

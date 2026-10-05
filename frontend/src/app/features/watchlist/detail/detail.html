@@ -59,14 +59,14 @@
 
     <!--
       `mt-auto` pins the controls to the bottom of the screen rather than
-      leaving them mid-page: five buttons on a 360px phone are only usable
+      leaving them mid-page: the buttons on a 360px phone are only usable
       where a thumb already rests, and the back link below is where it was.
     -->
     <section class="mt-auto pt-8" aria-labelledby="rating-heading">
       <h2 id="rating-heading" class="text-sm font-medium text-chalk-500">Your rating</h2>
 
       <!--
-        Only for one of the five (FR-004). A `watchingNow` title says nothing
+        Only for a rated title (FR-004). A `watchingNow` title says nothing
         here, because the vocabulary's only label for it is the verb "Watch
         Now" — see `currentState` in detail.ts. `data-current` exists so a test
         can read the indicator without matching the button that says the same
@@ -78,7 +78,10 @@
         </p>
       }
 
-      <div class="mt-3 grid grid-cols-5 gap-1.5">
+      <!-- One column per action, from the same `RATING_ACTIONS` the deck
+           renders: two verdicts since 2026-09-30, and the grid follows the
+           count rather than the five it used to hold. -->
+      <div class="mt-3 grid grid-cols-2 gap-1.5">
         @for (action of ratingActions; track action.state) {
           <button
             type="button"
@@ -98,9 +101,9 @@
       </div>
 
       <!--
-        Outside the five and visibly so (FR-005): "no rating" is not a sixth
-        rating, and a Remove sharing their styling would make the control offer
-        six equally-weighted answers to a question with five.
+        Outside the verdicts and visibly so (FR-005): "no rating" is not
+        another rating, and a Remove sharing their styling would make the
+        control offer three equally-weighted answers to a question with two.
       -->
       <button
         type="button"

@@ -365,7 +365,7 @@ describe('title details', () => {
       return savedInteractions()[titleId]?.state;
     }
 
-    /** The five, in the order they are offered. */
+    /** The rating controls, in the order they are offered. */
     function ratingButtons(): HTMLButtonElement[] {
       return [...root.querySelectorAll('[data-rating]')] as HTMLButtonElement[];
     }
@@ -383,7 +383,7 @@ describe('title details', () => {
       fixture.detectChanges();
     }
 
-    it('offers exactly the five ratings a card offers, in the same order', () => {
+    it('offers exactly the ratings a card offers, in the same order', () => {
       saveRating('arrival', 'liked');
 
       build('arrival');
@@ -391,10 +391,10 @@ describe('title details', () => {
       expect(offeredStates()).toEqual(RATING_ACTIONS.map((action) => action.state));
     });
 
-    it('does not offer Watch Now as a sixth choice', () => {
+    it('does not offer Watch Now as a rating', () => {
       // FR-004: `watchingNow` is the deck's Watch Now action alone, and its
-      // label is a verb. A button reading "Watch Now" beside five ratings reads
-      // as a sixth rating — and it would put a title in the watching history
+      // label is a verb. A button reading "Watch Now" beside the verdicts reads
+      // as another rating — and it would put a title in the watching history
       // that was never locked in (research.md D6).
       saveRating('arrival', 'liked');
 
@@ -403,7 +403,7 @@ describe('title details', () => {
       // The count first: "no control offers `watchingNow`" is also true of a
       // control with no controls in it, which is what this test would otherwise
       // be asserting before the markup existed.
-      expect(offeredStates()).toHaveLength(5);
+      expect(offeredStates()).toHaveLength(RATING_ACTIONS.length);
       expect(offeredStates()).not.toContain('watchingNow');
       expect(ratingButtons().map((button) => button.textContent?.trim())).not.toContain('Watch Now');
     });
@@ -412,9 +412,9 @@ describe('title details', () => {
       saveRating('arrival', 'liked');
       build('arrival');
 
-      choose('loved');
+      choose('disliked');
 
-      expect(savedState('arrival')).toBe('loved');
+      expect(savedState('arrival')).toBe('disliked');
     });
 
     it('replaces the previous rating rather than adding a second one', () => {
@@ -424,10 +424,10 @@ describe('title details', () => {
       saveRating('arrival', 'liked');
       build('arrival');
 
-      choose('wantToWatch');
+      choose('disliked');
 
       expect(Object.keys(savedInteractions())).toEqual(['arrival']);
-      expect(savedState('arrival')).toBe('wantToWatch');
+      expect(savedState('arrival')).toBe('disliked');
     });
 
     it('moves the entry to the tab its new state belongs to', () => {
@@ -439,12 +439,12 @@ describe('title details', () => {
       saveRating('arrival', 'disliked');
       build('arrival');
 
-      choose('loved');
+      choose('liked');
 
       expect(surfaceFor(savedState('arrival') as InteractionState)).toBe('loved');
     });
 
-    it('says which of the five the title currently is', () => {
+    it('says which of the ratings the title currently is', () => {
       saveRating('arrival', 'liked');
 
       build('arrival');
@@ -454,7 +454,7 @@ describe('title details', () => {
       expect(root.querySelector('[data-current]')?.textContent).toContain('Liked It');
     });
 
-    it('does not restate a watched title as one of the five', () => {
+    it('does not restate a watched title as one of the ratings', () => {
       // A history entry opens here (research.md D9), and a `watchingNow` title
       // has no label that is a state rather than a verb — `INTERACTION_STATE_LABELS`
       // offers only "Watch Now". Saying nothing is truer than saying that, and
@@ -475,9 +475,9 @@ describe('title details', () => {
       expect(showsForWatched).toBe(false);
     });
 
-    it('keeps Remove out of the five, because "no rating" is not a sixth rating', () => {
-      // FR-005, research.md D6. Folding it in would make the control offer six
-      // equally-weighted answers to a question with five.
+    it('keeps Remove out of the ratings, because "no rating" is not another one', () => {
+      // FR-005, research.md D6. Folding it in would make the control offer three
+      // equally-weighted answers to a question with two.
       saveRating('arrival', 'liked');
 
       build('arrival');
@@ -591,7 +591,7 @@ describe('title details', () => {
 
     beforeEach(() => setCatalog(DECK_CATALOG));
 
-    it('keeps a mis-tapped Dislike out even when it is re-rated Loved', () => {
+    it('keeps a mis-tapped Dislike out even when it is re-rated Liked', () => {
       // Amended 2026-09-29: re-rating no longer brings a title back. The
       // eligibility rule reads *presence* rather than the two rejections, so
       // any recorded interaction excludes its title (FR-009) — and a re-rate is
@@ -617,7 +617,7 @@ describe('title details', () => {
       // first one's injector or its live stores.
       TestBed.resetTestingModule();
       build('alpha');
-      reRate('loved');
+      reRate('liked');
 
       expect(firstCard(openDeck())).toBe('Bravo');
     });
