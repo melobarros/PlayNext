@@ -54,11 +54,15 @@ violate it.
 
 ### IV. API-First Architecture
 
-The Angular frontend communicates exclusively with the .NET 8/9 REST API;
+The Angular frontend communicates exclusively with the .NET 10 REST API;
 all persistent state lives server-side in PostgreSQL via EF Core. External
 media integrations (TMDB, JustWatch) are accessed only by the backend — API
-keys and provider credentials MUST NEVER be shipped in client code. Secrets
-MUST live in Azure App Settings / Key Vault, and TMDB responses MUST be
+keys and provider credentials MUST NEVER be shipped in client code. Runtime
+secrets MUST live in Azure App Settings / Key Vault and MUST NOT be in the
+repository. The credentials the pipeline itself needs — the database
+connection string it migrates, and the publishing credential it deploys with —
+MUST live in GitHub secrets, scoped to the step that uses them rather than to
+the whole workflow, and MUST NEVER be logged. TMDB responses MUST be
 cached server-side to protect rate limits and response time. The REST API is
 the single source of truth for business rules; the client renders state, it
 does not own it.
@@ -116,7 +120,7 @@ the client/server boundary, VII draws the boundaries inside the server.
 
 **Stack**
 - **Frontend:** Angular (latest) with RxJS and Tailwind CSS.
-- **Backend:** .NET 8/9 (C#) Web API — Minimal APIs or Controllers.
+- **Backend:** .NET 10 (C#) Web API — Minimal APIs or Controllers.
 - **Database:** PostgreSQL accessed exclusively through EF Core migrations.
 - **Integrations:** TMDB API for metadata/posters/cast/ratings and JustWatch
   for streaming availability per region; all calls MUST be server-side with
@@ -166,9 +170,15 @@ the client/server boundary, VII draws the boundaries inside the server.
   responsive from 360px up to 4K.
 
 **Infrastructure**
-- Frontend on Azure Static Web Apps; backend on Azure Container Apps
-  (scale-to-zero) or App Service; PostgreSQL on a free/low-cost tier
-  (Supabase, Neon, or Azure Flexible Server).
+- Frontend and backend both on Azure App Service (Linux, F1); PostgreSQL on a
+  free/low-cost tier (Supabase, Neon, or Azure Flexible Server).
+- The two MUST share one origin. The session refresh token is an httpOnly
+  cookie, so serving the frontend from a second host makes it a third-party
+  cookie that Safari and Firefox refuse by default. Static Web Apps solves this
+  only through a linked backend, which requires the SWA Standard plan and an
+  App Service S1 plan together — roughly $80/month, and a violation of the
+  cost rule below. Serving the built frontend from the API's own `wwwroot`
+  keeps the origin shared for free.
 - All choices MUST stay within the low-cost Azure footprint; no service is
   added without a cost check.
 
@@ -184,8 +194,13 @@ the client/server boundary, VII draws the boundaries inside the server.
   frontend MUST build, before a PR is merged.
 - Database schema changes MUST ship as EF Core migrations, reviewed in the
   PR alongside the code that uses them.
-- CI/CD: GitHub Actions MUST build and deploy the Angular frontend (Azure
-  Static Web Apps) and the .NET API (Azure Container Apps / App Service).
+- CI/CD: GitHub Actions MUST test, migrate and deploy — in that order, and to
+  the single App Service that hosts both halves of the app. Migrations run
+  before the new code is live, because the schema is the one part of a deploy
+  a rollback cannot undo.
+- CI MUST NOT pass on skipped tests. Where the suite degrades to a skip for a
+  missing prerequisite, the pipeline MUST turn that skip into a failure for the
+  prerequisites CI is expected to provide.
 
 ## Governance
 
@@ -197,4 +212,4 @@ verify compliance with the Core Principles; violations are blocking.
 Complexity that contradicts a principle MUST be explicitly justified in the
 feature spec.
 
-**Version**: 1.2.0 | **Ratified**: 2026-09-25 | **Last Amended**: 2026-09-25
+**Version**: 1.4.0 | **Ratified**: 2026-09-25 | **Last Amended**: 2026-10-05

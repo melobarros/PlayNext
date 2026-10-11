@@ -261,6 +261,59 @@ builder.Services.Configure<BrotliCompressionProviderOptions>(
 builder.Services.Configure<GzipCompressionProviderOptions>(
     options => options.Level = CompressionLevel.Optimal);
 
+// ---------------------------------------------------------------------------
+// The Angular app
+// ---------------------------------------------------------------------------
+
+// In production this process serves the PWA as well as the API, and that is not
+// an incidental convenience — it is what keeps the two same-origin. The session
+// refresh token is an httpOnly cookie scoped to /api/auth, so a second origin
+// would make it a third-party cookie that Safari and Firefox refuse, and every
+// signed-in visitor on those browsers would be logged out silently every
+// fifteen minutes.
+//
+// Locally there is no wwwroot: `ng serve` serves the frontend on :4200 and
+// proxies /api to here, so everything below is a no-op in Development.
+
+// The files that must never be cached, because caching one pins a visitor to
+// the build they first loaded. The service worker's own files are here for the
+// same reason as the shell: a cached ngsw.json is a worker that never learns
+// there is a new version to fetch.
+string[] neverCached =
+[
+    "index.html",
+    "ngsw.json",
+    "ngsw-worker.js",
+    "safety-worker.js",
+    "worker-basic.min.js",
+];
+
+var staticFiles = new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        var name = context.File.Name;
+
+        // Decided by name rather than by extension, because the two cases that
+        // matter most are both `.js`: a hashed `main-XXXXXXXX.js` can be cached
+        // for a year (its name changes when its contents do) while
+        // `ngsw-worker.js` must not be cached at all.
+        //
+        // What remains after those two lists is the output of the Angular
+        // builder (hashed, so safe for a year) and the verbatim copies of
+        // `public/` — icons, the manifest, the TMDB logo — which get an hour,
+        // because those names do *not* change when their contents do and a year
+        // would strand a replaced icon.
+        context.Context.Response.Headers.CacheControl =
+            neverCached.Contains(name)
+                ? "no-cache"
+                : name.EndsWith(".js", StringComparison.OrdinalIgnoreCase)
+                    || name.EndsWith(".css", StringComparison.OrdinalIgnoreCase)
+                    ? "public,max-age=31536000,immutable"
+                    : "public,max-age=3600";
+    },
+};
+
 var app = builder.Build();
 
 // Early, so it wraps every response the endpoints below produce.
@@ -275,8 +328,15 @@ else
     // Development deliberately skips this: the frontend calls the API over
     // plain http on localhost, and redirecting to https would send every call
     // to a dev certificate no browser trusts.
+    //
+    // In production this only terminates because the host is told to trust the
+    // proxy in front of it (ASPNETCORE_FORWARDEDHEADERS_ENABLED). App Service
+    // ends TLS and forwards plain http, so without that the request looks
+    // insecure here and this redirects to the same URL forever.
     app.UseHttpsRedirection();
 }
+
+app.UseStaticFiles(staticFiles);
 
 // Order matters: CORS must run before authentication so a rejected preflight
 // is answered by the CORS middleware rather than a 401 the browser cannot read.
@@ -287,6 +347,28 @@ app.UseAuthorization();
 app.MapAuthEndpoints();
 app.MapStateEndpoints();
 app.MapCatalogEndpoints();
+
+// An API path that matched no endpoint is a 404 the caller can read, not the
+// PWA's shell. This exists because the fallback below would otherwise answer it
+// with index.html and a 200, which turns a typo in a fetch URL into an HTML
+// parse error somewhere far from the typo.
+//
+// `Results.NotFound()` and not a JSON body: a 404 with no content is what every
+// other unmatched route on this host returns, and an empty body is not worth
+// inventing a contract for.
+app.Map("/api/{**rest}", () => Results.NotFound());
+
+// Everything else belongs to the Angular router, so a deep link like
+// /watchlist/history — which only the client can route — returns the shell
+// rather than a 404. Requests that look like files never reach here (the
+// fallback's route constraint is `nonfile`), which is what keeps a missing
+// asset a missing asset instead of a successful page load.
+//
+// The options are passed rather than using the single-argument overload,
+// because that overload builds its own defaults: the shell would be served
+// through this path without the cache policy above, and a browser would then be
+// free to cache it heuristically — the one response that must never be stale.
+app.MapFallbackToFile("index.html", staticFiles);
 
 app.Run();
 

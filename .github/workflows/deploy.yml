@@ -1,0 +1,216 @@
+name: Deploy
+
+# Every push to main goes to production. The tests are the gate that makes that
+# safe to say, so they run in the same job as the deploy rather than beside it:
+# there is no artifact to pass around, and the bits that were tested are the
+# bits that ship.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Two pushes in quick succession must not race each other into the same
+# database, and a deploy must never be cancelled halfway through a migration.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  NODE_VERSION: '24'
+  API_PROJECT: backend/src/PlayNext.Api
+  MIGRATIONS_PROJECT: backend/src/PlayNext.Infrastructure
+  # The frontend build output. Kept in one place because three steps depend on
+  # the path matching what angular.json emits.
+  DIST: frontend/dist/playnext/browser
+
+jobs:
+  deploy:
+    name: Test, migrate and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # The integration suite creates and migrates its own database on first use,
+    # so it needs a real server — but never the production one. It derives
+    # `<name>_test` from the configured database and connects to a maintenance
+    # database literally called `postgres` to create it, and Neon reserves that
+    # name, so pointing it there would fail silently as a skip.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: playnext
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # ---------------------------------------------------------------- test
+
+      - name: Restore
+        run: dotnet restore backend/PlayNext.sln
+
+      - name: Build
+        run: dotnet build backend/PlayNext.sln -c Release --no-restore
+
+      # Run per project rather than over the solution: the skip check below
+      # needs the integration project's own .trx, and a solution-wide run would
+      # write every project's results to the same file name.
+      - name: Test the domain and the use cases
+        run: |
+          dotnet test backend/tests/PlayNext.Domain.Tests -c Release --no-build
+          dotnet test backend/tests/PlayNext.Application.Tests -c Release --no-build
+
+      - name: Test the API against a live database
+        env:
+          ConnectionStrings__Postgres: Host=localhost;Port=5432;Database=playnext;Username=postgres;Password=postgres
+        run: >
+          dotnet test backend/tests/PlayNext.Api.IntegrationTests -c Release --no-build
+          --logger "trx;LogFileName=integration.trx"
+          --results-directory ${{ runner.temp }}/test-results
+
+      # The suite skips rather than fails when it cannot reach a database
+      # (GatedFactAttribute), which is right on a laptop and a lie in CI — a
+      # green pipeline that asserted nothing about the account store. This is
+      # the difference made visible. Only the Postgres gate is checked: the
+      # TMDB-gated tests need a live credential and are *expected* to skip here.
+      - name: Check the database tests were not skipped
+        run: |
+          if grep -q 'Needs a live PostgreSQL' "${{ runner.temp }}/test-results/integration.trx"; then
+            echo "::error::The integration tests skipped — no database was reachable, so nothing about the account store was verified."
+            exit 1
+          fi
+
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci
+
+      - name: Test frontend
+        working-directory: frontend
+        env:
+          CI: 'true'
+        run: npx ng test --watch=false
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      # ------------------------------------------------------------- migrate
+
+      # Before the new code is live, never after: the schema is the one thing a
+      # rollback cannot undo, and a migration that fails should stop the deploy
+      # rather than meet a running app that expects different tables.
+      - name: Install the EF tool
+        run: dotnet tool install --global dotnet-ef --version '10.*'
+
+      - name: Apply migrations
+        env:
+          # Scoped to this step rather than the job, so the production
+          # connection string is not in the environment of every other step.
+          ConnectionStrings__Postgres: ${{ secrets.NEON_CONNECTION_STRING }}
+          # `dotnet ef` builds the application's host to find the DbContext, and
+          # Program.cs refuses to build one without these. Neither is used by a
+          # migration; they exist so the guards pass.
+          Tmdb__ApiKey: ci-placeholder-not-used-by-migrations
+          Jwt__SigningKey: '0000000000000000000000000000000000000000000000000000000000000000'
+        run: |
+          dotnet ef database update \
+            --project ${{ env.MIGRATIONS_PROJECT }} \
+            --startup-project ${{ env.API_PROJECT }} \
+            --configuration Release \
+            --no-build
+
+      # -------------------------------------------------------------- deploy
+
+      # Framework-dependent and without a runtime identifier on purpose: App
+      # Service supplies the .NET runtime from the stack the web app is set to
+      # (`DOTNETCORE|10.0`), so this only needs to ship the app's own
+      # assemblies. A self-contained publish would bundle a runtime the
+      # platform already has, and pin a RID it does not need.
+      - name: Publish the API
+        run: dotnet publish ${{ env.API_PROJECT }} -c Release -o publish
+
+      - name: Add the frontend to wwwroot
+        run: |
+          mkdir -p publish/wwwroot
+          cp -r ${{ env.DIST }}/. publish/wwwroot/
+
+          # `dotnet publish` does not create wwwroot and does not complain about
+          # a missing one. Without this the app deploys, starts, and answers
+          # every page with a 404 — a failure that only shows up in production.
+          test -f publish/wwwroot/index.html || {
+            echo "::error::The frontend build did not reach publish/wwwroot — expected ${{ env.DIST }}/index.html."
+            exit 1
+          }
+
+      # Zipped here rather than handing the action a folder: on Linux it treats
+      # a folder as source, and Oryx would try to rebuild output that is
+      # already built. The zip's entries are at the root, so it unpacks to the
+      # app's directory rather than to a nested one.
+      - name: Package
+        run: |
+          cd publish
+          zip -qr "$RUNNER_TEMP/app.zip" .
+
+      # The publish profile authenticates to the SCM endpoint with basic auth,
+      # and App Service now ships new apps with that disabled — so a freshly
+      # created app has no publish profile to download until it is turned on.
+      # If this step ever starts failing with a 401, that is what moved:
+      # App Service → Configuration → General settings →
+      # SCM Basic Auth Publishing Credentials.
+      - name: Deploy to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ${{ runner.temp }}/app.zip
+
+      # A deploy that reported success and a deploy that works are different
+      # claims, and this is the only place the second one can be made. The API
+      # check is really a check on the routing in Program.cs: if the SPA
+      # fallback ever starts swallowing /api, this is what notices.
+      - name: Smoke test
+        env:
+          BASE_URL: https://${{ secrets.AZURE_WEBAPP_NAME }}.azurewebsites.net
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+
+          echo "Waiting for $BASE_URL to answer…"
+          for attempt in $(seq 1 40); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/")" = "200" ] && break
+            echo "  attempt $attempt — not up yet"
+            sleep 5
+          done
+
+          curl -fsS "$BASE_URL/" | grep -qi '<app-root' \
+            || fail "GET / did not return the Angular shell"
+
+          curl -fsS "$BASE_URL/watchlist/history" | grep -qi '<app-root' \
+            || fail "A deep link did not return the shell — the SPA fallback is not working"
+
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/does-not-exist")
+          [ "$code" = "404" ] \
+            || fail "GET /api/does-not-exist returned $code, expected 404 — the fallback is swallowing API routes"
+
+          echo "All smoke checks passed."

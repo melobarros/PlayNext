@@ -33,7 +33,7 @@ covered by tests, not yet by a device.
 
 ### 🛠️ Tech Stack
 - **Frontend:** Angular 22, Tailwind CSS v4, Vitest — running today
-- **Backend:** .NET 9 REST API (C#), ASP.NET Core Identity + JWT — running today
+- **Backend:** .NET 10 REST API (C#), ASP.NET Core Identity + JWT — running today
 - **Database:** PostgreSQL (EF Core)
 - **Integrations:** TMDB API (The Movie Database) & JustWatch — Milestone 2
 
@@ -70,12 +70,97 @@ The full setup — creating the secrets, Google credentials, and the walkthrough
 that verifies the feature end to end — is in the
 [004 quickstart](specs/004-guest-auth-migration/quickstart.md).
 
+### ☁️ Deployment
+
+The whole app runs on **one Azure App Service** (Linux, F1 free tier), which
+serves the Angular build from its own `wwwroot` and the API from `/api` on the
+same origin. PostgreSQL runs on [Neon](https://neon.tech)'s free tier. **Total
+cost: $0/month.**
+
+One origin is the point, not a convenience. The session refresh token is an
+httpOnly cookie, so serving the frontend from a second host would make it a
+third-party cookie — which Safari and Firefox block, signing people out every
+fifteen minutes. Azure's own fix for that (Static Web Apps *linked backends*)
+needs the SWA Standard and App Service S1 plans together, around $80/month.
+
+Every push to `main` runs
+[deploy.yml](.github/workflows/deploy.yml): tests (including the integration
+suite against a throwaway Postgres) → migrations → deploy → smoke test of the
+live URL. A red test never reaches production, and neither does a migration
+that fails.
+
+#### One-time setup
+
+1. **Neon** — create a project and copy the connection string. It must be in
+   Npgsql's `keyword=value` form, because Npgsql does not accept the
+   `postgresql://` URI Neon shows first:
+   `Host=<host>;Database=neondb;Username=…;Password=…;SSL Mode=Require;Trust Server Certificate=true`.
+   Add `Connection Idle Lifetime=60` so the pool discards connections before
+   Neon's ~5-minute autosuspend kills them.
+
+2. **App Service** —
+
+   ```bash
+   az group create --name playnext --location brazilsouth
+   az appservice plan create --name playnext-plan --resource-group playnext --sku F1 --is-linux
+   az webapp create --name <app-name> --resource-group playnext \
+     --plan playnext-plan --runtime "DOTNETCORE|10.0"
+   az webapp update --resource-group playnext --name <app-name> --https-only true
+   ```
+
+3. **Application settings** — the first three are required: `Program.cs`
+   refuses to start without them, deliberately, so a misconfigured environment
+   fails at boot rather than answering every request as if the data were empty.
+   `ASPNETCORE_FORWARDEDHEADERS_ENABLED` is **not optional either** — App
+   Service terminates TLS and forwards plain http, so without it the
+   https-redirect sees an insecure request and loops forever. Semicolons in
+   the connection string are awkward to pass through `az` from PowerShell; the
+   portal's Configuration blade is the easier route.
+
+   | Setting | Value |
+   |---|---|
+   | `ConnectionStrings__Postgres` | the Neon string from step 1 |
+   | `Jwt__SigningKey` | 32+ bytes, e.g. `openssl rand -hex 32` — generate a fresh one, not the dev value |
+   | `Tmdb__ApiKey` | your TMDB API read access token |
+   | `ASPNETCORE_ENVIRONMENT` | `Production` |
+   | `ASPNETCORE_FORWARDEDHEADERS_ENABLED` | `true` |
+   | `SCM_DO_BUILD_DURING_DEPLOYMENT` | `false` — the pipeline ships built output |
+
+4. **Turn on basic auth publishing** — App Service ships new apps with it
+   disabled, and while it is off there is no publish profile to download and the
+   *Get publish profile* button does nothing. App Service → *Configuration* →
+   *General settings* → **SCM Basic Auth Publishing Credentials** → **On** →
+   Save. Then **Overview** → **Download publish profile**.
+
+   OIDC would remove this credential rather than re-enable it, but it needs
+   directory rights to create an app registration. A subscription alone does not
+   grant those — you can create an App Service without being able to read the
+   Entra ID blade at all.
+
+5. **GitHub secrets** — `AZURE_WEBAPP_NAME`, `AZURE_WEBAPP_PUBLISH_PROFILE`
+   (`az webapp deployment list-publishing-profiles --resource-group playnext
+   --name <app-name> --xml`), and `NEON_CONNECTION_STRING`. No CORS setting is
+   needed: same-origin requests do not trigger CORS.
+
+#### Operating it
+
+To roll back, redeploy an earlier commit (`git revert` and push, or re-run an
+older workflow run) — the pipeline is the only deploy path. Migrations are
+forward-only, so a rollback that undoes a schema change needs a new migration.
+
+The F1 tier is genuinely free and genuinely limited: **165 MB of outbound
+traffic per day**, then Azure stops the app until midnight UTC, and no
+"always on", so the first visit after ~20 idle minutes pays a cold start. Both
+are fine for personal use; a rebuild of the per-service catalog in
+[spec 007](specs/007-per-service-catalog/spec.md) would not be, and roughly
+$13/month for a B1 plan is the upgrade when that lands.
+
 ### 📁 Repository Layout
 
 | Path | Contents |
 |------|----------|
 | [frontend/](frontend/) | Angular PWA client |
-| [backend/](backend/) | .NET 9 API — `Domain` → `Application` → `Infrastructure` / `Api`, dependencies pointing inward |
+| [backend/](backend/) | .NET 10 API — `Domain` → `Application` → `Infrastructure` / `Api`, dependencies pointing inward |
 | [specs/](specs/) | Feature specs, plans, and task breakdowns |
 | [docs/](docs/) | Product requirements and design notes |
 | [.specify/](.specify/) | Spec Kit configuration and project constitution |

@@ -720,8 +720,14 @@ internal static class Postgres
 
     private static string Resolve()
     {
+        // Environment variables last, so they win — and they are what CI has.
+        // A runner has no user secrets, and this resolution failing is silent
+        // by design (see Prepare below): every gated test would skip and the
+        // pipeline would report success having asserted nothing about the
+        // database. Set ConnectionStrings__Postgres to run these there.
         var configured = new ConfigurationBuilder()
             .AddUserSecrets(typeof(Program).Assembly, optional: true)
+            .AddEnvironmentVariables()
             .Build()
             .GetConnectionString("Postgres");
 

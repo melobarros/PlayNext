@@ -48,7 +48,7 @@ Desktop Layout: Centered mobile card frame or wide dashboard with persistent sid
 5. Technical Architecture & Data Models
 Technology Stack
 Frontend: Angular (latest version) with RxJS and Tailwind CSS.
-Backend: .NET 8 / .NET 9 Web API (Minimal APIs or Controllers) written in C#.
+Backend: .NET 10 Web API (Minimal APIs or Controllers) written in C#.
 API Style: REST API (REST is ideal here due to predictable endpoint structures, standard HTTP caching, and simple client-side integration with Angular HttpClient).
 Database: PostgreSQL with Entity Framework Core (EF Core).
 External Integration: TMDB API (The Movie Database) for metadata, poster images, cast lists, ratings, and JustWatch streaming availability per region.
