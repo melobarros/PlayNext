@@ -16,6 +16,7 @@
       "resources": {
         "files": [
           "/favicon.ico",
+          "/logo.svg",
           "/index.html",
           "/manifest.webmanifest",
           "/*.css",

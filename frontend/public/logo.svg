@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="PlayNext">
+  <!--
+    The PlayNext mark: two play triangles, the front one solid and the one
+    behind it held back. *Play* is the front glyph; *Next* is the second one
+    arriving behind it. Drawn as one shape rather than a card with a play badge
+    because at 16px — the size that actually decides whether a mark works —
+    a nested shape collapses into a smudge, and this one does not.
+
+    Stroke of 7 with a round line join is how the triangles get their corners:
+    an SVG triangle has none, and the rounding is what keeps the mark in the
+    app's soft, non-brutalist register. The stroke is the same colour as the
+    fill at the same opacity, so it reads as a corner radius rather than a line.
+  -->
+  <defs>
+    <linearGradient id="playnext-mark" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="64" y2="64">
+      <stop offset="0" stop-color="#6a46f5"/>
+      <stop offset="1" stop-color="#9b82ff"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="url(#playnext-mark)"/>
+
+  <g fill="#ffffff" stroke="#ffffff" stroke-width="7" stroke-linejoin="round">
+    <path d="M12 20 L30 32 L12 44 Z" fill-opacity=".4" stroke-opacity=".4"/>
+    <path d="M34 20 L52 32 L34 44 Z"/>
+  </g>
+</svg>

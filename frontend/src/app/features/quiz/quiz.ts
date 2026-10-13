@@ -20,6 +20,7 @@ import {
   withChoice,
   withUnownedProviders,
 } from './quiz-logic/quiz-rules';
+import { Logo } from '../../shared/logo';
 import { StepGenres } from './steps/step-genres';
 import { StepMediaType } from './steps/step-media-type';
 import { StepProviders } from './steps/step-providers';
@@ -31,7 +32,7 @@ import { Summary } from './summary/summary';
  */
 @Component({
   selector: 'app-quiz',
-  imports: [StepMediaType, StepGenres, StepProviders, Summary],
+  imports: [Logo, StepMediaType, StepGenres, StepProviders, Summary],
   templateUrl: './quiz.html',
 })
 export class Quiz {

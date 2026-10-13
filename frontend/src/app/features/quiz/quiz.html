@@ -1,4 +1,13 @@
 <main class="mx-auto flex min-h-dvh max-w-md flex-col px-5 pt-10 pb-8">
+  <!--
+    The lockup lives here and nowhere else behind the shell. Onboarding is the
+    one screen every visitor passes through exactly once and the only screen
+    that renders no bottom nav, so it is the product's front door — the place a
+    brand belongs. The deck has one card and one decision on it, and a mark
+    above that would be a third thing asking to be looked at (Principle II).
+  -->
+  <app-logo class="mb-6" />
+
   @if (isSummary()) {
     <app-summary [state]="state()" (start)="startRecommendations()" (retake)="retake()" />
   } @else {

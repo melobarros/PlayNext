@@ -8,7 +8,15 @@
     <meta name="description" content="Stop scrolling, start watching — a 30-second quiz and a swipeable deck of titles you can actually stream." />
     <meta name="theme-color" content="#0b0b0f" />
     <meta name="color-scheme" content="dark" />
+    <!--
+      The SVG first: every browser that can render it will, and it stays sharp
+      at any tab size or zoom. The .ico stays behind it for the ones that
+      cannot, and the touch icon is a separate file because iOS ignores both
+      and asks for its own.
+    -->
+    <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <link rel="apple-touch-icon" href="icons/icon-180x180.png" />
     <link rel="manifest" href="manifest.webmanifest" />
 
     <!--
