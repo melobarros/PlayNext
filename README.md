@@ -13,9 +13,35 @@ narrows movies, TV, and anime by genre and by the streaming services you
 actually pay for; a swipeable deck then shows one title at a time — poster,
 synopsis, rating, where to watch — and one swipe records your reaction.
 
-Built as a deliberately complete small product: guest-first with no sign-up wall,
-installable and usable offline, and deployable to a real HTTPS URL for $0/month.
-Everything below is the engineering that makes those three claims hold at once.
+**Live: [playnext-aefkapbbazh8gqe3.westus3-01.azurewebsites.net](https://playnext-aefkapbbazh8gqe3.westus3-01.azurewebsites.net)** — real deploy, installable PWA, no paid tier anywhere.
+
+## At a glance
+
+| | |
+|---|---|
+| **Stack** | .NET 10 minimal API · Angular 22 (standalone, signals, zoneless) · PostgreSQL + EF Core · Tailwind v4 |
+| **Architecture** | Clean Architecture, enforced by project references rather than by convention — the domain assembly references nothing |
+| **Tests** | **911 passing** — 102 domain, 87 application, 722 frontend |
+| **Pipeline** | Every push to `main`: test → migrate → deploy → smoke-test the live URL |
+| **Cost** | **$0/month** — Azure App Service F1 + Neon Postgres |
+| **Process** | 7 features, each specified, planned, and broken into tasks before any code was written |
+
+### The three things most worth asking about
+
+1. **Guest-first, and the merge is the hard part.** The app is fully usable with
+   no account; signing in *merges* what's already on the device instead of
+   asking for it again. Guest is not a degraded mode — it's a user whose storage
+   happens to be a browser. [→ more](#guest-first-and-the-merge-is-the-hard-part)
+2. **One origin, chosen for a cookie.** Splitting the SPA and API across hosts
+   would make the httpOnly refresh cookie third-party, which Safari and Firefox
+   block — silent logouts every fifteen minutes. Azure's answer to that costs
+   ~$80/month; one App Service costs $0. [→ more](#same-origin-deployment-chosen-for-a-cookie)
+3. **A test suite that cannot lie.** Integration tests skip when no database is
+   reachable, which is right on a laptop and a lie in CI. The pipeline fails if
+   they skipped. [→ more](#a-gated-test-suite-that-cannot-lie)
+
+Everything below is the detail behind those, ending with an honest
+[list of what isn't finished](#where-this-is-honestly-incomplete).
 
 ---
 
