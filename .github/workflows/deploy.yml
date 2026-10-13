@@ -192,24 +192,59 @@ jobs:
       # fallback ever starts swallowing /api, this is what notices.
       - name: Smoke test
         env:
-          BASE_URL: https://${{ secrets.AZURE_WEBAPP_NAME }}.azurewebsites.net
+          # Scoped to this step. The profile is not just a credential here: it
+          # is the only place in the workflow that knows the app's real
+          # hostname. See below.
+          PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
         run: |
           fail() { echo "::error::$1"; exit 1; }
 
+          # The URL is read, not reconstructed, because App Service does not
+          # always hand out `<name>.azurewebsites.net`. Apps in some regions get
+          # a region-qualified hostname — `westus3-01` in this deployment's case
+          # — and the short form does not merely redirect, it does not resolve
+          # at all. curl then returns 000 on every attempt, and forty failures
+          # to resolve a name are indistinguishable in the log from an app that
+          # never came up, which is exactly how this said "failed" about a
+          # deploy that had already worked.
+          #
+          # `destinationAppUrl` is the app's own URL as Azure records it, so
+          # this cannot drift from the app the step above actually deployed to.
+          host=$(printf '%s' "$PUBLISH_PROFILE" \
+            | grep -o 'destinationAppUrl="[^"]*"' \
+            | head -1 \
+            | sed -e 's/.*="//' -e 's/"$//' -e 's|^https\?://||' -e 's|/.*$||')
+
+          [ -n "$host" ] || fail "No destinationAppUrl in the publish profile, so there is no URL to smoke test."
+          BASE_URL="https://$host"
+          echo "Smoke testing $BASE_URL"
+
+          # Bounded per attempt: without this a single hung request spends the
+          # whole retry budget in one call and the loop never loops.
+          #
+          # Tracked in a variable rather than broken out of, so exhausting the
+          # attempts is a failure of its own. Falling through to the check below
+          # used to report "no Angular shell" for what was really "the name does
+          # not resolve" — the right message for the wrong fault.
+          ready=false
           echo "Waiting for $BASE_URL to answer…"
           for attempt in $(seq 1 40); do
-            [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/")" = "200" ] && break
+            if [ "$(curl -s -o /dev/null -m 10 -w '%{http_code}' "$BASE_URL/")" = "200" ]; then
+              ready=true
+              break
+            fi
             echo "  attempt $attempt — not up yet"
             sleep 5
           done
+          [ "$ready" = true ] || fail "$BASE_URL/ never returned 200 across 40 attempts (200s). The host came from Azure, so this is the app rather than the name."
 
-          curl -fsS "$BASE_URL/" | grep -qi '<app-root' \
+          curl -fsS -m 15 "$BASE_URL/" | grep -qi '<app-root' \
             || fail "GET / did not return the Angular shell"
 
-          curl -fsS "$BASE_URL/watchlist/history" | grep -qi '<app-root' \
+          curl -fsS -m 15 "$BASE_URL/watchlist/history" | grep -qi '<app-root' \
             || fail "A deep link did not return the shell — the SPA fallback is not working"
 
-          code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/does-not-exist")
+          code=$(curl -s -o /dev/null -m 15 -w '%{http_code}' "$BASE_URL/api/does-not-exist")
           [ "$code" = "404" ] \
             || fail "GET /api/does-not-exist returned $code, expected 404 — the fallback is swallowing API routes"
 
