@@ -35,3 +35,6 @@ Thumbs.db
 
 # Spec Kit local state
 .specify/feature.json
+
+# Local research and working notes (not published)
+research/

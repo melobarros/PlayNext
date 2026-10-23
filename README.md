@@ -24,7 +24,7 @@ synopsis, rating, where to watch — and one swipe records your reaction.
 | **Tests** | **911 passing** — 102 domain, 87 application, 722 frontend |
 | **Pipeline** | Every push to `main`: test → migrate → deploy → smoke-test the live URL |
 | **Cost** | **$0/month** — Azure App Service F1 + Neon Postgres |
-| **Process** | 7 features, each specified, planned, and broken into tasks before any code was written |
+| **Process** | 5 features, each specified, planned, and broken into tasks before any code was written |
 
 ### The three things most worth asking about
 
@@ -206,7 +206,7 @@ skip without them; CI asserts the database ones actually ran (see above).
 ## Spec-driven development with AI
 
 Every feature in this repo went through a written spec before any code existed
-— seven spec directories now, four of them shipped. The process is
+— five spec directories now, all five implemented. The process is
 [Spec Kit](https://github.com/github/spec-kit), and the repo's
 [constitution](.specify/memory/constitution.md) (**v1.4.0**, seven principles)
 is the part that makes it more than ceremony.
@@ -394,7 +394,7 @@ visit after ~20 idle minutes pays a cold start.
 |------|----------|
 | [frontend/](frontend/) | Angular 22 PWA — standalone components, signals, Tailwind v4 |
 | [backend/](backend/) | .NET 10 API — `Domain` → `Application` → `Infrastructure` / `Api` |
-| [specs/](specs/) | Seven feature specs, each with its plan and task breakdown |
+| [specs/](specs/) | Five feature specs, each with its plan and task breakdown |
 | [docs/](docs/) | Product requirements, design notes, images |
 | [.specify/](.specify/) | Spec Kit configuration and the project constitution |
 
@@ -405,9 +405,9 @@ visit after ~20 idle minutes pays a cold start.
 Portfolio READMEs usually stop before this section. The gaps are real, and
 knowing them is part of the work:
 
-- **The catalog is a bundled sample, not TMDB.** The real catalog (spec 005)
-  and its per-service rebuild (007) are planned, not built. Everything else
-  described above is running.
+- **The catalog is TMDB-backed but narrow.** Spec 005 ships the live TMDB
+  catalog, but per-service depth is not built: "Netflix + horror" is still 8 of
+  916 titles in Brazil. Everything else described above is running.
 - **Google sign-in is dormant** — it needs a Google Cloud client id this
   deployment does not have, so the button says so rather than pretending.
 - **No coverage threshold is enforced.** There are 911 tests and CI fails on a
