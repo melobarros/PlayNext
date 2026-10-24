@@ -4,7 +4,7 @@ import { CatalogQuery } from '../models/catalog-query';
 import { FIXTURE_CATALOG } from '../models/media-catalog.fixture';
 import { MediaTitle } from '../models/media-title';
 import { GENRES, STREAMING_PROVIDERS } from '../models/quiz-options.data';
-import { CATALOG_SOURCE, CatalogService, CatalogSource } from './catalog.service';
+import { CATALOG_SOURCE, CatalogPage, CatalogService, CatalogSource } from './catalog.service';
 
 /**
  * A catalog source the test can break on demand.
@@ -33,14 +33,17 @@ class ControllableSource implements CatalogSource {
   /** How many times the source was asked, for the "tried, then fell back" case. */
   calls = 0;
 
-  load(region: string, query?: CatalogQuery): Observable<MediaTitle[]> {
+  /** The snapshot this source reports; tests move it to prove the signal follows. */
+  version = '2026-10-24T17:07:32.000Z';
+
+  load(region: string, query?: CatalogQuery): Observable<CatalogPage> {
     this.calls++;
     this.regions.push(region);
     this.queries.push(query);
 
     return this.failing
       ? throwError(() => new Error('provider unreachable'))
-      : of(FIXTURE_CATALOG.slice());
+      : of({ titles: FIXTURE_CATALOG.slice(), version: this.version });
   }
 }
 
@@ -282,6 +285,67 @@ describe('CatalogService', () => {
       await lastValueFrom(service.loadTitlesById('BR', IDS));
 
       expect(service.usingCachedTitles()).toBe(true);
+    });
+  });
+
+  /**
+   * The catalog version (009).
+   *
+   * An impression records which snapshot the card was ranked from, and the only
+   * place that knows it is the answer that carried the titles. It travels with
+   * them through the same cache and fallback, so a deck rendered from the
+   * cached copy is recorded against the snapshot it actually came from rather
+   * than against a version it never saw.
+   */
+  describe('catalogVersion (009)', () => {
+    it('is null until a load succeeds', () => {
+      expect(service.catalogVersion()).toBeNull();
+    });
+
+    it('exposes the answer’s fetchedAt after a successful load', async () => {
+      await lastValueFrom(service.loadTitles('BR'));
+
+      expect(service.catalogVersion()).toBe('2026-10-24T17:07:32.000Z');
+    });
+
+    it('keeps the same value when the same question is asked again', async () => {
+      await lastValueFrom(service.loadTitles('BR'));
+      await lastValueFrom(service.loadTitles('BR'));
+
+      expect(service.catalogVersion()).toBe('2026-10-24T17:07:32.000Z');
+    });
+
+    it('follows a newer snapshot', async () => {
+      await lastValueFrom(service.loadTitles('BR'));
+
+      source.version = '2026-10-25T06:00:00.000Z';
+      await lastValueFrom(service.loadTitles('BR'));
+
+      expect(service.catalogVersion()).toBe('2026-10-25T06:00:00.000Z');
+    });
+
+    it('does not overwrite the last value when a load fails', async () => {
+      await lastValueFrom(service.loadTitles('BR'));
+
+      // The fallback serves the cached titles, which *are* the snapshot the
+      // signal already names. Replacing it with the failed answer's version
+      // would record cards against a catalog they were not ranked from.
+      source.failing = true;
+      source.version = '2026-10-25T06:00:00.000Z';
+      await lastValueFrom(service.loadTitles('BR'));
+
+      expect(service.catalogVersion()).toBe('2026-10-24T17:07:32.000Z');
+    });
+
+    it('is not moved by a supplementary id lookup', async () => {
+      await lastValueFrom(service.loadTitles('BR'));
+
+      // Same rule as `usingCachedTitles`: the version describes the deck's
+      // pool. A watchlist lookup must not relabel cards it did not rank.
+      source.version = '2026-10-25T06:00:00.000Z';
+      await lastValueFrom(service.loadTitlesById('BR', ['tmdb:movie:27205']));
+
+      expect(service.catalogVersion()).toBe('2026-10-24T17:07:32.000Z');
     });
   });
 

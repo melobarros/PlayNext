@@ -86,6 +86,122 @@ namespace PlayNext.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("PlayNext.Domain.RecommendationAction", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("ClientEventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("DwellMs")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("ImpressionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientEventId")
+                        .IsUnique();
+
+                    b.HasIndex("ImpressionId");
+
+                    b.HasIndex("Kind", "ReceivedAt");
+
+                    b.ToTable("RecommendationActions");
+                });
+
+            modelBuilder.Entity("PlayNext.Domain.RecommendationImpression", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("CatalogVersion")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ClientEventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EngineVersion")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("FilterHash")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ReasonCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("Score")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("ShownAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Surface")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("TitleId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientEventId")
+                        .IsUnique();
+
+                    b.HasIndex("ReceivedAt");
+
+                    b.HasIndex("SessionId", "ReceivedAt");
+
+                    b.HasIndex("TitleId", "ReceivedAt");
+
+                    b.HasIndex("UserId", "ReceivedAt")
+                        .HasFilter("\"UserId\" IS NOT NULL");
+
+                    b.ToTable("RecommendationImpressions");
+                });
+
             modelBuilder.Entity("PlayNext.Infrastructure.Persistence.ApplicationUser", b =>
                 {
                     b.Property<Guid>("Id")
@@ -673,6 +789,17 @@ namespace PlayNext.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("PlayNext.Domain.RecommendationAction", b =>
+                {
+                    b.HasOne("PlayNext.Domain.RecommendationImpression", "Impression")
+                        .WithMany("Actions")
+                        .HasForeignKey("ImpressionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Impression");
+                });
+
             modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogAvailability", b =>
                 {
                     b.HasOne("PlayNext.Infrastructure.Persistence.CatalogService", "Service")
@@ -812,6 +939,11 @@ namespace PlayNext.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("PlayNext.Domain.RecommendationImpression", b =>
+                {
+                    b.Navigation("Actions");
                 });
 
             modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogTitleRecord", b =>

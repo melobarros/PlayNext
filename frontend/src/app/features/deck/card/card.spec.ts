@@ -30,6 +30,11 @@ function title(overrides: Partial<RankedTitle> = {}): RankedTitle {
     voteCount: 1000,
     availability: [],
     reason: null,
+    // The card renders neither of these: they exist for the telemetry record
+    // (009), and the defaults keep every pre-009 test describing a card that
+    // says nothing.
+    score: 0,
+    reasonCode: 'none',
     ...overrides,
   };
 }

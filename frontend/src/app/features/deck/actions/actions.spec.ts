@@ -16,6 +16,7 @@ import { QuizState } from '../../../core/models/quiz';
 import { CatalogService } from '../../../core/services/catalog.service';
 import { Connectivity } from '../../../core/services/connectivity';
 import { PreferenceStore } from '../../../core/services/preference-store';
+import { TELEMETRY_TRANSPORT } from '../../../core/telemetry/telemetry-transport';
 import { RATING_ICONS } from '../../../shared/icons';
 import { Deck } from '../deck';
 
@@ -180,10 +181,15 @@ describe('deck action bar', () => {
             // The notices (FR-013) have their own tests in deck.spec.ts; the
             // shell reads this on every render, so the double must answer.
             usingCachedTitles: signal(false),
+            // The impression the deck records (009) names this snapshot.
+            catalogVersion: signal('2026-10-24T17:07:32.000Z'),
           },
         },
         // Likewise the offline notice (FR-015): nothing here is offline.
         { provide: Connectivity, useValue: { isOffline: signal(false) } },
+        // The record itself is not what this spec is about; accepting it keeps
+        // the deck from reaching the network while the bar is being tested.
+        { provide: TELEMETRY_TRANSPORT, useValue: { send: async () => ({ status: 202, body: null }) } },
       ],
     });
     completeQuiz();

@@ -6,18 +6,21 @@ import { DeckSession } from '../../core/models/deck-session';
 import { INTERACTION_STATE_LABELS, Interaction, InteractionState } from '../../core/models/interaction';
 import { MediaTitle } from '../../core/models/media-title';
 import { Preference } from '../../core/models/quiz';
+import { TelemetryActionKind } from '../../core/models/telemetry';
 import { currentRegion } from '../../core/region';
 import { CatalogService } from '../../core/services/catalog.service';
 import { Connectivity } from '../../core/services/connectivity';
 import { DeckSessionStore } from '../../core/services/deck-session-store';
 import { InteractionStore } from '../../core/services/interaction-store';
 import { PreferenceStore } from '../../core/services/preference-store';
+import { filterDigest } from '../../core/telemetry/filter-digest';
+import { RecommendationTelemetry } from '../../core/telemetry/recommendation-telemetry';
 import { Attribution } from '../../shared/attribution/attribution';
 import { toPreference } from '../quiz/quiz-logic/quiz-rules';
 import { Actions } from './actions/actions';
 import { Card } from './card/card';
 import { advance, currentCard, loopFor, rewind, startNewLoop } from './deck-logic/deck-session';
-import { RankedTitle, rankTitles } from './deck-logic/recommend';
+import { RankedTitle, RECOMMEND_ENGINE_VERSION, rankTitles } from './deck-logic/recommend';
 import { dismissThreshold, PointerSample, SwipeOutcome, swipeDecision } from './deck-logic/swipe';
 import { DeckOutcome, EmptyState } from './empty-state/empty-state';
 
@@ -89,6 +92,7 @@ export class Deck {
   private readonly interactions = inject(InteractionStore);
   private readonly sessions = inject(DeckSessionStore);
   private readonly router = inject(Router);
+  private readonly telemetry = inject(RecommendationTelemetry);
 
   /** The device's region (FR-005): scopes availability, never the title list (CatalogService). */
   private readonly region = currentRegion();
@@ -98,6 +102,28 @@ export class Deck {
    * initialiser reads this one, and field initialisers run in source order.
    */
   private readonly preference = signal<Preference | null>(this.readPreference());
+
+  /**
+   * The filters this deck was ranked under, digested once (009, research D7).
+   *
+   * The answers are fixed for the component's lifetime — changing them builds a
+   * new deck — so the digest is computed on the first impression and reused.
+   * `null` until then, and it stays `null` for a visitor who has not taken the
+   * quiz: there is no deck and therefore nothing to label.
+   */
+  private filterHash: string | null = null;
+
+  /**
+   * The card the last impression described, as `(session, titleId)`.
+   *
+   * The recording effect re-runs whenever the catalog or the ranking changes,
+   * and a refresh that leaves the same card on screen must not record a second
+   * impression of it — the visitor was shown one card, not two. Session
+   * *identity* is what separates "the same card, still there" from "the same
+   * title, shown again": an advance, an undo and a new loop each write a new
+   * session object, while a refresh writes none.
+   */
+  private lastImpression: { session: DeckSession; titleId: string } | null = null;
 
   /**
    * The running loop. Persisted on every advance, so a refresh resumes it.
@@ -366,6 +392,48 @@ export class Deck {
   constructor() {
     this.load();
 
+    // Record what is displayed (009, US1). The effect is the right place for
+    // it because the card is *derived* (research D5): there is no "show card"
+    // method to hang this on, and every path that could change the card —
+    // advance, undo, a new loop, a refresh — ends in the same rendered state.
+    // Reading both signals makes the effect depend on the pair; the dedupe
+    // above keeps a refresh from counting as a second display.
+    effect(() => {
+      const session = this.session();
+      const card = this.card();
+      if (card === null) return;
+
+      const previous = this.lastImpression;
+      if (previous !== null && previous.session === session && previous.titleId === card.id) {
+        return;
+      }
+
+      const preference = this.preference();
+      if (preference === null) return;
+
+      this.lastImpression = { session, titleId: card.id };
+      this.filterHash ??= filterDigest(this.region, preference);
+
+      this.telemetry.recordImpression({
+        titleId: card.id,
+
+        // One-based: the first card is position 1. An undo puts its title back
+        // at the length it had before the rating, which is exactly the ordinal
+        // it occupied when it was first shown.
+        position: session.shownTitleIds.length + 1,
+        engineVersion: RECOMMEND_ENGINE_VERSION,
+
+        // Read at record time rather than at send time: this names the
+        // snapshot the ranker actually scored, which a later refresh must not
+        // relabel. `null` makes the service skip and count the impression —
+        // a card that cannot be replayed is not worth storing.
+        catalogVersion: this.catalog.catalogVersion(),
+        filterHash: this.filterHash,
+        score: card.score,
+        reasonCode: card.reasonCode,
+      });
+    });
+
     // Warm the browser cache for the card *after* this one, and only that one
     // (research.md D6). A single card is on screen (FR-002), so preloading the
     // deck would spend the visitor's data on cards they may never reach.
@@ -451,6 +519,11 @@ export class Deck {
     const current = this.card();
     if (current === null) return;
 
+    // Skipping is an action on the card, even though it writes no rating: the
+    // record wants to know a card was put aside without a verdict, and the
+    // "rated nothing" state is what makes the walk evaluable later.
+    this.telemetry.recordAction('skip', current.id);
+
     // Skipping is the visitor saying nothing about this title, so it retracts
     // the offer to undo the *previous* one. Leaving a stale strip up would
     // offer to un-rate a card that is no longer the last thing they did.
@@ -470,6 +543,13 @@ export class Deck {
   protected onRating(state: InteractionState): void {
     const current = this.card();
     if (current === null) return;
+
+    // Recorded before the writes below, because the card being answered is the
+    // one on screen now — the moment the interaction lands it is no longer in
+    // the ranking. Only the two verdicts the bar offers map to a wire kind
+    // (T034); a state the deck cannot produce is not recordable here.
+    const kind = telemetryKindFor(state);
+    if (kind !== null) this.telemetry.recordAction(kind, current.id);
 
     this.interactions.record(current.id, state);
     this.refreshRated();
@@ -497,6 +577,10 @@ export class Deck {
   protected onWatchNow(): void {
     const current = this.card();
     if (current === null) return;
+
+    // The walk ends here, and this is the action the harness weighs most
+    // heavily: it is the one unambiguous "the visitor wanted this".
+    this.telemetry.recordAction('watch_now', current.id);
 
     this.interactions.recordWatch(current.id);
     this.refreshRated();
@@ -530,6 +614,14 @@ export class Deck {
   protected undo(): void {
     const action = this.lastAction();
     if (action === null) return;
+
+    // Recorded while the strip still names the rating being reversed, and
+    // before the rewind: the undo answers the impression of the title it
+    // restores, which is the card that was on screen when the rating was made.
+    // Recording it after the rewind would be the same event either way — the
+    // index is keyed by title and survives the rewind — but the order says
+    // which one is the cause.
+    this.telemetry.recordAction('undo', action.titleId);
 
     this.interactions.remove(action.titleId);
     this.refreshRated();
@@ -676,6 +768,29 @@ function sampleOf(event: PointerEvent): PointerSample {
 function hintFor(outcome: SwipeOutcome): InteractionState | null {
   if (outcome === 'dismiss-left') return 'disliked';
   if (outcome === 'dismiss-right') return 'liked';
+  return null;
+}
+
+/**
+ * The record's word for a rating (009, T034).
+ *
+ * Only the two verdicts the bar offers have a mapping here; `skip`,
+ * `watch_now` and `undo` are recorded by the methods that perform them, which
+ * know their own kind without a lookup. The wider interaction vocabulary
+ * (`loved`, `wantToWatch`, `notInterested`) still exists so documents written
+ * before 2026-09-30 stay readable, but the deck can no longer produce them —
+ * and a mapping written as a `Record<InteractionState, …>` would have to invent
+ * an answer for the three it cannot receive. Returning `null` instead makes
+ * "the deck tried to record something it cannot show" an explicit dead end
+ * rather than a guess.
+ *
+ * The deck's own vocabulary and the wire's are separate on purpose: renaming a
+ * button must not rename history, and the record's closed set is validated by
+ * the intake.
+ */
+function telemetryKindFor(state: InteractionState): TelemetryActionKind | null {
+  if (state === 'liked') return 'liked';
+  if (state === 'disliked') return 'disliked';
   return null;
 }
 

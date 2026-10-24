@@ -1,6 +1,7 @@
 import { Interaction, InteractionState, isRated, isRejection } from '../../../core/models/interaction';
 import { MediaTitle } from '../../../core/models/media-title';
 import { Preference } from '../../../core/models/quiz';
+import type { ReasonCode } from '../../../core/models/telemetry';
 import {
   GENRES,
   RETIRED_PROVIDERS,
@@ -26,6 +27,26 @@ import {
 
 /** Score weight for each net genre the visitor's own ratings point at. */
 const HISTORY_AFFINITY_WEIGHT = 6;
+
+/**
+ * The engine's own name for what it computes (009, research D6).
+ *
+ * Stored on every impression so a replay months later knows which ranking rule
+ * produced the card. Bump it whenever a change could reorder the deck; the
+ * offline harness then compares the old fixture against the new rule instead
+ * of comparing two reports that quietly disagree about what "incumbent" means.
+ */
+export const RECOMMEND_ENGINE_VERSION = 'recommend-v1';
+
+/**
+ * The closed reason vocabulary the record stores (009).
+ *
+ * The card shows prose and the record stores this, so a change of wording is
+ * not a change of history. Declared in `core/models/telemetry.ts` — the wire
+ * needs it too — and re-exported here because this is where it is decided.
+ */
+export type { ReasonCode };
+
 
 /**
  * Demotion for each selectable genre a title wears that the visitor did not
@@ -88,6 +109,23 @@ const POSITIVE_STATES: readonly InteractionState[] = ['loved', 'liked', 'wantToW
  */
 export interface RankedTitle extends MediaTitle {
   reason: string | null;
+  /**
+   * The within-tier term of the sort key (009).
+   *
+   * The tier (`matches`) is a separate key and a coarser statement; this is the
+   * number that separated two titles inside the same tier. It is exposed so an
+   * impression can record *why* the card sat where it did, and it is the value
+   * the harness and any future ranker are compared against.
+   */
+  score: number;
+  /**
+   * The branch of <see>reasonFor</see> that produced `reason` (009).
+   *
+   * `none` exactly when `reason` is null, which is what makes the stored code
+   * and the sentence on the card two views of one decision rather than two
+   * claims that could drift apart.
+   */
+  reasonCode: ReasonCode;
 }
 
 /**
@@ -134,8 +172,27 @@ export function rankTitles(
       // Spread rather than pick: a field added to `MediaTitle` later rides
       // along automatically instead of silently going missing on the card.
       ...scored.title,
-      reason: reasonFor(scored.title, preferences, lovedGenres),
+      score: scored.within,
+      ...reasonFor(scored.title, preferences, lovedGenres),
     }));
+}
+
+/**
+ * The candidates `rankTitles` would have been willing to show, in catalog
+ * order (009).
+ *
+ * The popularity baseline in the offline harness must rank the *same* pool as
+ * the incumbent, or the comparison would measure the filter rather than the
+ * ordering. It asks this instead of re-implementing the five filters, so a new
+ * filter cannot be added to one and forgotten in the other.
+ */
+export function eligibleTitles(
+  catalog: readonly MediaTitle[],
+  preferences: Preference,
+  interactions: Readonly<Record<string, Interaction>>,
+  shownTitleIds: readonly string[],
+): MediaTitle[] {
+  return catalog.filter((title) => isEligible(title, preferences, interactions, shownTitleIds));
 }
 
 /**
@@ -156,20 +213,24 @@ function reasonFor(
   title: MediaTitle,
   preferences: Preference,
   lovedGenres: ReadonlySet<string>,
-): string | null {
+): { reason: string | null; reasonCode: ReasonCode } {
   // 1 — a genre from the quiz, named as the visitor chose it. Under a real
   // selection this is always available: filter 2 has already guaranteed that a
   // title reaching here overlaps the selection, so the only way past this
   // branch is a stored id with no label.
   if (!preferences.genre.any) {
     const picked = labelFor(title.genres, preferences.genre.values);
-    if (picked !== null) return `Because you picked ${picked}`;
+    if (picked !== null) {
+      return { reason: `Because you picked ${picked}`, reasonCode: 'genre-picked' };
+    }
   }
 
   // 2 — a genre the visitor's own ratings point at. Only reachable under
   // `Any`, where nothing was chosen and the feedback loop is the whole story.
   const loved = labelFor(title.genres, [...lovedGenres]);
-  if (loved !== null) return `Because you loved ${loved}`;
+  if (loved !== null) {
+    return { reason: `Because you loved ${loved}`, reasonCode: 'genre-affinity' };
+  }
 
   // 3 — the plainest reason of all, and the deck's founding constraint: it is
   // on a service they told us they have.
@@ -178,9 +239,11 @@ function reasonFor(
   );
   const serviceLabel =
     service === undefined ? undefined : PROVIDER_LABELS.get(service.providerId);
-  if (serviceLabel !== undefined) return `On ${serviceLabel}, one of your services`;
+  if (serviceLabel !== undefined) {
+    return { reason: `On ${serviceLabel}, one of your services`, reasonCode: 'service' };
+  }
 
-  return null;
+  return { reason: null, reasonCode: 'none' };
 }
 
 /** The first of `ids` that is also a genre of this title, named. */
@@ -369,7 +432,7 @@ function genreSignals(
 }
 
 /** Stage 2, term 3 — quality, confidence-weighted (see the constants above). */
-function weightedRating(title: MediaTitle): number {
+export function weightedRating(title: MediaTitle): number {
   return (
     (title.rating * title.voteCount + RATING_PRIOR * RATING_PRIOR_WEIGHT) /
     (title.voteCount + RATING_PRIOR_WEIGHT)
