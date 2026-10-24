@@ -5,7 +5,7 @@ import { CatalogQuery } from '../models/catalog-query';
 import { MediaTitle } from '../models/media-title';
 import { MediaType } from '../models/quiz';
 import { API_BASE_URL } from './auth.service';
-import { CatalogSource } from './catalog.service';
+import { CatalogPage, CatalogSource } from './catalog.service';
 
 /**
  * The catalog payload, as `GET /api/catalog` writes it
@@ -69,11 +69,23 @@ export function httpCatalogSource(): CatalogSource {
   const baseUrl = inject(API_BASE_URL);
 
   return {
-    load: (region: string, query: CatalogQuery = {}): Observable<MediaTitle[]> =>
+    load: (region: string, query: CatalogQuery = {}): Observable<CatalogPage> =>
       http
         .get<CatalogResponse>(`${baseUrl}/api/catalog`, { params: toParams(region, query) })
-        .pipe(map(catalogTitlesFromWire)),
+        .pipe(map(catalogPageFromWire)),
   };
+}
+
+/**
+ * One catalog response as the deck's page — the titles and the snapshot they
+ * came from (009).
+ *
+ * The version travels with the titles because it describes them: a replay that
+ * compared this deck against some other snapshot's catalog would be measuring
+ * the catalog's churn rather than the ranker.
+ */
+export function catalogPageFromWire(response: CatalogResponse): CatalogPage {
+  return { titles: catalogTitlesFromWire(response), version: response.fetchedAt };
 }
 
 /**

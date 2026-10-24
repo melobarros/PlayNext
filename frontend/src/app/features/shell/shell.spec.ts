@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { routes } from '../../app.routes';
+import { TELEMETRY_TRANSPORT } from '../../core/telemetry/telemetry-transport';
 
 /**
  * The navigation shell (FR-013, SC-006).
@@ -35,6 +36,9 @@ describe('app shell', () => {
         // though no test here sends anything.
         provideHttpClient(),
         provideHttpClientTesting(),
+        // `/deck` is in this route table, and the deck records what it shows
+        // (009). Accepting keeps that off the network in a navigation test.
+        { provide: TELEMETRY_TRANSPORT, useValue: { send: async () => ({ status: 202, body: null }) } },
       ],
     });
   });

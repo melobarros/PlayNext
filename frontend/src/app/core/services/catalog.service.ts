@@ -1,8 +1,23 @@
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
-import { catchError, Observable, of, tap } from 'rxjs';
+import { catchError, map, Observable, of, tap } from 'rxjs';
 import { CatalogQuery } from '../models/catalog-query';
 import { MediaTitle } from '../models/media-title';
 import { httpCatalogSource } from './http-catalog-source';
+
+/**
+ * One catalog answer: the titles plus the snapshot they came from.
+ *
+ * The version is part of the answer rather than a second call because the
+ * server already says which snapshot it served, and asking again could return
+ * a different one — an impression recorded against the wrong catalog is worse
+ * than one recorded with none, because it looks trustworthy (009).
+ */
+export interface CatalogPage {
+  /** The titles, translated for the deck. */
+  titles: MediaTitle[];
+  /** The provider snapshot's `fetchedAt`, as the server reported it. */
+  version: string;
+}
 
 /**
  * Where titles come from.
@@ -20,7 +35,7 @@ export interface CatalogSource {
    * One catalog request. The region is required; a query with no dimensions is
    * the general pool, which is the shape every pre-008 caller asks for.
    */
-  load(region: string, query?: CatalogQuery): Observable<MediaTitle[]>;
+  load(region: string, query?: CatalogQuery): Observable<CatalogPage>;
 }
 
 /**
@@ -65,9 +80,23 @@ export class CatalogService {
    * detached array, and a caller that sorts or empties it must not thereby
    * rewrite what the fallback will serve.
    */
-  private readonly cached = new Map<string, MediaTitle[]>();
+  private readonly cached = new Map<string, CatalogPage>();
 
   private readonly fellBack = signal(false);
+
+  private readonly version = signal<string | null>(null);
+
+  /**
+   * Which catalog snapshot the deck's titles came from, or null before the
+   * first successful load (009).
+   *
+   * An impression records this so a replay knows which titles the ranker was
+   * actually looking at. It moves only on a successful **pool** load — the same
+   * rule as `usingCachedTitles` below, for the same reason: a supplementary
+   * lookup must not relabel the deck, and a failed load serves the cached
+   * titles, which are still the snapshot named here.
+   */
+  readonly catalogVersion = this.version.asReadonly();
 
   /**
    * Whether the titles on screen came from the cache because the provider could
@@ -147,13 +176,22 @@ export class CatalogService {
     const key = queryKey(region, query);
 
     return this.source.load(region, query).pipe(
-      tap((titles) => {
-        this.cached.set(key, copyOf(titles));
-        if (reportsFallback) this.fellBack.set(false);
+      tap((page) => {
+        this.cached.set(key, copyOf(page));
+        if (reportsFallback) {
+          this.fellBack.set(false);
+          this.version.set(page.version);
+        }
       }),
+      map((page) => page.titles),
       catchError(() => {
         if (reportsFallback) this.fellBack.set(true);
-        return of(copyOf(this.cached.get(key) ?? []));
+
+        // Deliberately silent about the version: what the cache holds is the
+        // snapshot the signal already names, and the answer that failed never
+        // produced titles to attach a new one to.
+        const cached = this.cached.get(key);
+        return of(cached === undefined ? [] : copyOf(cached).titles);
       }),
     );
   }
@@ -196,10 +234,13 @@ function queryKey(region: string, query: CatalogQuery): string {
  * One copier, used on both paths, so a nested field added to `MediaTitle` later
  * cannot be copied on one path and forgotten on the other.
  */
-function copyOf(titles: readonly MediaTitle[]): MediaTitle[] {
-  return titles.map((title) => ({
-    ...title,
-    genres: [...title.genres],
-    availability: title.availability.map((entry) => ({ ...entry })),
-  }));
+function copyOf(page: CatalogPage): CatalogPage {
+  return {
+    version: page.version,
+    titles: page.titles.map((title) => ({
+      ...title,
+      genres: [...title.genres],
+      availability: title.availability.map((entry) => ({ ...entry })),
+    })),
+  };
 }

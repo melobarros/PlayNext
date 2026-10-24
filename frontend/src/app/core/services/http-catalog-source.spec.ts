@@ -3,7 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { lastValueFrom } from 'rxjs';
 import { API_BASE_URL } from './auth.service';
-import { CatalogService, CatalogSource } from './catalog.service';
+import { CatalogPage, CatalogService, CatalogSource } from './catalog.service';
 import { httpCatalogSource } from './http-catalog-source';
 
 /**
@@ -90,14 +90,14 @@ describe('httpCatalogSource', () => {
 
   describe('the request', () => {
     it('asks our own API for the visitor’s region', async () => {
-      const titles = lastValueFrom(source.load('BR'));
+      const page = lastValueFrom(source.load('BR'));
 
       // The provider's endpoint, and no other. There is no client-side call to
       // anything upstream, which is what keeps the credential on the server
       // (FR-001).
       respond();
 
-      await titles;
+      await page;
     });
 
     it('asks the configured origin, not a hard-coded one', async () => {
@@ -108,7 +108,7 @@ describe('httpCatalogSource', () => {
     });
 
     it('sends the region as a parameter, never as a path segment', async () => {
-      const titles = lastValueFrom(source.load('US'));
+      const page = lastValueFrom(source.load('US'));
 
       http.expectOne((request) => request.params.get('region') === 'US').flush({
         region: 'US',
@@ -116,11 +116,11 @@ describe('httpCatalogSource', () => {
         titles: [],
       });
 
-      await titles;
+      await page;
     });
 
     it('sends each filter as one comma-separated value', async () => {
-      const titles = lastValueFrom(
+      const page = lastValueFrom(
         source.load('BR', {
           services: ['netflix', 'max'],
           genres: ['horror', 'thriller'],
@@ -140,12 +140,12 @@ describe('httpCatalogSource', () => {
       expect(request.request.params.has('ids')).toBe(false);
 
       request.flush({ region: 'BR', fetchedAt: '2026-09-28T14:05:00Z', titles: [] });
-      await titles;
+      await page;
     });
 
     it('sends an id batch as the ids parameter', async () => {
       const ids = ['tmdb:movie:27205', 'tmdb:tv:1396'];
-      const titles = lastValueFrom(source.load('BR', { ids }));
+      const page = lastValueFrom(source.load('BR', { ids }));
 
       const request = http.expectOne(
         (candidate) => candidate.params.get('ids') === 'tmdb:movie:27205,tmdb:tv:1396',
@@ -159,11 +159,11 @@ describe('httpCatalogSource', () => {
       expect(request.request.params.has('mediaTypes')).toBe(false);
 
       request.flush({ region: 'BR', fetchedAt: '2026-09-28T14:05:00Z', titles: WIRE_TITLES });
-      await titles;
+      await page;
     });
 
     it('omits a dimension the caller left empty', async () => {
-      const titles = lastValueFrom(source.load('BR', { services: [], genres: [] }));
+      const page = lastValueFrom(source.load('BR', { services: [], genres: [] }));
 
       const request = http.expectOne((candidate) => candidate.url === '/api/catalog');
 
@@ -173,16 +173,16 @@ describe('httpCatalogSource', () => {
       expect(request.request.params.has('genres')).toBe(false);
 
       request.flush({ region: 'BR', fetchedAt: '2026-09-28T14:05:00Z', titles: [] });
-      await titles;
+      await page;
     });
   });
 
   describe('the mapping', () => {
     it('carries every field the deck renders', async () => {
-      const titles = lastValueFrom(source.load('BR'));
+      const page = lastValueFrom(source.load('BR'));
       respond();
 
-      const [inception] = await titles;
+      const [inception] = (await page).titles;
 
       expect(inception).toEqual({
         id: 'tmdb:movie:27205',
@@ -210,10 +210,10 @@ describe('httpCatalogSource', () => {
       // a type error in the component that reads it. The cast is not the point:
       // the deck branches on these being absent, and `null` is a value it would
       // have to know about separately.
-      const titles = lastValueFrom(source.load('BR'));
+      const page = lastValueFrom(source.load('BR'));
       respond();
 
-      const [, breakingBad] = await titles;
+      const [, breakingBad] = (await page).titles;
 
       expect(breakingBad.runtimeMinutes).toBeUndefined();
       expect(breakingBad.trailerUrl).toBeUndefined();
@@ -223,10 +223,10 @@ describe('httpCatalogSource', () => {
     it('keeps a title nobody carries, with an empty badge list', async () => {
       // FR-006: empty availability is a normal answer. The title is still
       // offered — hiding it would be the deck deciding for the visitor.
-      const titles = lastValueFrom(source.load('BR'));
+      const page = lastValueFrom(source.load('BR'));
       respond();
 
-      const [, breakingBad] = await titles;
+      const [, breakingBad] = (await page).titles;
 
       expect(breakingBad.availability).toEqual([]);
     });
@@ -234,7 +234,7 @@ describe('httpCatalogSource', () => {
     it('passes a provider id it has never seen straight through', async () => {
       // FR-010: the vocabulary is a superset of the quiz's twelve. An unknown
       // id is for the filters to ignore, not for this layer to drop.
-      const titles = lastValueFrom(source.load('BR'));
+      const page = lastValueFrom(source.load('BR'));
 
       http.expectOne((request) => request.url === '/api/catalog').flush({
         region: 'BR',
@@ -249,13 +249,13 @@ describe('httpCatalogSource', () => {
         ],
       });
 
-      const [inception] = await titles;
+      const [inception] = (await page).titles;
 
       expect(inception.availability[0].providerId).toBe('tmdb:300');
     });
 
     it('emits nothing when the region has no titles', async () => {
-      const titles = lastValueFrom(source.load('BR'));
+      const page = lastValueFrom(source.load('BR'));
 
       http.expectOne((request) => request.url === '/api/catalog').flush({
         region: 'BR',
@@ -263,7 +263,16 @@ describe('httpCatalogSource', () => {
         titles: [],
       });
 
-      expect(await titles).toEqual([]);
+      expect((await page).titles).toEqual([]);
+    });
+
+    it('carries the payload’s fetchedAt through as the catalog version (009)', async () => {
+      // The one place the server says which snapshot it served. Dropping it
+      // here would make every impression claim a catalog the deck never saw.
+      const page = lastValueFrom(source.load('BR'));
+      respond();
+
+      expect((await page).version).toBe('2026-09-28T14:05:00Z');
     });
   });
 
@@ -272,25 +281,25 @@ describe('httpCatalogSource', () => {
       // The 503 the API sends while a cold region is being retrieved. It must
       // arrive as an error so `CatalogService` can fall back — returning an
       // empty array here would render the empty deck instead.
-      const titles = lastValueFrom(source.load('BR'));
+      const page = lastValueFrom(source.load('BR'));
 
       http.expectOne((request) => request.url === '/api/catalog').flush(
         { code: 'catalog-not-ready', errors: ['The catalog has not been retrieved yet.'] },
         { status: 503, statusText: 'Service Unavailable' },
       );
 
-      await expect(titles).rejects.toMatchObject({ status: 503 });
+      await expect(page).rejects.toMatchObject({ status: 503 });
     });
 
     it('lets an unreachable API reach the caller as an error', async () => {
       // Status 0: the request never arrived. The same fallback handles it.
-      const titles = lastValueFrom(source.load('BR'));
+      const page = lastValueFrom(source.load('BR'));
 
       http
         .expectOne((request) => request.url === '/api/catalog')
         .error(new ProgressEvent('error'), { status: 0 });
 
-      await expect(titles).rejects.toMatchObject({ status: 0 });
+      await expect(page).rejects.toMatchObject({ status: 0 });
     });
   });
 

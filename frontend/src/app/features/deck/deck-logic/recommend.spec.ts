@@ -2,7 +2,7 @@ import { Interaction } from '../../../core/models/interaction';
 import { FIXTURE_CATALOG } from '../../../core/models/media-catalog.fixture';
 import { MediaTitle } from '../../../core/models/media-title';
 import { Preference } from '../../../core/models/quiz';
-import { rankTitles } from './recommend';
+import { eligibleTitles, rankTitles, RECOMMEND_ENGINE_VERSION } from './recommend';
 
 const RATED_AT = '2026-09-26T10:00:00.000Z';
 
@@ -964,5 +964,197 @@ describe('rankTitles — the reason (stage 4)', () => {
         }),
       ).toBeNull();
     });
+  });
+});
+
+/**
+ * The telemetry seam (009).
+ *
+ * Nothing here changes what the deck shows. The engine gains three read-only
+ * outputs — its version, the score it ranked on, and the code for the reason
+ * it gave — plus one query that names the eligible candidates a different
+ * ranker would be allowed to reorder. The ordering itself is frozen by a
+ * captured baseline: a change to it is a change to the product, and this test
+ * is where that change has to be argued for rather than slip through.
+ */
+describe('rankTitles — the telemetry seam (009)', () => {
+  const noInteractions: Record<string, Interaction> = {};
+
+  /**
+   * The order the deck produced on 2026-10-24, before the telemetry fields
+   * existed. Any difference here is a ranking change, not a refactor.
+   */
+  const CAPTURED_ORDER = [
+    'breaking-bad',
+    'chernobyl',
+    'the-wire',
+    'the-sopranos',
+    'sherlock',
+    'fullmetal-alchemist-brotherhood',
+    'the-dark-knight',
+    'attack-on-titan',
+    'hunter-x-hunter',
+    'frieren',
+    'pulp-fiction',
+    'death-note',
+    'cowboy-bebop',
+    'succession',
+    'inception',
+    'ted-lasso',
+    'steins-gate',
+    'vinland-saga',
+    'stranger-things',
+    'black-mirror',
+    'the-last-of-us',
+    'dark',
+    'mad-men',
+    'fleabag',
+    'spirited-away',
+    'the-bear',
+    'mob-psycho-100',
+    'whiplash',
+    'parasite',
+    'dune-part-two',
+    'the-queens-gambit',
+    'jujutsu-kaisen',
+    'your-name',
+    'oppenheimer',
+    'mad-max-fury-road',
+    'grand-budapest',
+    'spotlight',
+    'before-sunrise',
+    'only-murders',
+    'free-solo',
+    'la-la-land',
+    'arrival',
+    'get-out',
+    'everything-everywhere',
+    'superbad',
+    'hereditary',
+    'the-witch',
+    'midnight-static',
+  ];
+
+  it('publishes the engine version the record stores', () => {
+    expect(RECOMMEND_ENGINE_VERSION).toBe('recommend-v1');
+  });
+
+  it('does not move a single card', () => {
+    const ids = rankTitles(FIXTURE_CATALOG, preference(), noInteractions, []).map((t) => t.id);
+
+    expect(ids).toEqual(CAPTURED_ORDER);
+  });
+
+  it('gives every ranked title a finite score', () => {
+    const result = rankTitles(FIXTURE_CATALOG, preference(), noInteractions, []);
+
+    expect(result.length).toBeGreaterThan(0);
+    for (const ranked of result) {
+      expect(Number.isFinite(ranked.score)).toBe(true);
+    }
+  });
+
+  it('exposes the within-tier score the sort actually used', () => {
+    // Two titles identical but for their rating: the higher-rated one is the
+    // one with the larger score, and the difference is exactly what the sort
+    // key ordered on.
+    const catalog = [
+      title('better', { rating: 9, voteCount: 100_000 }),
+      title('worse', { rating: 5, voteCount: 100_000 }),
+    ];
+
+    const result = rankTitles(catalog, preference(), noInteractions, []);
+
+    expect(result.map((t) => t.id)).toEqual(['better', 'worse']);
+    expect(result[0].score).toBeGreaterThan(result[1].score);
+  });
+
+  it('codes the reason with `none` exactly when there is no reason', () => {
+    const result = rankTitles(
+      FIXTURE_CATALOG,
+      preference({ genre: { values: ['horror'], any: false } }),
+      noInteractions,
+      [],
+    );
+
+    for (const ranked of result) {
+      expect(['genre-picked', 'genre-affinity', 'service', 'none']).toContain(ranked.reasonCode);
+      expect(ranked.reasonCode === 'none').toBe(ranked.reason === null);
+    }
+  });
+
+  it('codes each branch with the code it names', () => {
+    const shown = title('a-title', { genres: ['horror'], availability: on('netflix') });
+    const cases: {
+      preferences: Preference;
+      interactions: Record<string, Interaction>;
+      catalog: MediaTitle[];
+      code: string;
+    }[] = [
+      {
+        preferences: preference({ genre: { values: ['horror'], any: false } }),
+        interactions: {},
+        catalog: [shown],
+        code: 'genre-picked',
+      },
+      {
+        // The rated title only contributes a signal because it is still in the
+        // catalog it was rated from — which is exactly why the affinity term
+        // reads the catalog before the filters drop it.
+        preferences: preference(),
+        interactions: { 'a-loved': rated('loved') },
+        catalog: [shown, title('a-loved', { genres: ['horror'] })],
+        code: 'genre-affinity',
+      },
+      {
+        preferences: preference({ provider: { values: ['netflix'], any: false } }),
+        interactions: {},
+        catalog: [shown],
+        code: 'service',
+      },
+      { preferences: preference(), interactions: {}, catalog: [shown], code: 'none' },
+    ];
+
+    for (const { preferences, interactions, catalog, code } of cases) {
+      const result = rankTitles(catalog, preferences, interactions, []);
+
+      expect(result[0]?.reasonCode).toBe(code);
+    }
+  });
+
+  it('names exactly the titles the ranker was willing to show', () => {
+    const preferences = preference({ genre: { values: ['horror'], any: false } });
+    const interactions = { 'a-rated': rated('disliked') };
+    const shown = ['a-shown'];
+    const catalog = [
+      title('a-rated', { genres: ['horror'] }),
+      title('a-shown', { genres: ['horror'] }),
+      title('a-kept', { genres: ['horror'] }),
+      title('off-genre', { genres: ['comedy'] }),
+    ];
+
+    const ranked = rankTitles(catalog, preferences, interactions, shown).map((t) => t.id);
+    const eligible = eligibleTitles(catalog, preferences, interactions, shown).map((t) => t.id);
+
+    expect(eligible).toEqual(ranked);
+  });
+
+  it('keeps the eligible list in catalog order, not ranked order', () => {
+    // The popularity baseline needs the same candidate pool, not the same
+    // order: it applies its own sort. Handing it the ranked list would make it
+    // a re-sorter of the incumbent instead of an independent baseline.
+    const catalog = [
+      title('aaa-worst', { rating: 4, voteCount: 10 }),
+      title('zzz-best', { rating: 9, voteCount: 100_000 }),
+    ];
+
+    expect(eligibleTitles(catalog, preference(), noInteractions, []).map((t) => t.id)).toEqual([
+      'aaa-worst',
+      'zzz-best',
+    ]);
+    expect(rankTitles(catalog, preference(), noInteractions, []).map((t) => t.id)).toEqual([
+      'zzz-best',
+      'aaa-worst',
+    ]);
   });
 });

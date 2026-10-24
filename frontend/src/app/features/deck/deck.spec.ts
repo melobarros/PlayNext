@@ -12,12 +12,18 @@ import { CatalogQuery } from '../../core/models/catalog-query';
 import { Interaction, INTERACTION_STORAGE_KEY, InteractionState } from '../../core/models/interaction';
 import { MediaTitle } from '../../core/models/media-title';
 import { QuizState } from '../../core/models/quiz';
+import { TelemetryBatch } from '../../core/models/telemetry';
 import { DECK_SESSION_STORAGE_KEY } from '../../core/models/deck-session';
+import { currentRegion } from '../../core/region';
 import { AuthService } from '../../core/services/auth.service';
 import { CatalogService } from '../../core/services/catalog.service';
 import { Connectivity } from '../../core/services/connectivity';
 import { InteractionStore } from '../../core/services/interaction-store';
 import { PreferenceStore } from '../../core/services/preference-store';
+import { filterDigest } from '../../core/telemetry/filter-digest';
+import { RecommendationTelemetry } from '../../core/telemetry/recommendation-telemetry';
+import { TELEMETRY_TRANSPORT, TelemetrySendResult, TelemetryTransport } from '../../core/telemetry/telemetry-transport';
+import { toPreference } from '../quiz/quiz-logic/quiz-rules';
 import { Deck, UNDO_WINDOW_MS } from './deck';
 
 /**
@@ -127,8 +133,15 @@ let ratedCatalog: MediaTitle[] = [];
 /** Whether the catalog had to fall back to cache (FR-013). */
 const usingCachedTitles = signal(false);
 
+/** The catalog snapshot the fake serves (009). */
+const CATALOG_VERSION = '2026-10-24T17:07:32.000Z';
+
+const catalogVersion = signal<string | null>(CATALOG_VERSION);
+
 class FakeCatalogService {
   readonly usingCachedTitles = usingCachedTitles.asReadonly();
+
+  readonly catalogVersion = catalogVersion.asReadonly();
 
   /** Every pool query the deck asked for, in order — the US2 contract. */
   readonly queries: CatalogQuery[] = [];
@@ -166,6 +179,8 @@ class DeferredCatalogService {
   private readonly requests: Subject<MediaTitle[]>[] = [];
 
   readonly usingCachedTitles = usingCachedTitles.asReadonly();
+
+  readonly catalogVersion = catalogVersion.asReadonly();
 
   /** How many times the catalog has been asked — the retry assertion. */
   get loadCalls(): number {
@@ -208,6 +223,37 @@ const offline = signal(false);
 class FakeConnectivity {
   readonly isOffline = offline.asReadonly();
 }
+
+/**
+ * The record's endpoint, captured instead of called (009).
+ *
+ * The queue's own behaviour is `recommendation-telemetry.spec.ts`'s job; what
+ * this file proves is what the *deck* puts in the queue. So the transport
+ * accepts everything and keeps the batches, and `refuse` makes it answer the
+ * one status the service treats as permanent — a 400 — so a test that breaks
+ * the record cannot accidentally wait on retry timers.
+ */
+class RecordingTransport implements TelemetryTransport {
+  readonly batches: TelemetryBatch[] = [];
+
+  refuse = false;
+
+  get impressions() {
+    return this.batches.flatMap((batch) => batch.impressions);
+  }
+
+  get actions() {
+    return this.batches.flatMap((batch) => batch.actions);
+  }
+
+  async send(batch: TelemetryBatch): Promise<TelemetrySendResult> {
+    this.batches.push(batch);
+    return { status: this.refuse ? 400 : 202, body: null };
+  }
+}
+
+/** The one transport this module's TestBed is built with. */
+let transport: RecordingTransport;
 
 /**
  * `count` interchangeable eligible titles.
@@ -304,6 +350,23 @@ describe('deck shell', () => {
     return (JSON.parse(raw) as { interactions: Record<string, Interaction> }).interactions;
   }
 
+  /** The queue the deck is recording into. */
+  function telemetry(): RecommendationTelemetry {
+    return TestBed.inject(RecommendationTelemetry);
+  }
+
+  /**
+   * Sends everything recorded so far.
+   *
+   * The microtask turns first: a threshold flush may already be in flight, and
+   * `flush()` returns immediately while one is — the drain is what makes the
+   * explicit call below reach the batch that flush left behind.
+   */
+  async function flushTelemetry(): Promise<void> {
+    for (let turn = 0; turn < 20; turn++) await Promise.resolve();
+    await telemetry().flush();
+  }
+
   /** Completes the quiz the way the quiz itself would, through the real store. */
   function completeQuiz(overrides: Partial<QuizState> = {}): void {
     TestBed.inject(PreferenceStore).write({
@@ -331,6 +394,7 @@ describe('deck shell', () => {
         provideRouter([]),
         { provide: CatalogService, useValue: new FakeCatalogService() },
         { provide: Connectivity, useValue: new FakeConnectivity() },
+        { provide: TELEMETRY_TRANSPORT, useValue: transport },
         ...extra,
       ],
     });
@@ -341,7 +405,9 @@ describe('deck shell', () => {
     catalog = CATALOG;
     ratedCatalog = [];
     usingCachedTitles.set(false);
+    catalogVersion.set(CATALOG_VERSION);
     offline.set(false);
+    transport = new RecordingTransport();
     configure();
   });
 
@@ -1023,16 +1089,23 @@ describe('deck shell', () => {
 
       it('leaves nothing running once it has fired', () => {
         // The timer is owned by the effect that created it, so the cleanup runs
-        // on the re-run and not only on destroy. Two ratings in a row must
-        // leave exactly one pending timer — a stray one would fire against a
-        // strip it does not own and withdraw an offer the visitor just received.
+        // on the re-run and not only on destroy. Two ratings in a row must not
+        // leave more timers behind than one — a stray undo timer would fire
+        // against a strip it does not own and withdraw an offer the visitor just
+        // received.
+        //
+        // Measured as a difference rather than an absolute count because the
+        // record (009) keeps a five-second flush timer of its own, and that one
+        // is scheduled once and belongs to neither rating.
         completeQuiz();
         build();
 
         tap('Liked It');
+        const afterOne = vi.getTimerCount();
+
         tap('Disliked');
 
-        expect(vi.getTimerCount()).toBe(1);
+        expect(vi.getTimerCount()).toBe(afterOne);
       });
     });
   });
@@ -1687,6 +1760,173 @@ describe('deck shell', () => {
       // cannot see) and are not an error. The deck is what the pool says it is.
       expect(shownTitle()).toBe('Alpha');
       expect(fake().idRequests).toEqual([['gone']]);
+    });
+  });
+
+  describe('what the deck records (009, US1)', () => {
+    it('records exactly one impression per displayed card, with a one-based position', async () => {
+      catalog = manyTitles(20);
+      completeQuiz();
+
+      build();
+      for (let index = 1; index < 20; index++) tap('Skip');
+
+      await flushTelemetry();
+
+      const impressions = transport.impressions;
+
+      expect(impressions.map((event) => event.titleId)).toEqual(
+        Array.from({ length: 20 }, (_, index) => `title-${String(index).padStart(2, '0')}`),
+      );
+      expect(impressions.map((event) => event.position)).toEqual(
+        Array.from({ length: 20 }, (_, index) => index + 1),
+      );
+
+      // One card, one record: the twenty actions below do not multiply it.
+      expect(new Set(impressions.map((event) => event.clientEventId)).size).toBe(20);
+    });
+
+    it('names the engine, the catalog snapshot, the filters, the score and the reason', async () => {
+      completeQuiz();
+
+      build();
+      await flushTelemetry();
+
+      const [impression] = transport.impressions;
+
+      const state = TestBed.inject(PreferenceStore).read();
+      const preference = state === null ? null : toPreference(state);
+      if (preference === null) throw new Error('The quiz should have produced a preference');
+
+      expect(impression).toMatchObject({
+        titleId: 'alpha',
+        surface: 'deck',
+        position: 1,
+        engineVersion: 'recommend-v1',
+        catalogVersion: CATALOG_VERSION,
+        reasonCode: 'genre-picked',
+      });
+
+      // The digest is the filters themselves — region and answers — not a value
+      // the deck invented. Comparing it to a second computation is what proves
+      // the record can be grouped with the decks it belongs with.
+      expect(impression.filterHash).toBe(filterDigest(currentRegion(), preference));
+      expect(impression.filterHash).toMatch(/^[0-9a-f]{16}$/);
+
+      expect(Number.isFinite(impression.score)).toBe(true);
+      expect(impression.score).toBeGreaterThan(0);
+    });
+
+    it('records a card restored by undo again, at the position it first held', async () => {
+      completeQuiz();
+
+      build(); // alpha, position 1
+      tap('Liked It'); // bravo, position 2
+      tap('Undo'); // alpha again, position 1
+
+      await flushTelemetry();
+
+      const alphas = transport.impressions.filter((event) => event.titleId === 'alpha');
+
+      expect(alphas.map((event) => event.position)).toEqual([1, 1]);
+
+      // Two displays, two events: an id shared between them would make the
+      // second look like a duplicate of the first and lose the re-display.
+      expect(alphas[0].clientEventId).not.toBe(alphas[1].clientEventId);
+    });
+
+    it('links each action to the impression of the card it answers', async () => {
+      completeQuiz();
+
+      build(); // alpha
+      tap('Skip'); // skip alpha, then bravo
+      tap('Liked It'); // liked bravo, then golf
+      tap('Undo'); // undo bravo's like, bravo again
+      tap('Disliked'); // disliked the restored bravo, then golf
+      vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      tap('Watch Now'); // watch_now golf
+
+      await flushTelemetry();
+
+      const impressionOf = (titleId: string, occurrence = -1): string =>
+        transport.impressions.filter((event) => event.titleId === titleId).at(occurrence)!
+          .clientEventId;
+
+      const actions = transport.actions;
+
+      expect(actions.map((action) => action.kind)).toEqual([
+        'skip',
+        'liked',
+        'undo',
+        'disliked',
+        'watch_now',
+      ]);
+
+      expect(actions[0].impressionClientEventId).toBe(impressionOf('alpha'));
+
+      // The first showing of bravo, then the re-display an undo restored — the
+      // two impressions the actions above have to tell apart.
+      expect(actions[1].impressionClientEventId).toBe(impressionOf('bravo', 0));
+      expect(actions[2].impressionClientEventId).toBe(impressionOf('bravo', 0));
+
+      // The dislike answers the re-display, not the first showing.
+      expect(actions[3].impressionClientEventId).toBe(impressionOf('bravo', 1));
+
+      // Golf was displayed twice too — once before the undo and again after the
+      // dislike — and the tap answered the one on screen.
+      expect(actions[4].impressionClientEventId).toBe(impressionOf('golf'));
+
+      const displays = new Set(transport.impressions.map((event) => event.clientEventId));
+      for (const action of actions) {
+        expect(displays.has(action.impressionClientEventId)).toBe(true);
+        expect(action.dwellMs).toBeGreaterThanOrEqual(0);
+      }
+    });
+
+    it('renders the same walk when the record cannot be sent, and says nothing about it', async () => {
+      catalog = manyTitles(6);
+      completeQuiz();
+
+      const walk = (): string[] => {
+        const seen: string[] = [];
+        for (let index = 0; index < 5; index++) {
+          seen.push(shownTitle());
+          tap('Skip');
+        }
+        seen.push(shownTitle());
+        return seen;
+      };
+
+      transport.refuse = true;
+      build();
+      const withFailure = walk();
+
+      await flushTelemetry();
+      const counters = telemetry().counters();
+
+      fixture.destroy();
+
+      // A fresh module, not just fresh storage: the stores are root singletons
+      // and `DeckSessionStore` keeps a memory fallback, so clearing LocalStorage
+      // alone would hand the "new" deck the old walk (detail.spec.ts does the
+      // same thing for the same reason).
+      TestBed.resetTestingModule();
+      localStorage.clear();
+      configure();
+      completeQuiz();
+      transport.refuse = false;
+      build();
+      const withSuccess = walk();
+
+      // The deck the visitor walks is the deck, full stop: the record is a
+      // side-channel and its trouble never reaches the screen (FR-006, FR-007).
+      expect(withFailure).toEqual(withSuccess);
+      expect(cards()).toHaveLength(1);
+      expect(text().toLowerCase()).not.toContain('error');
+
+      // And the loss was counted where nobody sees it.
+      expect(counters.lostBatches).toBe(1);
+      expect(counters.lostEvents).toBe(11);
     });
   });
 });

@@ -62,6 +62,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<CatalogRetiredTitle> CatalogRetiredTitles => Set<CatalogRetiredTitle>();
 
+    // -----------------------------------------------------------------------
+    // Recommendation telemetry (009)
+    // -----------------------------------------------------------------------
+
+    /// <summary>Every recommendation card displayed. Append-only.</summary>
+    public DbSet<RecommendationImpression> RecommendationImpressions => Set<RecommendationImpression>();
+
+    /// <summary>Every visitor response to a displayed card. Append-only.</summary>
+    public DbSet<RecommendationAction> RecommendationActions => Set<RecommendationAction>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -192,6 +202,63 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         });
 
         ConfigureNormalizedCatalog(builder);
+        ConfigureRecommendationTelemetry(builder);
+    }
+
+    /// <summary>
+    /// The telemetry tables' keys, indexes, and one foreign key (data-model
+    /// §Persistent model).
+    ///
+    /// The client event ids are unique indexes rather than primary keys because
+    /// the server still needs a monotonic key to link actions and to purge in
+    /// batches. The account and title columns deliberately carry no foreign
+    /// key: this is an observation log, and it must outlive both the account it
+    /// describes and the catalog row it names (research D4).
+    /// </summary>
+    private static void ConfigureRecommendationTelemetry(ModelBuilder builder)
+    {
+        builder.Entity<RecommendationImpression>(impression =>
+        {
+            impression.HasKey(i => i.Id);
+
+            impression.Property(i => i.ClientEventId).IsRequired();
+            impression.HasIndex(i => i.ClientEventId).IsUnique();
+
+            impression.Property(i => i.SessionId).HasMaxLength(64).IsRequired();
+            impression.Property(i => i.TitleId).HasMaxLength(64).IsRequired();
+            impression.Property(i => i.Surface).HasMaxLength(16).IsRequired();
+            impression.Property(i => i.EngineVersion).HasMaxLength(32).IsRequired();
+            impression.Property(i => i.FilterHash).HasMaxLength(32).IsRequired();
+            impression.Property(i => i.ReasonCode).HasMaxLength(32).IsRequired();
+
+            impression.HasIndex(i => new { i.SessionId, i.ReceivedAt });
+            impression.HasIndex(i => i.ReceivedAt);
+            impression.HasIndex(i => new { i.TitleId, i.ReceivedAt });
+
+            // Partial: most events are anonymous, so an unconditional index
+            // would be mostly nulls and would not serve the account queries.
+            impression
+                .HasIndex(i => new { i.UserId, i.ReceivedAt })
+                .HasFilter("\"UserId\" IS NOT NULL");
+        });
+
+        builder.Entity<RecommendationAction>(action =>
+        {
+            action.HasKey(a => a.Id);
+
+            action.Property(a => a.ClientEventId).IsRequired();
+            action.HasIndex(a => a.ClientEventId).IsUnique();
+
+            action.Property(a => a.Kind).HasMaxLength(16).IsRequired();
+
+            action
+                .HasOne(a => a.Impression)
+                .WithMany(i => i.Actions)
+                .HasForeignKey(a => a.ImpressionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            action.HasIndex(a => new { a.Kind, a.ReceivedAt });
+        });
     }
 
     /// <summary>

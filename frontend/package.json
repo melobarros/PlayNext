@@ -6,7 +6,8 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "eval": "ng test --watch=false --reporters=verbose --include=src/app/features/deck/deck-logic/evaluation/**/*.spec.ts"
   },
   "private": true,
   "packageManager": "npm@11.19.0",

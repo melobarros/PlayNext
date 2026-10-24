@@ -14,6 +14,7 @@ using PlayNext.Domain;
 using PlayNext.Infrastructure.Catalog;
 using PlayNext.Infrastructure.Persistence;
 using PlayNext.Infrastructure.Security;
+using PlayNext.Infrastructure.Telemetry;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -283,6 +284,27 @@ builder.Services.AddScoped(services =>
 builder.Services.AddScoped<MigrateCatalogUseCase>();
 builder.Services.AddScoped<CatalogRetentionUseCase>();
 
+// ---------------------------------------------------------------------------
+// Recommendation telemetry (009)
+// ---------------------------------------------------------------------------
+
+// Scoped, because it writes through a DbContext. The limiter is a singleton
+// for the opposite reason: a per-request window would reset every flush and
+// throttle nothing. Its state is a few counters per session, forgotten on
+// restart — see the class for why that is the right failure for a throttle
+// that is not a quota.
+builder.Services.AddScoped<IRecommendationEventStore, RecommendationEventStore>();
+builder.Services.AddSingleton<IRecommendationIntakeLimiter, RecommendationIntakeLimiter>();
+builder.Services.AddScoped<RecordRecommendationEventsUseCase>();
+
+// Retention (FR-018): the purge is scoped because it holds a DbContext, and a
+// hosted service rather than startup work because a slow delete must not make
+// the host look unhealthy. One pass at start, then daily — see the service for
+// why start is the pass that matters on a scale-to-zero host.
+builder.Services.AddScoped<IRecommendationRetentionStore, RecommendationRetentionStore>();
+builder.Services.AddScoped<PurgeRecommendationEventsUseCase>();
+builder.Services.AddHostedService<RecommendationRetentionService>();
+
 // Two opt-in one-shot passes, both background services rather than startup
 // work: a slow purge or a snapshot migration must not make the host look
 // unhealthy, and neither failure is a reason to refuse every request.
@@ -447,6 +469,7 @@ app.UseAuthorization();
 app.MapAuthEndpoints();
 app.MapStateEndpoints();
 app.MapCatalogEndpoints();
+app.MapRecommendationEndpoints();
 
 // An API path that matched no endpoint is a 404 the caller can read, not the
 // PWA's shell. This exists because the fallback below would otherwise answer it

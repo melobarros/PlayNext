@@ -17,6 +17,7 @@ import { QuizState } from '../../../core/models/quiz';
 import { CatalogService } from '../../../core/services/catalog.service';
 import { Connectivity } from '../../../core/services/connectivity';
 import { PreferenceStore } from '../../../core/services/preference-store';
+import { TELEMETRY_TRANSPORT } from '../../../core/telemetry/telemetry-transport';
 import { Deck } from '../../deck/deck';
 import { Detail } from './detail';
 
@@ -95,6 +96,9 @@ class FakeCatalogService {
   /** A signal, like the real one — the deck reads it as `usingCachedTitles()`. */
   readonly usingCachedTitles = signal(false).asReadonly();
 
+  /** The catalog snapshot the deck names on every impression (009). */
+  readonly catalogVersion = signal('2026-10-24T17:07:32.000Z').asReadonly();
+
   /** Every id batch the view asked for, in order — one per view (US2). */
   readonly idRequests: string[][] = [];
 
@@ -138,6 +142,8 @@ describe('title details', () => {
         provideRouter([{ path: 'watchlist', children: [] }]),
         { provide: CatalogService, useValue: service },
         { provide: Connectivity, useValue: new FakeConnectivity() },
+        // The deck's record (009) accepts without reaching the network.
+        { provide: TELEMETRY_TRANSPORT, useValue: { send: async () => ({ status: 202, body: null }) } },
       ],
     });
   }
@@ -724,6 +730,9 @@ describe('title details', () => {
         providers: [
           provideRouter(routes, withComponentInputBinding()),
           { provide: CatalogService, useValue: new FakeCatalogService() },
+          // `/deck` is in this route table, so these tests can land on the
+          // deck's record (009). Accepting keeps it off the network.
+          { provide: TELEMETRY_TRANSPORT, useValue: { send: async () => ({ status: 202, body: null }) } },
         ],
       });
     });
