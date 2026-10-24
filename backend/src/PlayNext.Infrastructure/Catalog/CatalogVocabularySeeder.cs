@@ -15,10 +15,31 @@ namespace PlayNext.Infrastructure.Catalog;
 /// </summary>
 public sealed class CatalogVocabularySeeder(AppDbContext db)
 {
+    /// <summary>
+    /// The transaction-scoped advisory lock that serializes seeders.
+    /// The value is <c>0x506C61794E657874</c> — "PlayNext" in ASCII — chosen so
+    /// it cannot collide with a lock key another feature invents by accident.
+    /// </summary>
+    private const long SeedLockKey = 0x506C61794E657874;
+
     public async Task SeedAsync(CancellationToken cancellationToken)
     {
+        // Every instance seeds at startup, and two instances starting together
+        // against a fresh database would both read an empty table and both
+        // insert the same vocabulary; the second would fail on the primary key.
+        // The advisory lock is taken before the reads, in the same transaction,
+        // so the second instance waits and then sees the first one's committed
+        // rows and turns its inserts into updates. A crashed start releases the
+        // lock with the transaction.
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await db.Database.ExecuteSqlAsync(
+            $"SELECT pg_advisory_xact_lock({SeedLockKey})",
+            cancellationToken);
+
         await SeedGenresAsync(cancellationToken);
         await SeedServicesAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
     }
 
     private async Task SeedGenresAsync(CancellationToken cancellationToken)
