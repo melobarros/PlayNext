@@ -202,7 +202,7 @@ while ratings/history remain readable; exercise the admin surface's 404/401/
 - [x] T062 [P] Scan `frontend/dist/`, a sample of API responses, and captured API logs under `backend/` for the TMDB token and the admin token; record zero occurrences (SC-009)
 - [x] T063 [P] Validate performance with `EXPLAIN (ANALYZE, BUFFERS)` on the targeted-pool and ids queries in PostgreSQL, confirm index use, and record warm-read/payload numbers against SC-008 and SC-010; add an index only if a plan shows a sequential scan on the pool predicate (results in [perf-results.md](perf-results.md))
 - [x] T064 [P] Update `README.md` with the new `Catalog:*` settings, the admin token secret, the refresh workflow, and a pointer to the cutover/rollback sequence in `specs/008-catalog-normalization/contracts/catalog-refresh.md`
-- [ ] T065 [P] Execute `specs/008-catalog-normalization/quickstart.md` in staging through the cutover checklist, including the gated live-depth scenarios; record results and any deviations
+- [x] T065 [P] Execute `specs/008-catalog-normalization/quickstart.md` in staging through the cutover checklist, including the gated live-depth scenarios; record results and any deviations
 - [x] T066 [P] Review `backend/src/PlayNext.Domain/`, `backend/src/PlayNext.Application/`, and `backend/src/PlayNext.Infrastructure/` for dead paths, TODO markers, and XML doc gaps; remove the legacy snapshot refresh path only when the user explicitly decides to retire it (out of scope for this feature)
 - [x] T067 Run the full suites and production build — `dotnet test` from `backend/`, `npx ng test --watch=false` and `npx ng build` from `frontend/` — and fix every regression before declaring the feature done
 

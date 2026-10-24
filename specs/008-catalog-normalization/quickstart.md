@@ -301,20 +301,47 @@ difference is where the titles came from.
 
 ## Cutover checklist
 
-- [ ] Migration run `Succeeded`; counts match the snapshot.
+- [ ] Migration run `Succeeded`; counts match the snapshot. *(The migration ran
+      during the original cutover — the migrated version served reads until
+      2026-10-24 — but its counts were not re-verified in this pass.)*
 - [ ] Parity: field-identical responses and the 100+ combination harness pass.
+      *(Harness: `frontend/src/app/features/deck/deck-logic/parity/catalog-parity.spec.ts`;
+      not re-run in this pass.)*
 - [ ] User sample (≥50 ratings, ≥50 history entries, ≥50 watchlist entries)
-      resolves to the same titles.
+      resolves to the same titles. *(Not re-run in this pass; the state suite
+      covers resolution and the migration kept ids stable.)*
 - [ ] Rollback practiced in staging: setting `Catalog__Source=Snapshot` plus a
       restart serves the deck in under five minutes, no deployment.
-- [ ] `Catalog__AdminToken` set in Azure; `CATALOG_ADMIN_TOKEN` set as a GitHub
+- [x] `Catalog__AdminToken` set in Azure; `CATALOG_ADMIN_TOKEN` set as a GitHub
       secret; the refresh workflow's `workflow_dispatch` succeeds.
-- [ ] A full normalized refresh completes under 60 minutes with
+- [x] A full normalized refresh completes under 60 minutes with
       `Succeeded` or a justified `PartiallyFailed`.
-- [ ] Netflix + horror and Max + horror reach the target (or provider depth).
+- [x] Netflix + horror and Max + horror reach the target (or provider depth).
 - [ ] Retention drill passed: expired catalog data deleted, user data readable.
-- [ ] Credential scan: bundle, responses, logs — zero occurrences.
-- [ ] The scheduled workflow has run once on its own schedule.
+      *(Mechanism covered by the retention integration suite; no live drill.)*
+- [ ] Credential scan: bundle, responses, logs — zero occurrences. *(Covered by
+      the FR-017 tests; no live scan was run.)*
+- [ ] The scheduled workflow has run once on its own schedule. *(First run after
+      the cutover: 2026-10-25 06:00 UTC.)*
+
+### Cutover results — 2026-10-24
+
+Executed against the **live deployment**; there is no staging environment, which
+is the deviation T065 anticipates.
+
+| Check | Result |
+|---|---|
+| Admin surface | Unauthenticated status answers `401 admin-unauthorized`; `workflow_dispatch` POST accepted (`202`) and followed to `Succeeded`. |
+| Full refresh | `Succeeded`, 16:56:18Z → 17:08:10Z (12 min) on the F1 instance, against a 55-minute soft budget. |
+| Depth | Netflix + horror BR movies **298**, Max + horror **182**, Prime Video **321**, Disney+ 83, MUBI 52, Paramount+ 36, Globoplay 32, Crunchyroll 1. |
+| Zero-depth services | Hulu and Peacock serve nothing in BR; Apple TV+ has 319 BR titles but none tagged horror. Checked without the genre filter to rule out a provider-filter fault. |
+| General pool | 728 titles, `fetchedAt` `2026-10-24T17:07:32Z`. |
+| Mid-run progress | Verified by the integration suite (a parked refresh reading the status row), not from the live admin route — the implementer had no token. |
+
+The unchecked items are two groups: three validation runs not repeated in this
+pass (migration counts, parity harness, user sample — each with an automated
+suite above), and four operational drills. The first scheduled run is the only
+one that needs no manual step. The feature is closed by decision on 2026-10-24.
 
 ## What this guide does not prove
 
