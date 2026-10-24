@@ -435,28 +435,11 @@ public sealed class StubTmdbHandler : HttpMessageHandler
     /// counts.
     ///
     /// A refresh keeps several calls in flight, so this list is appended from
-    /// more than one thread. Tests read it — and call <see cref="Reset"/> — only
-    /// once the run is idle, so <see cref="_requestsSync"/> needs to guard the
-    /// writing side alone.
+    /// more than one thread. <see cref="_gateSync"/> guards it, together with the
+    /// gate and the counter: a test that parks a run at a given call count needs
+    /// the log and the gate to agree on what that count is.
     /// </summary>
     public List<string> Requests { get; } = [];
-
-    private readonly object _requestsSync = new();
-
-    /// <summary>
-    /// How many calls have arrived so far, read safely while a refresh is still
-    /// running — the one number a concurrency test needs mid-flight.
-    /// </summary>
-    public int RequestCount
-    {
-        get
-        {
-            lock (_requestsSync)
-            {
-                return Requests.Count;
-            }
-        }
-    }
 
     /// <summary>When set, every call fails as a network error — the provider being unreachable.</summary>
     public bool IsDown { get; set; }
@@ -464,7 +447,28 @@ public sealed class StubTmdbHandler : HttpMessageHandler
     /// <summary>The gate every upstream call waits behind while it is held.</summary>
     private readonly object _gateSync = new();
 
+    /// <summary>How many calls have arrived so far; guarded by <see cref="_gateSync"/>.</summary>
+    private int _requestCount;
+
+    /// <summary>The count at which a waiting gate closes; guarded by <see cref="_gateSync"/>.</summary>
+    private int? _holdAfter;
+
     private TaskCompletionSource _gate = Completed();
+
+    /// <summary>
+    /// How many calls have arrived so far, read safely while a refresh is still
+    /// running — the one number a test needs mid-flight.
+    /// </summary>
+    public int RequestCount
+    {
+        get
+        {
+            lock (_gateSync)
+            {
+                return _requestCount;
+            }
+        }
+    }
 
     /// <summary>
     /// Holds every upstream call until <see cref="Release"/>.
@@ -479,9 +483,25 @@ public sealed class StubTmdbHandler : HttpMessageHandler
     {
         lock (_gateSync)
         {
-            if (_gate.Task.IsCompleted)
+            _holdAfter = null;
+            CloseGate();
+        }
+    }
+
+    /// <summary>
+    /// Closes the gate once <paramref name="requests"/> calls have arrived, so a
+    /// test can park a run just after a known point in the plan (for example,
+    /// after the general slice) instead of at its very start.
+    /// </summary>
+    public void HoldAfter(int requests)
+    {
+        lock (_gateSync)
+        {
+            _holdAfter = Math.Max(1, requests);
+
+            if (_requestCount >= _holdAfter)
             {
-                _gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                CloseGate();
             }
         }
     }
@@ -493,6 +513,7 @@ public sealed class StubTmdbHandler : HttpMessageHandler
 
         lock (_gateSync)
         {
+            _holdAfter = null;
             gate = _gate;
             _gate = Completed();
         }
@@ -500,11 +521,12 @@ public sealed class StubTmdbHandler : HttpMessageHandler
         gate.TrySetResult();
     }
 
-    private Task GateAsync()
+    /// <summary>Closes the gate if it is open. The caller holds <see cref="_gateSync"/>.</summary>
+    private void CloseGate()
     {
-        lock (_gateSync)
+        if (_gate.Task.IsCompleted)
         {
-            return _gate.Task;
+            _gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         }
     }
 
@@ -556,9 +578,11 @@ public sealed class StubTmdbHandler : HttpMessageHandler
         FailureStatus = HttpStatusCode.InternalServerError;
         FailingProviderIds.Clear();
 
-        lock (_requestsSync)
+        lock (_gateSync)
         {
             Requests.Clear();
+            _requestCount = 0;
+            _holdAfter = null;
         }
     }
 
@@ -700,15 +724,25 @@ public sealed class StubTmdbHandler : HttpMessageHandler
         CancellationToken cancellationToken)
     {
         var url = request.RequestUri!;
+        Task gate;
 
-        lock (_requestsSync)
+        lock (_gateSync)
         {
             Requests.Add(url.PathAndQuery);
+            _requestCount++;
+
+            // The test decides how long a refresh takes: a held gate keeps this
+            // call — and the slice waiting on it — in flight until Release.
+            if (_holdAfter is { } holdAt && _requestCount >= holdAt)
+            {
+                _holdAfter = null;
+                CloseGate();
+            }
+
+            gate = _gate.Task;
         }
 
-        // The test decides how long a refresh takes: a held gate keeps this
-        // call — and the slice waiting on it — in flight until Release.
-        await GateAsync().WaitAsync(cancellationToken);
+        await gate.WaitAsync(cancellationToken);
 
         if (IsDown)
         {

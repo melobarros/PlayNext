@@ -85,6 +85,7 @@ public sealed class RefreshCatalogUseCase(
             var enriched = new ConcurrentDictionary<string, CatalogTitleObservation>(StringComparer.Ordinal);
             var fresh = new List<SliceOutcome>(plan.Count);
             var failures = new Dictionary<string, string>(StringComparer.Ordinal);
+            var progress = new Dictionary<string, CatalogRunCounts>(StringComparer.Ordinal);
 
             foreach (var slice in plan)
             {
@@ -94,6 +95,8 @@ public sealed class RefreshCatalogUseCase(
                 {
                     var outcome = await ExecuteSliceAsync(region, slice, enriched, linked.Token);
                     fresh.Add(outcome);
+
+                    progress[slice.Name] = SliceCounts(outcome, region, sliceStarted);
 
                     log.SliceCompleted(
                         region,
@@ -123,6 +126,11 @@ public sealed class RefreshCatalogUseCase(
                         ? $"{Describe(exception)}; no previous version to carry"
                         : $"{Describe(exception)}; last-known-good carried";
 
+                    // The slice's own contribution is unknown until the
+                    // composition carries it; a watching operator sees the
+                    // failure immediately and the carried count at the end.
+                    progress[slice.Name] = new CatalogRunCounts();
+
                     log.SliceCompleted(
                         region,
                         slice.Name,
@@ -133,6 +141,12 @@ public sealed class RefreshCatalogUseCase(
                         0,
                         time.GetUtcNow() - sliceStarted);
                 }
+
+                // Written after each slice, not during one: a slice is the
+                // smallest unit a run can report without inventing a partial
+                // one, and this is what lets the status endpoint show eleven
+                // finished slices instead of only "Running".
+                await ReportProgressAsync(region, runId, progress, failures, linked.Token);
             }
 
             if (failures.Count > 0 && active is null)
@@ -316,6 +330,64 @@ public sealed class RefreshCatalogUseCase(
                 ?? failures[0];
 
             ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
+
+    /// <summary>
+    /// A finished slice's counts as the status endpoint can show them before the
+    /// version is composed.
+    ///
+    /// The availability count is folded with the same rule the composition uses,
+    /// so the number an operator watches during a run matches the number the
+    /// finished run records — including the fact that a title discovered by
+    /// several slices is counted in each of them, exactly as <see cref="Counts"/>
+    /// does. What progress cannot know yet is a failed slice's carried
+    /// contribution; that appears when the terminal write composes the version.
+    /// </summary>
+    private static CatalogRunCounts SliceCounts(
+        SliceOutcome outcome,
+        string region,
+        DateTimeOffset observedAt)
+    {
+        // Folding a title's offers does not depend on the run-wide service
+        // vocabulary — that map is only accumulated for the composition — so a
+        // scratch one keeps this path free of the composition's state.
+        var services = new Dictionary<string, CatalogServiceRow>(StringComparer.Ordinal);
+
+        return new CatalogRunCounts(
+            Discovered: outcome.Discovered,
+            Fresh: outcome.Observations.Count,
+            Carried: 0,
+            Skipped: 0,
+            Enriched: outcome.Enriched,
+            AvailabilityEntries: outcome.Observations.Sum(observation =>
+                AvailabilityFor(observation, region, observedAt, services).Count));
+    }
+
+    /// <summary>
+    /// Publishes the slices finished so far, and swallows a failure to do so:
+    /// progress is an account of the run, not part of building it, and must not
+    /// decide whether the run succeeds. The run's own timeout is the exception —
+    /// that is the run ending, not a progress problem.
+    /// </summary>
+    private async Task ReportProgressAsync(
+        string region,
+        Guid runId,
+        IReadOnlyDictionary<string, CatalogRunCounts> counts,
+        IReadOnlyDictionary<string, string> failures,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await runs.ProgressAsync(runId, counts, failures, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            log.ProgressUnavailable(region);
         }
     }
 

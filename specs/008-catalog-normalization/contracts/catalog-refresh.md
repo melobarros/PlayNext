@@ -109,9 +109,13 @@ Returns the most recent run for a region, including a run that is still
 }
 ```
 
-While `status` is `Running`, `completedAt`, `durationSeconds`, `versionId`, and
-`counts` may be `null`; `counts` is written when the run finishes. If the region
-has never had a run:
+While `status` is `Running`, `completedAt`, `durationSeconds`, and `versionId`
+are `null`. `counts` and `failures` are written after each slice finishes, so a
+run in progress shows the slices already done — and any that failed — instead of
+an empty object; a failed slice shows zeroed counts until the terminal write
+records what the composition carried. Each write replaces both objects whole;
+the terminal write is the final one and must win over any progress write still
+in flight. If the region has never had a run:
 
 ```json
 { "region": "BR", "status": "none" }
