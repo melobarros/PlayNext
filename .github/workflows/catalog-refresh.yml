@@ -1,0 +1,128 @@
+# Daily catalog refresh (feature 008, contracts/catalog-refresh.md).
+#
+# The refresh itself runs inside the API: this job only starts it and watches
+# the run's own status. There is no checkout, no build and no `az` login — the
+# workflow's whole job is to press one button and report what happened.
+#
+# The two secrets it reads are the ones the deploy workflow already uses: the
+# publish profile is here only because it is the one place that knows the app's
+# real hostname, and the admin token is what the endpoint requires. Neither is
+# ever echoed.
+name: Catalog refresh
+
+on:
+  schedule:
+    # 06:00 UTC, before the European morning. GitHub may delay a scheduled run
+    # under load, which is harmless: the refresh is idempotent per region.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+# One refresh at a time, and never cancel one that is already running — the
+# endpoint refuses a second start for the same region anyway, and killing the
+# job mid-poll would leave a successful refresh unreported.
+concurrency:
+  group: catalog-refresh
+  cancel-in-progress: false
+
+# Nothing here writes to the repository, and nothing needs a token beyond the
+# two secrets named explicitly below.
+permissions: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Start the refresh and follow it
+        env:
+          PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          ADMIN_TOKEN: ${{ secrets.CATALOG_ADMIN_TOKEN }}
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+
+          [ -n "$ADMIN_TOKEN" ] || fail "CATALOG_ADMIN_TOKEN is not set."
+
+          # The same publish-profile parsing the deploy workflow's smoke test
+          # uses, for the same reason: App Service does not always hand out
+          # `<name>.azurewebsites.net`, and the short form may not even resolve.
+          host=$(printf '%s' "$PUBLISH_PROFILE" \
+            | grep -o 'destinationAppUrl="[^"]*"' \
+            | head -1 \
+            | sed -e 's/.*="//' -e 's/"$//' -e 's|^https\?://||' -e 's|/.*$||')
+
+          [ -n "$host" ] || fail "No destinationAppUrl in the publish profile."
+          BASE_URL="https://$host"
+
+          # --- Start -------------------------------------------------------
+          # The request body is a sanitized status document, never a catalog
+          # payload, so printing it on an unexpected status is safe.
+          body=$(mktemp)
+          code=$(curl -s -o "$body" -m 30 -w '%{http_code}' -X POST \
+            -H "X-PlayNext-Admin-Token: $ADMIN_TOKEN" \
+            "$BASE_URL/api/catalog/refresh?region=BR")
+
+          case "$code" in
+            202)
+              echo "Refresh started: $(cat "$body")"
+              ;;
+            409)
+              # Another run owns the region. It reports itself through its own
+              # status; starting a second one is neither needed nor possible.
+              echo "::notice::A catalog refresh is already running for BR; nothing to do."
+              exit 0
+              ;;
+            *)
+              cat "$body" || true
+              fail "POST /api/catalog/refresh returned $code, expected 202 or 409."
+              ;;
+          esac
+
+          # --- Follow ------------------------------------------------------
+          # 30-second polls for up to 75 minutes: longer than the server's own
+          # soft timeout (Catalog:RefreshTimeoutMinutes, default 55) so the run
+          # gets to report its terminal state rather than being declared dead
+          # from here. Polling also keeps the F1 instance awake while the
+          # in-process refresh runs.
+          for attempt in $(seq 1 150); do
+            sleep 30
+
+            status_body=$(mktemp)
+            status_code=$(curl -s -o "$status_body" -m 30 -w '%{http_code}' \
+              -H "X-PlayNext-Admin-Token: $ADMIN_TOKEN" \
+              "$BASE_URL/api/catalog/refresh/status?region=BR")
+
+            if [ "$status_code" != "200" ]; then
+              echo "  poll $attempt — status endpoint returned $status_code, retrying"
+              continue
+            fi
+
+            status=$(jq -r '.status // empty' "$status_body" 2>/dev/null || true)
+
+            case "$status" in
+              Running)
+                echo "  poll $attempt — still running"
+                ;;
+              Succeeded)
+                echo "Catalog refresh succeeded for BR."
+                exit 0
+                ;;
+              PartiallyFailed)
+                # A promoted version with one or more slices carried from the
+                # previous run. Readers are fine, and today's failure is worth
+                # seeing without waking anyone.
+                slices=$(jq -r '.failures // {} | keys | join(", ")' "$status_body" 2>/dev/null || true)
+                echo "::warning::Catalog refresh partially failed for BR (carried slices: ${slices:-unknown}). A mixed version was promoted."
+                exit 0
+                ;;
+              Failed | Abandoned | none | "")
+                echo "Catalog refresh did not complete for BR:"
+                cat "$status_body"
+                fail "Refresh finished as ${status:-unknown}."
+                ;;
+              *)
+                echo "  poll $attempt — unrecognised status '$status', retrying"
+                ;;
+            esac
+          done
+
+          fail "Catalog refresh for BR did not finish within 75 minutes."

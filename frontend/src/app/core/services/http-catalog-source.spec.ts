@@ -118,6 +118,63 @@ describe('httpCatalogSource', () => {
 
       await titles;
     });
+
+    it('sends each filter as one comma-separated value', async () => {
+      const titles = lastValueFrom(
+        source.load('BR', {
+          services: ['netflix', 'max'],
+          genres: ['horror', 'thriller'],
+          mediaTypes: ['movie', 'tv'],
+        }),
+      );
+
+      const request = http.expectOne((candidate) => candidate.url === '/api/catalog');
+
+      // One value per dimension, in the contract's spelling: OR within the
+      // list is the server's to apply, and repeating the parameter would leave
+      // that reading up to the framework instead of the contract.
+      expect(request.request.params.get('region')).toBe('BR');
+      expect(request.request.params.get('services')).toBe('netflix,max');
+      expect(request.request.params.get('genres')).toBe('horror,thriller');
+      expect(request.request.params.get('mediaTypes')).toBe('movie,tv');
+      expect(request.request.params.has('ids')).toBe(false);
+
+      request.flush({ region: 'BR', fetchedAt: '2026-09-28T14:05:00Z', titles: [] });
+      await titles;
+    });
+
+    it('sends an id batch as the ids parameter', async () => {
+      const ids = ['tmdb:movie:27205', 'tmdb:tv:1396'];
+      const titles = lastValueFrom(source.load('BR', { ids }));
+
+      const request = http.expectOne(
+        (candidate) => candidate.params.get('ids') === 'tmdb:movie:27205,tmdb:tv:1396',
+      );
+
+      // The id batch carries no other dimension: the screens that use it hold
+      // ids and nothing else, and the pool's filters would only narrow what
+      // they already know they need.
+      expect(request.request.params.has('services')).toBe(false);
+      expect(request.request.params.has('genres')).toBe(false);
+      expect(request.request.params.has('mediaTypes')).toBe(false);
+
+      request.flush({ region: 'BR', fetchedAt: '2026-09-28T14:05:00Z', titles: WIRE_TITLES });
+      await titles;
+    });
+
+    it('omits a dimension the caller left empty', async () => {
+      const titles = lastValueFrom(source.load('BR', { services: [], genres: [] }));
+
+      const request = http.expectOne((candidate) => candidate.url === '/api/catalog');
+
+      // `?services=` is not a smaller request, it is an ambiguous one. The
+      // server would ignore it; leaving it out says so once, on the way out.
+      expect(request.request.params.has('services')).toBe(false);
+      expect(request.request.params.has('genres')).toBe(false);
+
+      request.flush({ region: 'BR', fetchedAt: '2026-09-28T14:05:00Z', titles: [] });
+      await titles;
+    });
   });
 
   describe('the mapping', () => {

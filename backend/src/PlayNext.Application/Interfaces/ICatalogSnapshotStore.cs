@@ -33,4 +33,13 @@ public interface ICatalogSnapshotStore
     /// never a mixture of a good fetch and a failed one (FR-013).
     /// </summary>
     Task SaveAsync(CatalogSnapshot snapshot, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The regions that currently have a readable, in-retention snapshot.
+    ///
+    /// Exists for the opt-in migration runner (research D6), which must attempt
+    /// every region the snapshot path still serves — and only those, because a
+    /// snapshot past the retention limit is not a legitimate source.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListRegionsAsync(CancellationToken cancellationToken);
 }

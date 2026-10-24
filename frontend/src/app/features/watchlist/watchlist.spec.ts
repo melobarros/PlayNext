@@ -56,8 +56,24 @@ class FakeCatalogService {
   /** A signal, like the real one — templates read it as `usingCachedTitles()`. */
   readonly usingCachedTitles = this.fellBack.asReadonly();
 
+  /** Every id batch the view asked for, in order — one per view (US2). */
+  readonly idRequests: string[][] = [];
+
   loadTitles(_region: string): Observable<MediaTitle[]> {
     return of(CATALOG.map((candidate) => ({ ...candidate })));
+  }
+
+  loadTitlesById(_region: string, ids: readonly string[]): Observable<MediaTitle[]> {
+    this.idRequests.push([...ids]);
+
+    // A catalog that answers with what it knows: an id it has never heard of
+    // comes back missing, exactly as the real one behaves.
+    const wanted = new Set(ids);
+    return of(
+      CATALOG.filter((candidate) => wanted.has(candidate.id)).map((candidate) => ({
+        ...candidate,
+      })),
+    );
   }
 }
 
@@ -458,6 +474,46 @@ describe('watchlist', () => {
 
       expect(screen.querySelector('a[href="/watchlist/title/t-want"]')).not.toBeNull();
       expect(screen.textContent).toContain('Wanted');
+    });
+  });
+
+  /**
+   * What the watchlist asks the catalog for (feature 008, US2).
+   *
+   * One `ids` request for the whole view, built from the document's own keys.
+   * The pool endpoint is never asked: this screen has no preferences to apply,
+   * and a region-wide pool would fetch titles it is not going to render.
+   */
+  describe('the ids request (US2)', () => {
+    it('asks for the rated ids in one request, and asks for nothing else', () => {
+      build();
+
+      expect(catalogService.idRequests).toHaveLength(1);
+      expect([...catalogService.idRequests[0]].sort()).toEqual(Object.keys(RATINGS).sort());
+    });
+
+    it('does not ask at all when nothing is rated', () => {
+      saveRatings({});
+
+      build();
+
+      // An empty id list is already a complete answer; the round trip could
+      // not change the screen, and the empty state has its own way out.
+      expect(catalogService.idRequests).toEqual([]);
+      expect(tabs()).toHaveLength(2);
+    });
+
+    it('keeps a rated title the catalog no longer carries, without its name', () => {
+      saveRatings({ ...RATINGS, 't-gone': 'loved' });
+
+      build();
+      openTab('Liked');
+
+      // The row stays listed and stays tappable, so the rating it holds can
+      // still be seen and cleared. Dropping it would strand the rating with no
+      // way back — the dead end Principle II forbids.
+      expect(rows()).toContain('/watchlist/title/t-gone');
+      expect(rowTexts().some((row) => row.includes('Unavailable title'))).toBe(true);
     });
   });
 });

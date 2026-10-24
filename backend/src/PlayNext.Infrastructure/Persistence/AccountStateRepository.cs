@@ -56,10 +56,49 @@ public sealed class AccountStateRepository(AppDbContext db) : IAccountStateRepos
         ApplyHistory(userId, storedHistory, merged);
         ApplyPreferences(userId, storedPreference, merged);
 
+        // Ratings and history may name a title the catalog has not discovered
+        // yet — a visitor can rate a card the previous version's deck showed
+        // while a newer version is already being built. The identity row is
+        // what both tables' foreign key points at, so it is created first, in
+        // this transaction and with the insert's own conflict handling: an id
+        // the catalog already knows is left exactly as it was.
+        await EnsureTitleIdentitiesAsync(merged, cancellationToken);
+
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return merged;
+    }
+
+    /// <summary>
+    /// Creates the identity rows for every title the merged account references.
+    ///
+    /// All of them rather than only the inserts: the set is bounded by one
+    /// visitor's own document, the statement is a single round trip, and
+    /// deriving "which rows are new" here would be a second copy of the diffing
+    /// that <see cref="ApplyInteractions"/> and <see cref="ApplyHistory"/> have
+    /// already done. `ON CONFLICT DO NOTHING` makes the redundant cases free.
+    /// </summary>
+    private async Task EnsureTitleIdentitiesAsync(AccountState merged, CancellationToken cancellationToken)
+    {
+        var ids = merged.Interactions.Keys
+            .Concat(merged.History.Select(entry => entry.TitleId))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        if (ids.Length == 0)
+        {
+            return;
+        }
+
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+             INSERT INTO "CatalogTitleIdentities" ("TitleId", "FirstSeenAt")
+             SELECT title_id, now()
+             FROM unnest({ids}) AS title_id
+             ON CONFLICT ("TitleId") DO NOTHING
+             """,
+            cancellationToken);
     }
 
     /// <summary>

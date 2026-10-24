@@ -33,9 +33,34 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
 
     /// <summary>
     /// The last catalog snapshot per region (005). A cache of the provider, not
-    /// account data — nothing references it and it references nothing.
+    /// account data — nothing references it and it references nothing. Still the
+    /// rollback document and the migration source (008).
     /// </summary>
     public DbSet<CatalogSnapshot> CatalogSnapshots => Set<CatalogSnapshot>();
+
+    // -----------------------------------------------------------------------
+    // The normalized catalog (008)
+    // -----------------------------------------------------------------------
+
+    public DbSet<CatalogVersion> CatalogVersions => Set<CatalogVersion>();
+
+    public DbSet<CatalogTitleRecord> CatalogTitles => Set<CatalogTitleRecord>();
+
+    public DbSet<CatalogTitleGenre> CatalogTitleGenres => Set<CatalogTitleGenre>();
+
+    public DbSet<CatalogAvailability> CatalogAvailability => Set<CatalogAvailability>();
+
+    public DbSet<CatalogGenre> CatalogGenres => Set<CatalogGenre>();
+
+    public DbSet<CatalogService> CatalogServices => Set<CatalogService>();
+
+    public DbSet<CatalogServiceProvider> CatalogServiceProviders => Set<CatalogServiceProvider>();
+
+    public DbSet<CatalogRefreshRun> CatalogRefreshRuns => Set<CatalogRefreshRun>();
+
+    public DbSet<CatalogTitleIdentity> CatalogTitleIdentities => Set<CatalogTitleIdentity>();
+
+    public DbSet<CatalogRetiredTitle> CatalogRetiredTitles => Set<CatalogRetiredTitle>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -71,6 +96,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
                 .WithMany()
                 .HasForeignKey(i => i.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // The durable identity anchor (data-model §9). RESTRICT, not
+            // cascade: a title id with user rows behind it must never disappear
+            // because a catalog cleanup ran.
+            interaction
+                .HasOne<CatalogTitleIdentity>()
+                .WithMany()
+                .HasForeignKey(i => i.TitleId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            interaction.HasIndex(i => i.TitleId);
         });
 
         builder.Entity<UserWatchHistoryEntry>(entry =>
@@ -86,6 +122,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
                 .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            entry
+                .HasOne<CatalogTitleIdentity>()
+                .WithMany()
+                .HasForeignKey(e => e.TitleId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entry.HasIndex(e => e.TitleId);
         });
 
         builder.Entity<UserPreference>(preference =>
@@ -145,6 +189,184 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             // snapshot as served, and Postgres validates the JSON on write — a
             // truncated payload can never be stored and then served as if whole.
             snapshot.Property(s => s.PayloadJson).HasColumnType("jsonb");
+        });
+
+        ConfigureNormalizedCatalog(builder);
+    }
+
+    /// <summary>
+    /// The versioned catalog's keys, indexes, and foreign keys (data-model
+    /// §1–§10).
+    ///
+    /// The two partial unique indexes are the state machine's foundation: at
+    /// most one <c>Active</c> and at most one <c>Building</c> version per region,
+    /// enforced by the database rather than by every writer remembering to check.
+    /// </summary>
+    private static void ConfigureNormalizedCatalog(ModelBuilder builder)
+    {
+        builder.Entity<CatalogGenre>(genre =>
+        {
+            genre.HasKey(g => g.Id);
+            genre.Property(g => g.Id).HasMaxLength(64);
+            genre.Property(g => g.DisplayName).HasMaxLength(128).IsRequired();
+            genre.HasIndex(g => g.TmdbId).IsUnique();
+        });
+
+        builder.Entity<CatalogService>(service =>
+        {
+            service.HasKey(s => s.Id);
+            service.Property(s => s.Id).HasMaxLength(64);
+            service.Property(s => s.DisplayName).HasMaxLength(128).IsRequired();
+        });
+
+        builder.Entity<CatalogServiceProvider>(provider =>
+        {
+            provider.HasKey(p => p.TmdbProviderId);
+            provider.Property(p => p.ServiceId).HasMaxLength(64).IsRequired();
+            provider
+                .HasOne(p => p.Service)
+                .WithMany()
+                .HasForeignKey(p => p.ServiceId)
+                .OnDelete(DeleteBehavior.Restrict);
+            provider.HasIndex(p => p.ServiceId);
+        });
+
+        builder.Entity<CatalogTitleIdentity>(identity =>
+        {
+            identity.HasKey(i => i.TitleId);
+            identity.Property(i => i.TitleId).HasMaxLength(64);
+        });
+
+        builder.Entity<CatalogVersion>(version =>
+        {
+            version.HasKey(v => v.Id);
+            version.Property(v => v.Region).HasMaxLength(2).IsRequired();
+            version.Property(v => v.State).HasMaxLength(16).IsRequired();
+            version.Property(v => v.Source).HasMaxLength(16).IsRequired();
+
+            version.HasIndex(v => new { v.Region, v.State });
+
+            // Named rather than property-identified: two indexes over the same
+            // column differ only by their filter, and EF otherwise folds both
+            // configurations into one index and emits whichever filter was
+            // written last — leaving the other state unguarded.
+            version
+                .HasIndex(v => v.Region, "IX_CatalogVersions_Region_Active")
+                .IsUnique()
+                .HasFilter("\"State\" = 'Active'");
+
+            version
+                .HasIndex(v => v.Region, "IX_CatalogVersions_Region_Building")
+                .IsUnique()
+                .HasFilter("\"State\" = 'Building'");
+        });
+
+        builder.Entity<CatalogTitleRecord>(title =>
+        {
+            title.ToTable("CatalogTitles");
+            title.HasKey(t => new { t.VersionId, t.TitleId });
+            title.Property(t => t.TitleId).HasMaxLength(64);
+            title.Property(t => t.Name).HasMaxLength(512).IsRequired();
+            title.Property(t => t.MediaType).HasMaxLength(8).IsRequired();
+            title.Property(t => t.Synopsis).IsRequired();
+
+            title
+                .HasOne(t => t.Version)
+                .WithMany(v => v.Titles)
+                .HasForeignKey(t => t.VersionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            title
+                .HasOne<CatalogTitleIdentity>()
+                .WithMany()
+                .HasForeignKey(t => t.TitleId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            title.HasIndex(t => new { t.VersionId, t.InGeneralPool, t.PoolPosition });
+            title.HasIndex(t => new { t.VersionId, t.MediaType, t.TitleId });
+            title.HasIndex(t => new { t.VersionId, t.Popularity, t.TitleId }).IsDescending(false, true, false);
+            title.HasIndex(t => new { t.VersionId, t.LastObservedAt });
+        });
+
+        builder.Entity<CatalogTitleGenre>(genre =>
+        {
+            genre.HasKey(g => new { g.VersionId, g.TitleId, g.GenreId });
+            genre.Property(g => g.GenreId).HasMaxLength(64);
+
+            genre
+                .HasOne(g => g.Title)
+                .WithMany(t => t.Genres)
+                .HasForeignKey(g => new { g.VersionId, g.TitleId })
+                .OnDelete(DeleteBehavior.Cascade);
+
+            genre
+                .HasOne(g => g.Genre)
+                .WithMany()
+                .HasForeignKey(g => g.GenreId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            genre.HasIndex(g => new { g.VersionId, g.TitleId, g.Position }).IsUnique();
+            genre.HasIndex(g => new { g.VersionId, g.GenreId, g.TitleId });
+        });
+
+        builder.Entity<CatalogAvailability>(availability =>
+        {
+            availability.HasKey(a => new { a.VersionId, a.TitleId, a.ServiceId, a.Region });
+            availability.Property(a => a.ServiceId).HasMaxLength(64);
+            availability.Property(a => a.Region).HasMaxLength(2);
+            availability.Property(a => a.Monetization).HasMaxLength(16).IsRequired();
+            availability.Property(a => a.DeepLinkUrl).IsRequired();
+
+            availability
+                .HasOne(a => a.Title)
+                .WithMany(t => t.Availability)
+                .HasForeignKey(a => new { a.VersionId, a.TitleId })
+                .OnDelete(DeleteBehavior.Cascade);
+
+            availability
+                .HasOne(a => a.Service)
+                .WithMany()
+                .HasForeignKey(a => a.ServiceId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            availability.HasIndex(a => new { a.VersionId, a.TitleId, a.Position }).IsUnique();
+            availability.HasIndex(a => new { a.VersionId, a.Region, a.ServiceId, a.TitleId });
+            availability.HasIndex(a => new { a.VersionId, a.LastObservedAt });
+        });
+
+        builder.Entity<CatalogRefreshRun>(run =>
+        {
+            run.HasKey(r => r.Id);
+            run.Property(r => r.Kind).HasMaxLength(16).IsRequired();
+            run.Property(r => r.Mode).HasMaxLength(16);
+            run.Property(r => r.Region).HasMaxLength(2).IsRequired();
+            run.Property(r => r.Status).HasMaxLength(24).IsRequired();
+            run.Property(r => r.CountsJson).HasColumnType("jsonb");
+            run.Property(r => r.FailuresJson).HasColumnType("jsonb");
+
+            run.HasIndex(r => new { r.Region, r.StartedAt }).IsDescending(false, true);
+            run.HasIndex(r => r.Status);
+
+            // A superseded version is deleted after a day; its run record must
+            // outlive it, so the pointer is nulled rather than the run removed.
+            run
+                .HasOne<CatalogVersion>()
+                .WithMany()
+                .HasForeignKey(r => r.VersionId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        builder.Entity<CatalogRetiredTitle>(retired =>
+        {
+            retired.HasKey(r => r.TitleId);
+            retired.Property(r => r.TitleId).HasMaxLength(64);
+            retired.Property(r => r.PayloadJson).HasColumnType("jsonb").IsRequired();
+
+            retired
+                .HasOne(r => r.Identity)
+                .WithMany()
+                .HasForeignKey(r => r.TitleId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 

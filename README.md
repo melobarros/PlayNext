@@ -21,10 +21,10 @@ synopsis, rating, where to watch — and one swipe records your reaction.
 |---|---|
 | **Stack** | .NET 10 minimal API · Angular 22 (standalone, signals, zoneless) · PostgreSQL + EF Core · Tailwind v4 |
 | **Architecture** | Clean Architecture, enforced by project references rather than by convention — the domain assembly references nothing |
-| **Tests** | **911 passing** — 102 domain, 87 application, 722 frontend |
+| **Tests** | **1028 unit/component + 107 integration, all passing** |
 | **Pipeline** | Every push to `main`: test → migrate → deploy → smoke-test the live URL |
 | **Cost** | **$0/month** — Azure App Service F1 + Neon Postgres |
-| **Process** | 5 features, each specified, planned, and broken into tasks before any code was written |
+| **Process** | 6 features, each specified, planned, and broken into tasks before any code was written |
 
 ### The three things most worth asking about
 
@@ -179,13 +179,18 @@ shell, so the app opens with no network at all.
 
 ## Testing
 
-**911 tests, all passing** — measured on the current commit:
+**1028 unit and component tests, all passing** — measured on the current commit:
 
 | Suite | Tests | Scope |
 |---|---|---|
-| `PlayNext.Domain.Tests` | 102 | Invariants, value objects, state transitions |
-| `PlayNext.Application.Tests` | 87 | Use cases against hand-written fakes for the 8 ports |
-| Frontend (Vitest, 40 files) | 722 | Components, services, and the pure functions behind the swipe |
+| `PlayNext.Domain.Tests` | 193 | Invariants, value objects, state transitions |
+| `PlayNext.Application.Tests` | 87 | Use cases against hand-written fakes for the Application ports |
+| Frontend (Vitest, 40 files) | 748 | Components, services, and the pure functions behind the swipe |
+
+A further **107 API integration tests** run against live PostgreSQL
+(`PlayNext.Api.IntegrationTests`); they skip locally without a database, so
+they are counted separately. In the run recorded here all 107 executed and
+passed.
 
 The Application tests use hand-written fakes rather than a mocking framework,
 which keeps the ports honest: if a port is awkward to fake, it is usually the
@@ -198,15 +203,16 @@ thresholds, velocity, and direction are tested as arithmetic on numbers — no
 `PointerEvent` construction, no fake timers against a rendering harness. The
 components are then tested for wiring, not for math.
 
-A handful of integration tests require live PostgreSQL or a real TMDB key and
-skip without them; CI asserts the database ones actually ran (see above).
+The integration suite needs a live PostgreSQL (and a TMDB key for the
+provider-facing cases) and skips without them; CI asserts the database tests
+actually ran, so a silent skip cannot pass the build.
 
 ---
 
 ## Spec-driven development with AI
 
 Every feature in this repo went through a written spec before any code existed
-— five spec directories now, all five implemented. The process is
+— six spec directories now, all six implemented. The process is
 [Spec Kit](https://github.com/github/spec-kit), and the repo's
 [constitution](.specify/memory/constitution.md) (**v1.4.0**, seven principles)
 is the part that makes it more than ceremony.
@@ -268,7 +274,7 @@ push to main
    ├─ test      postgres:17 service container
    │              ├─ dotnet test          Domain + Application + integration
    │              ├─ skip guard           fail if the DB tests did not run
-   │              ├─ npx ng test          722 specs
+   │              ├─ npx ng test          748 specs
    │              └─ npm run build        → dist/playnext/browser
    │
    ├─ migrate   dotnet ef database update ──► Neon, before new code is live
@@ -374,13 +380,46 @@ free tier. **Total cost: $0/month.** The reasoning is under
    does not grant.
 
 5. **GitHub secrets** — `AZURE_WEBAPP_NAME`, `AZURE_WEBAPP_PUBLISH_PROFILE`,
-   and `NEON_CONNECTION_STRING`. No CORS setting is needed.
+   `NEON_CONNECTION_STRING`, and `CATALOG_ADMIN_TOKEN` (the same value as the
+   app's `Catalog__AdminToken`; see [Catalog operations](#catalog-operations)). No
+   CORS setting is needed.
 
 </details>
 
 **Operating it.** To roll back, redeploy an earlier commit (`git revert`, or
 re-run an older workflow run) — the pipeline is the only deploy path.
 Migrations are forward-only, so undoing a schema change needs a new migration.
+
+### Catalog operations
+
+Feature 008 can store the catalog as versioned PostgreSQL rows instead of one
+JSON snapshot per region, with reads and refreshes switched independently:
+
+| App setting | Default | Purpose |
+|---|---|---|
+| `Catalog__Source` | `Snapshot` | `Snapshot` or `Normalized`; read per request |
+| `Catalog__AdminToken` | empty | Enables the refresh/status routes; ≥32 random bytes, base64url |
+| `Catalog__Migration__Enabled` | `false` | One snapshot → normalized migration at startup |
+| `Catalog__MaxPoolTitles` | `1000` | Cap for a filtered pool response |
+| `Catalog__MaxIdsPerRequest` | `1000` | Cap for an `ids` batch |
+| `Catalog__RefreshTimeoutMinutes` | `55` | Soft budget for one refresh |
+| `Tmdb__ServiceTitlesPerGenre` | `300` | Depth target per service/genre/media type |
+| `Tmdb__MaxDiscoverPages` | `25` | Safety cap on discovery paging |
+| `Tmdb__MaxRetries` | `2` | Retries for transient provider failures |
+
+`CATALOG_ADMIN_TOKEN` is the matching GitHub secret. While the setting is empty
+the operator routes are **not mapped** — the deployment has no admin surface to
+discover, rather than one that answers 401 to guesses.
+
+[`catalog-refresh.yml`](.github/workflows/catalog-refresh.yml) starts a refresh
+every day at 06:00 UTC (`workflow_dispatch` for a manual run), then polls the
+run's status for up to 75 minutes. `PartiallyFailed` warns and succeeds: a mixed
+version was promoted and readers are unaffected. `Failed`, `Abandoned`, and a
+timeout fail the job.
+
+The cutover and rollback sequence — migrate, optionally pre-build, flip
+`Catalog__Source`, roll back by configuration with no deployment — is in
+[`contracts/catalog-refresh.md`](specs/008-catalog-normalization/contracts/catalog-refresh.md#operational-sequence-cutover-and-rollback).
 
 F1 is genuinely free and genuinely limited: **165 MB outbound per day**, after
 which Azure stops the app until midnight UTC, and no "always on", so the first
@@ -394,7 +433,7 @@ visit after ~20 idle minutes pays a cold start.
 |------|----------|
 | [frontend/](frontend/) | Angular 22 PWA — standalone components, signals, Tailwind v4 |
 | [backend/](backend/) | .NET 10 API — `Domain` → `Application` → `Infrastructure` / `Api` |
-| [specs/](specs/) | Five feature specs, each with its plan and task breakdown |
+| [specs/](specs/) | Six feature specs, each with its plan and task breakdown |
 | [docs/](docs/) | Product requirements, design notes, images |
 | [.specify/](.specify/) | Spec Kit configuration and the project constitution |
 
@@ -405,13 +444,15 @@ visit after ~20 idle minutes pays a cold start.
 Portfolio READMEs usually stop before this section. The gaps are real, and
 knowing them is part of the work:
 
-- **The catalog is TMDB-backed but narrow.** Spec 005 ships the live TMDB
-  catalog, but per-service depth is not built: "Netflix + horror" is still 8 of
-  916 titles in Brazil. Everything else described above is running.
+- **The catalog can be deep per service, but the live deployment has not cut
+  over.** Feature 008 stores per-service pools in PostgreSQL — "Netflix +
+  horror" can return 300 titles instead of 8 of 916 — but production still
+  reads the snapshot path until the cutover checklist runs.
 - **Google sign-in is dormant** — it needs a Google Cloud client id this
   deployment does not have, so the button says so rather than pretending.
-- **No coverage threshold is enforced.** There are 911 tests and CI fails on a
-  skipped database suite, but nothing fails on a coverage drop.
+- **No coverage threshold is enforced.** There are 1028 unit/component tests
+  plus 107 integration tests, and CI fails on a skipped database suite, but
+  nothing fails on a coverage drop.
 - **Refresh-token rotation has no reuse detection.** A rotated token is
   invalidated, but a replayed one is not treated as a breach signal.
 - **No rate limiting or security headers yet.** Both are known and neither has
@@ -420,6 +461,7 @@ knowing them is part of the work:
   covered by tests; the end-to-end pass against a real browser is still open
   (`specs/004-guest-auth-migration/tasks.md`, T046).
 
-The F1 tier is also a demo constraint rather than a design one — a per-service
-catalog rebuild would not fit its bandwidth, and a B1 plan (~$13/month) is the
-documented upgrade when that work lands.
+The F1 tier is also a demo constraint rather than a design one — a full
+per-service catalog rebuild does not fit its daily egress, which is why the
+normalized path ships behind `Catalog:Source` and the cutover waits for a B1
+plan (~$13/month).

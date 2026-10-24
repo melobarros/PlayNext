@@ -158,6 +158,26 @@ public sealed class CatalogSnapshotStore : ICatalogSnapshotStore
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> ListRegionsAsync(CancellationToken cancellationToken)
+    {
+        var cutoff = _time.GetUtcNow() - _maxAge;
+
+        using var scope = _scopes.CreateScope();
+
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        // In-retention only: a row past the ceiling is not a legitimate source
+        // for the migration, and listing it would make the migration runner
+        // attempt a region the snapshot path itself refuses to serve.
+        return await db.CatalogSnapshots
+            .AsNoTracking()
+            .Where(row => row.FetchedAt > cutoff)
+            .OrderBy(row => row.Region)
+            .Select(row => row.Region)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
     public async Task SaveAsync(CatalogSnapshot snapshot, CancellationToken cancellationToken)
     {
         // Durable first, memory second. The two must not disagree about what

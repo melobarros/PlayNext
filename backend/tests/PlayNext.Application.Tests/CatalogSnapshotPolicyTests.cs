@@ -90,6 +90,25 @@ public class CatalogSnapshotPolicyTests
                 ? Task.FromException<IReadOnlyList<CatalogTitle>>(failure)
                 : Task.FromResult(Titles);
         }
+
+        /// <summary>
+        /// The normalized discovery seam, unused here: the snapshot policy never
+        /// plans a slice, and returning an empty result would hide it if that
+        /// ever changed.
+        /// </summary>
+        public Task<IReadOnlyList<CatalogCandidate>> DiscoverAsync(
+            string region,
+            CatalogSlice slice,
+            CatalogDiscoveryQuery query,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException("The snapshot policy tests do not run discovery.");
+
+        /// <inheritdoc cref="DiscoverAsync" />
+        public Task<CatalogTitleObservation> EnrichAsync(
+            string region,
+            CatalogCandidate candidate,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException("The snapshot policy tests do not enrich.");
     }
 
     /// <summary>
@@ -118,6 +137,9 @@ public class CatalogSnapshotPolicyTests
 
             return Task.CompletedTask;
         }
+
+        public Task<IReadOnlyList<string>> ListRegionsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<string>>(_regions.Keys.ToList());
     }
 
     /// <summary>
@@ -137,6 +159,14 @@ public class CatalogSnapshotPolicyTests
 
             return true;
         }
+
+        /// <summary>
+        /// The same start, in an explicit mode. The snapshot policy only ever
+        /// asks in <c>Configured</c>, so the mode is not recorded separately —
+        /// recording it would invite an assertion this suite has no business
+        /// making.
+        /// </summary>
+        public bool TryStart(string region, CatalogRunMode mode) => TryStart(region);
 
         public bool IsRunning(string region) => false;
     }

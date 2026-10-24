@@ -1,6 +1,7 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { map, Observable } from 'rxjs';
+import { CatalogQuery } from '../models/catalog-query';
 import { MediaTitle } from '../models/media-title';
 import { MediaType } from '../models/quiz';
 import { API_BASE_URL } from './auth.service';
@@ -8,13 +9,14 @@ import { CatalogSource } from './catalog.service';
 
 /**
  * The catalog payload, as `GET /api/catalog` writes it
- * (`specs/005-tmdb-catalog/contracts/catalog.md`).
+ * (`specs/008-catalog-normalization/contracts/catalog-api.md`; the shape is
+ * unchanged from 005's contract).
  *
  * Its own types rather than the server's C# records, which is the point of a
  * contract: the wire is a document this client reads, and nothing about the
  * shape the server happens to hold should be able to reach into the deck.
  */
-interface CatalogResponse {
+export interface CatalogResponse {
   region: string;
   fetchedAt: string;
   titles: WireTitle[];
@@ -28,7 +30,7 @@ interface CatalogResponse {
  * JSON has no `undefined`, so an absent poster arrives as `null`, and the two
  * are not interchangeable in a codebase where "absent" drives the placeholder.
  */
-interface WireTitle {
+export interface WireTitle {
   id: string;
   title: string;
   releaseYear: number;
@@ -48,9 +50,14 @@ interface WireTitle {
  * the provider (constitution IV, FR-001).
  *
  * A region is a **parameter** rather than a filter. The server returns titles
- * already scoped to it, so this function's whole job is to name the region on
- * the way out and translate the answer on the way back — no title is dropped,
- * reordered, or narrowed here.
+ * already scoped to it, so this function's whole job is to name the region and
+ * the optional dimensions on the way out and translate the answer on the way
+ * back — no title is dropped, reordered, or narrowed here.
+ *
+ * Each dimension travels as one comma-separated value, exactly as the contract
+ * spells it. An empty dimension is omitted rather than sent empty: the server
+ * would ignore it anyway, and a URL that says what it means is easier to read
+ * in a log.
  *
  * Errors are deliberately not caught. `CatalogService` is where the
  * cached-copy fallback lives, and it can only do its job if a failure arrives
@@ -62,11 +69,47 @@ export function httpCatalogSource(): CatalogSource {
   const baseUrl = inject(API_BASE_URL);
 
   return {
-    load: (region: string): Observable<MediaTitle[]> =>
+    load: (region: string, query: CatalogQuery = {}): Observable<MediaTitle[]> =>
       http
-        .get<CatalogResponse>(`${baseUrl}/api/catalog`, { params: { region } })
-        .pipe(map((response) => response.titles.map(toMediaTitle))),
+        .get<CatalogResponse>(`${baseUrl}/api/catalog`, { params: toParams(region, query) })
+        .pipe(map(catalogTitlesFromWire)),
   };
+}
+
+/**
+ * The titles of a catalog response, translated for the deck.
+ *
+ * Exported because the parity harness (`deck-logic/parity/catalog-parity.spec.ts`)
+ * has to rank **exactly** what the app ranks: two captured responses, one
+ * mapping. A harness with its own copy of this translation could pass while the
+ * real one drifted, which is the failure parity exists to catch.
+ */
+export function catalogTitlesFromWire(response: CatalogResponse): MediaTitle[] {
+  return response.titles.map(toMediaTitle);
+}
+
+/**
+ * The request's query string, from the region and whatever dimensions were
+ * asked for.
+ *
+ * `HttpParams` percent-encodes the commas; the server decodes them before it
+ * splits, so `netflix,max` on this side is the two-value list the contract
+ * describes on the other.
+ */
+function toParams(region: string, query: CatalogQuery): HttpParams {
+  let params = new HttpParams().set('region', region);
+
+  const add = (name: string, values: readonly string[] | undefined): void => {
+    if (values === undefined || values.length === 0) return;
+    params = params.set(name, values.join(','));
+  };
+
+  add('services', query.services);
+  add('genres', query.genres);
+  add('mediaTypes', query.mediaTypes);
+  add('ids', query.ids);
+
+  return params;
 }
 
 /**

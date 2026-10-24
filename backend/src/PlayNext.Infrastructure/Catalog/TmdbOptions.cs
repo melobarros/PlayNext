@@ -125,20 +125,30 @@ public sealed class TmdbOptions
     public int AnimeQuota { get; set; } = 60;
 
     /// <summary>
+    /// Depth target per service, genre, and presentation media type for a
+    /// normalized refresh (clarified: 300). At twenty results per page this
+    /// needs fifteen pages; <see cref="MaxDiscoverPages"/> is the safety cap.
+    /// </summary>
+    public int ServiceTitlesPerGenre { get; set; } = 300;
+
+    /// <summary>
+    /// The safety cap on discovery paging. Raised from five for the 300-title
+    /// target; a query that reaches it stops without failing the slice.
+    /// </summary>
+    public int MaxDiscoverPages { get; set; } = 25;
+
+    /// <summary>
+    /// Retries for a transient provider failure (5xx, timeout). A 429 is retried
+    /// only within this budget and aborts the run when it survives it.
+    /// </summary>
+    public int MaxRetries { get; set; } = 2;
+
+    /// <summary>
     /// How many upstream calls per second the refresh batch may issue. TMDB's
     /// soft limit is around 40 rps and a 429 carries <c>Retry-After</c>; staying
     /// under it deliberately is cheaper than discovering the limit (research D4).
     /// </summary>
     public int RequestsPerSecond { get; set; } = 30;
-
-    /// <summary>
-    /// How many pages of a discover query the batch may walk before giving up on
-    /// the quota. TMDB's discover pages hold 20 results, so the default covers
-    /// the default quotas with room to spare — it exists to bound a region whose
-    /// catalog is thin (a filter combination that matches almost nothing) rather
-    /// than to limit a healthy one.
-    /// </summary>
-    public int MaxDiscoverPages { get; set; } = 5;
 
     /// <summary>Metadata language, requested explicitly (clarified: English everywhere).</summary>
     public string Language { get; set; } = "en-US";

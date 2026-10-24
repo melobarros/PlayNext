@@ -73,7 +73,18 @@ export class Watchlist {
   protected readonly usingCachedTitles = this.catalog.usingCachedTitles;
 
   constructor() {
-    this.catalog.loadTitles(this.region).subscribe((titles) => this.titles.set(titles));
+    // One `ids` request for the whole view (feature 008, contracts/catalog-api.md
+    // "Screen usage"): the rows are the visitor's ratings, so the ids are the
+    // document's own keys. A title the catalog no longer carries comes back
+    // missing rather than failing the request, and its row renders without a
+    // name — the same tolerance a per-service pool being smaller than the old
+    // catalog had already made necessary.
+    const ids = Object.keys(this.document().interactions);
+    if (ids.length === 0) return;
+
+    this.catalog
+      .loadTitlesById(this.region, ids)
+      .subscribe((titles) => this.titles.set(titles));
   }
 
   /** The number on a tab: literally the length of the list it opens. */

@@ -1,5 +1,6 @@
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
 import { catchError, Observable, of, tap } from 'rxjs';
+import { CatalogQuery } from '../models/catalog-query';
 import { MediaTitle } from '../models/media-title';
 import { httpCatalogSource } from './http-catalog-source';
 
@@ -11,10 +12,15 @@ import { httpCatalogSource } from './http-catalog-source';
  * — spec 001's equivalent fallback went untested for exactly that reason and
  * turned out to be unreachable in the UI — and it has since earned its keep
  * again, by letting the real catalog arrive (constitution IV) without a single
- * component changing.
+ * component changing. Feature 008 extends the same seam with the optional
+ * catalog dimensions rather than adding a second one.
  */
 export interface CatalogSource {
-  load(region: string): Observable<MediaTitle[]>;
+  /**
+   * One catalog request. The region is required; a query with no dimensions is
+   * the general pool, which is the shape every pre-008 caller asks for.
+   */
+  load(region: string, query?: CatalogQuery): Observable<MediaTitle[]>;
 }
 
 /**
@@ -47,13 +53,19 @@ export class CatalogService {
   private readonly source = inject(CATALOG_SOURCE);
 
   /**
-   * The last catalog the provider handed over, kept for the fallback.
+   * The last good answer **per distinct request**, kept for the fallback.
+   *
+   * Keyed rather than a single slot because a view now asks more than one
+   * question: the deck asks for a targeted pool and, separately, for the
+   * visitor's rated ids. One slot would let each answer overwrite the other's
+   * fallback, and a failed pool request would then serve rated titles as if
+   * they were the pool.
    *
    * A private copy, not the array the caller received: `loadTitles` promises a
    * detached array, and a caller that sorts or empties it must not thereby
    * rewrite what the fallback will serve.
    */
-  private cached: MediaTitle[] | null = null;
+  private readonly cached = new Map<string, MediaTitle[]>();
 
   private readonly fellBack = signal(false);
 
@@ -71,7 +83,9 @@ export class CatalogService {
   readonly usingCachedTitles = this.fellBack.asReadonly();
 
   /**
-   * Loads the titles available to a region.
+   * Loads the titles available to a region, optionally narrowed to a targeted
+   * pool (`CatalogQuery`). No query is the general pool, which is what every
+   * pre-008 caller asked for and still asks for.
    *
    * The observable shape exists so the deck's loading and fallback flow is
    * real today rather than retrofitted later, mirroring
@@ -82,24 +96,93 @@ export class CatalogService {
    * reaction to an error would be an empty screen with no explanation — the
    * dead end constitution II forbids. `usingCachedTitles` carries the news
    * instead, so the deck can say what happened while still showing cards.
+   */
+  loadTitles(region: string, query: CatalogQuery = {}): Observable<MediaTitle[]> {
+    return this.load(region, query, true);
+  }
+
+  /**
+   * The titles behind a list of ids — the watchlist, the history, the detail
+   * view and Match Found each ask for exactly the ids they hold (feature 008,
+   * contracts/catalog-api.md "Screen usage").
+   *
+   * An id the catalog no longer knows is simply absent from the answer; the
+   * screens already render a row without a title rather than hiding it, so this
+   * method does not manufacture a placeholder.
+   *
+   * **It never raises the cached-titles notice.** `usingCachedTitles` describes
+   * the deck's *pool*, which is the one thing a visitor sees as a whole and
+   * therefore the one thing that must not be passed off as live. An ids lookup
+   * is supplementary — a failure leaves rows unresolved, which the screens say
+   * themselves — and letting it flip the deck's notice would blame the pool for
+   * a request the pool never made. The same cache still serves its own fallback,
+   * so a repeated lookup of the same ids degrades the way a repeated pool load
+   * does.
+   */
+  loadTitlesById(region: string, ids: readonly string[]): Observable<MediaTitle[]> {
+    // Nothing asked, nothing fetched: an empty list is a complete answer, and a
+    // request for it would be a round trip that could not change what is shown.
+    if (ids.length === 0) return of([]);
+
+    return this.load(region, { ids }, false);
+  }
+
+  /**
+   * One request, cached under its own key and falling back to that key's last
+   * good answer.
+   *
+   * `reportsFallback` is the difference between the two public methods above:
+   * only a pool load is allowed to move `usingCachedTitles`.
    *
    * The source is always asked, even when there is something cached. A cache
    * that short-circuits the request is not a fallback, it is a cache with no
    * expiry — it would never refresh, and the visitor would keep seeing the
    * catalog from their first visit forever.
    */
-  loadTitles(region: string): Observable<MediaTitle[]> {
-    return this.source.load(region).pipe(
+  private load(
+    region: string,
+    query: CatalogQuery,
+    reportsFallback: boolean,
+  ): Observable<MediaTitle[]> {
+    const key = queryKey(region, query);
+
+    return this.source.load(region, query).pipe(
       tap((titles) => {
-        this.cached = copyOf(titles);
-        this.fellBack.set(false);
+        this.cached.set(key, copyOf(titles));
+        if (reportsFallback) this.fellBack.set(false);
       }),
       catchError(() => {
-        this.fellBack.set(true);
-        return of(copyOf(this.cached ?? []));
+        if (reportsFallback) this.fellBack.set(true);
+        return of(copyOf(this.cached.get(key) ?? []));
       }),
     );
   }
+}
+
+/**
+ * A stable identity for one request, used to key the fallback cache.
+ *
+ * Dimensions are normalized the way the server reads them — duplicates removed,
+ * order irrelevant — so the same question asked twice with its values in a
+ * different order is one cache entry rather than two. Within a dimension the
+ * contract is OR and across dimensions AND, and neither is sensitive to order.
+ *
+ * The region is part of the key because it scopes every answer: a pool cached
+ * for BR is not an answer for US.
+ */
+function queryKey(region: string, query: CatalogQuery): string {
+  const list = (values: readonly string[] | undefined): string =>
+    values === undefined || values.length === 0
+      ? ''
+      : [...new Set(values)].sort().join(',');
+
+  return [
+    region,
+    list(query.services),
+    list(query.genres),
+    list(query.mediaTypes),
+    list(query.ids),
+  ].join('|');
 }
 
 /**

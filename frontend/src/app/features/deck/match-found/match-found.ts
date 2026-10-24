@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, inject, input, OnInit, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { MediaTitle } from '../../../core/models/media-title';
 import { MEDIA_TYPE_LABELS } from '../../../core/models/quiz';
@@ -36,7 +36,7 @@ import { startRetake } from '../../quiz/quiz-logic/quiz-rules';
   imports: [WaysToWatch, RouterLink],
   templateUrl: './match-found.html',
 })
-export class MatchFound {
+export class MatchFound implements OnInit {
   private readonly catalog = inject(CatalogService);
   private readonly sessions = inject(DeckSessionStore);
   private readonly interactions = inject(InteractionStore);
@@ -87,8 +87,21 @@ export class MatchFound {
       this.interactions.read().interactions[this.titleId()]?.state === 'watchingNow',
   );
 
-  constructor() {
-    this.catalog.loadTitles(currentRegion()).subscribe((titles) => this.titles.set(titles));
+  /**
+   * Resolve the one chosen title (feature 008, contracts/catalog-api.md
+   * "Screen usage").
+   *
+   * In `ngOnInit` rather than the constructor because `titleId` is an input the
+   * router binds before the first change detection. The request is an `ids`
+   * one — the deck's chosen title may live on a service that is not in the
+   * visitor's pool, and a Watch Now decision is a reason to fetch it rather
+   * than to lose it. An id the catalog no longer knows leaves `title()` null,
+   * which the unavailable branch already explains.
+   */
+  ngOnInit(): void {
+    this.catalog
+      .loadTitlesById(currentRegion(), [this.titleId()])
+      .subscribe((titles) => this.titles.set(titles));
   }
 
   /**

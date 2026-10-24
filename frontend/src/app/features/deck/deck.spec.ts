@@ -8,7 +8,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { Observable, of, Subject } from 'rxjs';
 import { AccountState } from '../../core/models/account-state';
-import { Interaction, INTERACTION_STORAGE_KEY } from '../../core/models/interaction';
+import { CatalogQuery } from '../../core/models/catalog-query';
+import { Interaction, INTERACTION_STORAGE_KEY, InteractionState } from '../../core/models/interaction';
 import { MediaTitle } from '../../core/models/media-title';
 import { QuizState } from '../../core/models/quiz';
 import { DECK_SESSION_STORAGE_KEY } from '../../core/models/deck-session';
@@ -117,14 +118,36 @@ const CATALOG: MediaTitle[] = [
  */
 let catalog: MediaTitle[] = CATALOG;
 
+/**
+ * What the supplementary `ids` request answers with. Empty by default: most
+ * tests start with no ratings, so the deck makes no second request at all.
+ */
+let ratedCatalog: MediaTitle[] = [];
+
 /** Whether the catalog had to fall back to cache (FR-013). */
 const usingCachedTitles = signal(false);
 
 class FakeCatalogService {
   readonly usingCachedTitles = usingCachedTitles.asReadonly();
 
-  loadTitles(_region: string): Observable<MediaTitle[]> {
+  /** Every pool query the deck asked for, in order — the US2 contract. */
+  readonly queries: CatalogQuery[] = [];
+
+  /** Every id batch the deck asked for, in order. */
+  readonly idRequests: string[][] = [];
+
+  loadTitles(_region: string, query: CatalogQuery = {}): Observable<MediaTitle[]> {
+    this.queries.push(query);
     return of(catalog.map((title) => ({ ...title })));
+  }
+
+  loadTitlesById(_region: string, ids: readonly string[]): Observable<MediaTitle[]> {
+    this.idRequests.push([...ids]);
+
+    const wanted = new Set(ids);
+    return of(
+      ratedCatalog.filter((title) => wanted.has(title.id)).map((title) => ({ ...title })),
+    );
   }
 }
 
@@ -149,10 +172,18 @@ class DeferredCatalogService {
     return this.requests.length;
   }
 
-  loadTitles(_region: string): Observable<MediaTitle[]> {
+  loadTitles(_region: string, _query?: CatalogQuery): Observable<MediaTitle[]> {
     const request = new Subject<MediaTitle[]>();
     this.requests.push(request);
     return request.asObservable();
+  }
+
+  /** Answered immediately: these tests hold the pool open, not the ids. */
+  loadTitlesById(_region: string, ids: readonly string[]): Observable<MediaTitle[]> {
+    const wanted = new Set(ids);
+    return of(
+      ratedCatalog.filter((title) => wanted.has(title.id)).map((title) => ({ ...title })),
+    );
   }
 
   /** Completes the request at `index` (the most recent by default). */
@@ -308,6 +339,7 @@ describe('deck shell', () => {
   beforeEach(() => {
     localStorage.clear();
     catalog = CATALOG;
+    ratedCatalog = [];
     usingCachedTitles.set(false);
     offline.set(false);
     configure();
@@ -1514,6 +1546,147 @@ describe('deck shell', () => {
 
       expect(shownTitle()).toBe('Alpha');
       expect(text()).not.toContain("Couldn't reach the catalog");
+    });
+  });
+
+  /**
+   * What the deck asks the catalog for, and what it does with the answer
+   * (feature 008, US2).
+   *
+   * Two requests per load, and they answer different questions. The **pool**
+   * request carries the visitor's answers, so Netflix + horror in BR reaches
+   * Netflix's own depth rather than a catalog-wide sample. The **ids** request
+   * is supplementary: the visitor's rated titles may no longer be in that pool
+   * — a title they loved may live on a service they did not pick — but their
+   * genres are the feedback loop's entire input, so the deck fetches them
+   * separately and merges them *before* ranking. Filter 4 then removes them
+   * again, because a rated title is never offered (FR-009).
+   */
+  describe('the targeted pool (US2)', () => {
+    /** The fake the module `beforeEach` installed, for its request log. */
+    function fake(): FakeCatalogService {
+      return TestBed.inject(CatalogService) as unknown as FakeCatalogService;
+    }
+
+    /** Saves a rating the way the deck's own action bar does. */
+    function saveRating(titleId: string, state: InteractionState = 'loved'): void {
+      localStorage.setItem(
+        INTERACTION_STORAGE_KEY,
+        JSON.stringify({
+          schemaVersion: 1,
+          interactions: { [titleId]: { state, updatedAt: COMPLETED_AT } },
+          history: [],
+          updatedAt: COMPLETED_AT,
+        }),
+      );
+    }
+
+    /** One catalog title with the fields under test swapped. */
+    function title(
+      id: string,
+      name: string,
+      genres: string[],
+      availability = [{ providerId: 'netflix', deepLinkUrl: 'https://www.netflix.com/title/1' }],
+    ): MediaTitle {
+      return { ...CATALOG[0], id, title: name, genres, availability };
+    }
+
+    it('asks for the answers the visitor gave', () => {
+      completeQuiz();
+
+      build();
+
+      // One value per dimension, exactly what the quiz recorded. The server
+      // owns the filtering from here; the deck's job is to say the question.
+      expect(fake().queries).toEqual([
+        { services: ['netflix'], genres: ['horror'], mediaTypes: ['movie'] },
+      ]);
+      // Nothing rated, so there is nothing to resolve a second time.
+      expect(fake().idRequests).toEqual([]);
+    });
+
+    it('omits every dimension the visitor left to us', () => {
+      completeQuiz({
+        mediaType: { values: [], any: true },
+        genre: { values: [], any: true },
+        provider: { values: [], any: true },
+      });
+
+      build();
+
+      // An omitted dimension means "any", and the contract says so with its
+      // absence. Sending three empty lists would be a different, ambiguous
+      // request — and the server would rightly ignore it.
+      expect(fake().queries).toEqual([{}]);
+    });
+
+    it('omits the services when the visitor asked for other platforms too', () => {
+      completeQuiz({ includeUnownedProviders: true });
+
+      build();
+
+      // "Other platforms" is the visitor saying the service filter would
+      // exclude titles they want to see, so the pool must not carry it. The
+      // genres and media type still apply: those are separate answers.
+      expect(fake().queries).toEqual([{ genres: ['horror'], mediaTypes: ['movie'] }]);
+    });
+
+    it('asks for the successor of a service that no longer exists', () => {
+      completeQuiz({ provider: { values: ['star-plus'], any: false } });
+
+      build();
+
+      // Star+ is gone, and its catalog is Disney+'s. Sending the retired id
+      // would ask the server about a service it does not have — an empty pool,
+      // every genre, with nothing on screen to explain why (US2 scenario 3).
+      expect(fake().queries[0]?.services).toEqual(['disney-plus']);
+    });
+
+    it('merges the rated titles before ranking, and still never offers them', () => {
+      // Genre "any" keeps the mismatched-genre penalty out of this comparison:
+      // only the feedback loop and the id tiebreak are left to order the deck.
+      completeQuiz({
+        genre: { values: [], any: true },
+        provider: { values: ['netflix'], any: false },
+      });
+
+      catalog = [
+        title('zulu', 'Zulu', ['comedy']),
+        title('alpha', 'Alpha', ['drama']),
+      ];
+
+      // A title the visitor loved that the pool does not carry. It is on the
+      // same service, so only filter 4 can keep it off the screen.
+      ratedCatalog = [title('mike', 'Mike', ['comedy'])];
+
+      saveRating('mike');
+      build();
+
+      // One supplementary request, for exactly the rated id.
+      expect(fake().idRequests).toEqual([['mike']]);
+
+      // Zulu is a comedy, and the loved title taught the deck that comedy is
+      // what this visitor wants — so Zulu outranks Alpha despite the larger id.
+      // Without the merge, `historyAffinity` would see no ratings and Alpha
+      // would come first on the id tiebreak.
+      expect(shownTitle()).toBe('Zulu');
+
+      // And Mike is not the first card. If filter 4 did not remove it, its own
+      // affinity would tie Zulu's and the smaller id would win.
+      expect(text()).not.toContain('Mike');
+    });
+
+    it('survives a rating the catalog no longer carries', () => {
+      completeQuiz();
+      saveRating('gone');
+
+      // The ids request answers with nothing: the title has left the catalog.
+      build();
+
+      // Missing titles contribute no genres (nothing to infer from a title it
+      // cannot see) and are not an error. The deck is what the pool says it is.
+      expect(shownTitle()).toBe('Alpha');
+      expect(fake().idRequests).toEqual([['gone']]);
     });
   });
 });

@@ -1,26 +1,45 @@
+using PlayNext.Application.Contracts;
 using PlayNext.Domain;
 
 namespace PlayNext.Application.Interfaces;
 
 /// <summary>
-/// The catalog provider, as the use case needs it: "give me every title for
-/// this region, complete enough to render" (research D4, FR-020).
-///
-/// One method, because a title's availability and its trailer are only knowable
-/// per title upstream — the implementation folds them into a single enriched
-/// call per title, and the shape of that work is not the use case's business.
-/// What the use case does own is <i>when</i> this runs: never on a request's
-/// critical path (research D10).
+/// The catalog provider, as the use cases need it: the legacy whole-region
+/// fetch (005), and the planned discovery + single-enrichment seams the
+/// normalized refresh is built from (feature 008, research D4).
 /// </summary>
 public interface ICatalogProvider
 {
     /// <summary>
-    /// Composes the region's pool: every title, deduplicated, at full card and
-    /// detail depth.
+    /// Composes the region's pool in one pass: every title, deduplicated, at
+    /// full card and detail depth. Used by the snapshot source.
     ///
     /// Throws when the batch cannot be completed. A partial batch is not a
-    /// result — the caller treats any failure as "nothing was retrieved", which
-    /// is what keeps a half-fetched catalog from replacing a good one (FR-013).
+    /// result — the caller treats any failure as "nothing was retrieved".
     /// </summary>
     Task<IReadOnlyList<CatalogTitle>> FetchAsync(string region, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs one discovery query for one slice, paging no further than
+    /// <see cref="CatalogSlice.MaxPages"/> and stopping at the query's target.
+    ///
+    /// Discovery is filtered to the slice's provider ids and the region, which
+    /// is what makes the result that service's catalog rather than a sample of
+    /// the region's.
+    /// </summary>
+    Task<IReadOnlyList<CatalogCandidate>> DiscoverAsync(
+        string region,
+        CatalogSlice slice,
+        CatalogDiscoveryQuery query,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// One enriched call per title: availability, offers, trailer, and the
+    /// region's watch page. The caller deduplicates first, so a title carried by
+    /// six services costs one call rather than six (FR-012).
+    /// </summary>
+    Task<CatalogTitleObservation> EnrichAsync(
+        string region,
+        CatalogCandidate candidate,
+        CancellationToken cancellationToken);
 }
