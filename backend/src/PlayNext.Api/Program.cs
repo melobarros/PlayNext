@@ -7,13 +7,27 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using PlayNext.Api.Endpoints;
+using PlayNext.Application.Contracts;
 using PlayNext.Application.Interfaces;
 using PlayNext.Application.UseCases;
+using PlayNext.Domain;
 using PlayNext.Infrastructure.Catalog;
 using PlayNext.Infrastructure.Persistence;
 using PlayNext.Infrastructure.Security;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ---------------------------------------------------------------------------
+// Request limits
+// ---------------------------------------------------------------------------
+
+// Kestrel's default request line is 8 KB. The catalog's `ids` batch is a GET
+// whose query string carries up to a thousand title ids at ~18 characters each,
+// which is comfortably past that — and the failure it produces is a bare 414
+// with no body, arriving long before the endpoint that could explain the limit
+// is reached. 32 KB leaves the maximum batch room for encoding overhead while
+// staying far below anything that would make a request line expensive to parse.
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestLineSize = 32 * 1024);
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -149,6 +163,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.Configure<GoogleOptions>(builder.Configuration.GetSection(GoogleOptions.SectionName));
 builder.Services.Configure<TmdbOptions>(builder.Configuration.GetSection(TmdbOptions.SectionName));
+builder.Services.Configure<CatalogOptions>(builder.Configuration.GetSection(CatalogOptions.SectionName));
 
 // Scoped: these hold a DbContext, which is per-request.
 builder.Services.AddScoped<IAccountStore, IdentityAccountStore>();
@@ -199,6 +214,79 @@ builder.Services
         // better answer.
         client.Timeout = TimeSpan.FromSeconds(30);
     });
+
+// ---------------------------------------------------------------------------
+// The catalog (008) — versioned rows, per-service depth, runs, retention
+// ---------------------------------------------------------------------------
+
+// Stores are scoped because each holds a DbContext. The pool cache and the
+// refresher are singletons because what they guard — one cached pool per
+// version, one run per region — is a property of the process (research D8,
+// D10), and a per-request copy would give every visitor a private opinion
+// about it.
+builder.Services.AddSingleton<ICatalogPoolCache, CatalogPoolCache>();
+builder.Services.AddScoped<ICatalogVersionStore, CatalogVersionStore>();
+builder.Services.AddScoped<ICatalogPoolReader, CatalogPoolReader>();
+builder.Services.AddScoped<ICatalogRetentionStore, CatalogRetentionStore>();
+builder.Services.AddScoped<ICatalogRefreshRunStore, CatalogRefreshRunStore>();
+builder.Services.AddScoped<CatalogVocabularySeeder>();
+builder.Services.AddSingleton<ICatalogRefreshLog, CatalogRefreshLog>();
+
+// Built by hand for the same reason CatalogUseCases is: the policy is a value
+// assembled from Infrastructure's options, so Application never learns what
+// `Catalog:Source` or `Tmdb:Staleness` are called (constitution VII).
+builder.Services.AddScoped(services => new CatalogQueryService(
+    services.GetRequiredService<ICatalogSnapshotStore>(),
+    services.GetRequiredService<ICatalogVersionStore>(),
+    services.GetRequiredService<ICatalogPoolReader>(),
+    services.GetRequiredService<ICatalogPoolCache>(),
+    services.GetRequiredService<ICatalogRefresher>(),
+    services.GetRequiredService<ICatalogRetentionStore>(),
+    services.GetRequiredService<TimeProvider>(),
+    new CatalogQueryPolicy(
+        // Read per request: the switch is the rollback (FR-007, SC-005), and a
+        // value captured at startup would be a rollback that needs a deployment
+        // after all.
+        CatalogSources.IsNormalized(
+            services.GetRequiredService<IOptionsMonitor<CatalogOptions>>().CurrentValue.Source)
+            ? CatalogSource.Normalized
+            : CatalogSource.Snapshot,
+        services.GetRequiredService<IOptions<TmdbOptions>>().Value.Staleness,
+        CatalogRetention.Limit)));
+
+builder.Services.AddScoped(services =>
+{
+    var tmdb = services.GetRequiredService<IOptions<TmdbOptions>>().Value;
+    var catalog = services.GetRequiredService<IOptionsMonitor<CatalogOptions>>().CurrentValue;
+
+    return new RefreshCatalogUseCase(
+        services.GetRequiredService<ICatalogProvider>(),
+        services.GetRequiredService<ICatalogVersionStore>(),
+        services.GetRequiredService<ICatalogRefreshRunStore>(),
+        services.GetRequiredService<ICatalogRetentionStore>(),
+        services.GetRequiredService<ICatalogPoolCache>(),
+        services.GetRequiredService<ICatalogRefreshLog>(),
+        services.GetRequiredService<TimeProvider>(),
+        new CatalogRefreshPolicy(
+            new CatalogSlicePlanOptions(
+                tmdb.MoviesPerGenre,
+                tmdb.TvPerGenre,
+                tmdb.AnimeQuota,
+                tmdb.ServiceTitlesPerGenre,
+                tmdb.MaxDiscoverPages),
+            TimeSpan.FromMinutes(catalog.RefreshTimeoutMinutes),
+            CatalogStartupMaintenance.BuildingMaxAge,
+            CatalogStartupMaintenance.SupersededMaxAge));
+});
+
+builder.Services.AddScoped<MigrateCatalogUseCase>();
+builder.Services.AddScoped<CatalogRetentionUseCase>();
+
+// Two opt-in one-shot passes, both background services rather than startup
+// work: a slow purge or a snapshot migration must not make the host look
+// unhealthy, and neither failure is a reason to refuse every request.
+builder.Services.AddHostedService<CatalogStartupMaintenance>();
+builder.Services.AddHostedService<CatalogMigrationRunner>();
 
 // Singletons: no state beyond immutable options. TokenService holds an options
 // snapshot and a clock; GoogleTokenVerifier holds a configuration manager that
@@ -315,6 +403,17 @@ var staticFiles = new StaticFileOptions
 };
 
 var app = builder.Build();
+
+// The catalog's vocabulary before anything can serve: every version write
+// references a service or genre row, and an empty vocabulary would let a
+// refresh store names it could never render. The upserts are by id and
+// idempotent, which is what makes this safe — and cheap — on every start.
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    await scope.ServiceProvider
+        .GetRequiredService<CatalogVocabularySeeder>()
+        .SeedAsync(CancellationToken.None);
+}
 
 // Early, so it wraps every response the endpoints below produce.
 app.UseResponseCompression();

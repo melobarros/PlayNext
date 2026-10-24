@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, inject, input, OnInit, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import {
   InteractionDocument,
@@ -48,7 +48,7 @@ import { WaysToWatch } from '../../../shared/ways-to-watch/ways-to-watch';
   imports: [Attribution, Poster, RouterLink, WaysToWatch],
   templateUrl: './detail.html',
 })
-export class Detail {
+export class Detail implements OnInit {
   private readonly catalog = inject(CatalogService);
   private readonly interactions = inject(InteractionStore);
   private readonly options = inject(QuizOptionsService);
@@ -126,8 +126,20 @@ export class Detail {
 
   protected readonly posterAlt = computed(() => artworkAlt(this.title()));
 
-  constructor() {
-    this.catalog.loadTitles(this.region).subscribe((titles) => this.titles.set(titles));
+  /**
+   * Resolve the one title the address names (feature 008,
+   * contracts/catalog-api.md "Screen usage").
+   *
+   * In `ngOnInit` rather than the constructor because the id is an `input`:
+   * the router binds it before the first change detection, which is earlier
+   * than the constructor can read it. The view asks for exactly this id — one
+   * request, one title — and an id the catalog no longer knows leaves `title()`
+   * null, which the unavailable branch already handles.
+   */
+  ngOnInit(): void {
+    this.catalog
+      .loadTitlesById(this.region, [this.titleId()])
+      .subscribe((titles) => this.titles.set(titles));
   }
 
   /**

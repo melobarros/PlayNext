@@ -17,7 +17,7 @@ namespace PlayNext.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.20")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -159,6 +159,202 @@ namespace PlayNext.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogAvailability", b =>
+                {
+                    b.Property<Guid>("VersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TitleId")
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ServiceId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Region")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)");
+
+                    b.Property<string>("DeepLinkUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastObservedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Monetization")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.HasKey("VersionId", "TitleId", "ServiceId", "Region");
+
+                    b.HasIndex("ServiceId");
+
+                    b.HasIndex("VersionId", "LastObservedAt");
+
+                    b.HasIndex("VersionId", "TitleId", "Position")
+                        .IsUnique();
+
+                    b.HasIndex("VersionId", "Region", "ServiceId", "TitleId");
+
+                    b.ToTable("CatalogAvailability");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogGenre", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<bool>("IsSelectable")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("TmdbId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TmdbId")
+                        .IsUnique();
+
+                    b.ToTable("CatalogGenres");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogRefreshRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CountsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FailuresJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Mode")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Region")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<Guid?>("VersionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("VersionId");
+
+                    b.HasIndex("Region", "StartedAt")
+                        .IsDescending(false, true);
+
+                    b.ToTable("CatalogRefreshRuns");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogRetiredTitle", b =>
+                {
+                    b.Property<string>("TitleId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("LastObservedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("RetiredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TitleId");
+
+                    b.ToTable("CatalogRetiredTitles");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogService", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<bool>("IsQuizService")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SearchTemplate")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("CatalogServices");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogServiceProvider", b =>
+                {
+                    b.Property<int>("TmdbProviderId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("TmdbProviderId"));
+
+                    b.Property<string>("ServiceId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("TmdbProviderId");
+
+                    b.HasIndex("ServiceId");
+
+                    b.ToTable("CatalogServiceProviders");
+                });
+
             modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogSnapshot", b =>
                 {
                     b.Property<string>("Region")
@@ -175,6 +371,164 @@ namespace PlayNext.Infrastructure.Persistence.Migrations
                     b.HasKey("Region");
 
                     b.ToTable("CatalogSnapshots");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogTitleGenre", b =>
+                {
+                    b.Property<Guid>("VersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TitleId")
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("GenreId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.HasKey("VersionId", "TitleId", "GenreId");
+
+                    b.HasIndex("GenreId");
+
+                    b.HasIndex("VersionId", "GenreId", "TitleId");
+
+                    b.HasIndex("VersionId", "TitleId", "Position")
+                        .IsUnique();
+
+                    b.ToTable("CatalogTitleGenres");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogTitleIdentity", b =>
+                {
+                    b.Property<string>("TitleId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TitleId");
+
+                    b.ToTable("CatalogTitleIdentities");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogTitleRecord", b =>
+                {
+                    b.Property<Guid>("VersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TitleId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool>("InGeneralPool")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastObservedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MediaType")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<int>("PoolPosition")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("Popularity")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("PosterUrl")
+                        .HasColumnType("text");
+
+                    b.Property<double>("Rating")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("ReleaseYear")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("RuntimeMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Synopsis")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TrailerUrl")
+                        .HasColumnType("text");
+
+                    b.Property<int>("VoteCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("VersionId", "TitleId");
+
+                    b.HasIndex("TitleId");
+
+                    b.HasIndex("VersionId", "LastObservedAt");
+
+                    b.HasIndex("VersionId", "InGeneralPool", "PoolPosition");
+
+                    b.HasIndex("VersionId", "MediaType", "TitleId");
+
+                    b.HasIndex("VersionId", "Popularity", "TitleId")
+                        .IsDescending(false, true, false);
+
+                    b.ToTable("CatalogTitles", (string)null);
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("FetchedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LatestObservedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Region")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Region", "State");
+
+                    b.HasIndex(new[] { "Region" }, "IX_CatalogVersions_Region_Active")
+                        .IsUnique()
+                        .HasFilter("\"State\" = 'Active'");
+
+                    b.HasIndex(new[] { "Region" }, "IX_CatalogVersions_Region_Building")
+                        .IsUnique()
+                        .HasFilter("\"State\" = 'Building'");
+
+                    b.ToTable("CatalogVersions");
                 });
 
             modelBuilder.Entity("PlayNext.Infrastructure.Persistence.UserInteraction", b =>
@@ -195,6 +549,8 @@ namespace PlayNext.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("UserId", "TitleId");
+
+                    b.HasIndex("TitleId");
 
                     b.ToTable("Interactions");
                 });
@@ -282,6 +638,8 @@ namespace PlayNext.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("TitleId");
+
                     b.HasIndex("UserId", "TitleId", "ChosenAt")
                         .IsUnique();
 
@@ -315,8 +673,99 @@ namespace PlayNext.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogAvailability", b =>
+                {
+                    b.HasOne("PlayNext.Infrastructure.Persistence.CatalogService", "Service")
+                        .WithMany()
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PlayNext.Infrastructure.Persistence.CatalogTitleRecord", "Title")
+                        .WithMany("Availability")
+                        .HasForeignKey("VersionId", "TitleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Service");
+
+                    b.Navigation("Title");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogRefreshRun", b =>
+                {
+                    b.HasOne("PlayNext.Infrastructure.Persistence.CatalogVersion", null)
+                        .WithMany()
+                        .HasForeignKey("VersionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogRetiredTitle", b =>
+                {
+                    b.HasOne("PlayNext.Infrastructure.Persistence.CatalogTitleIdentity", "Identity")
+                        .WithMany()
+                        .HasForeignKey("TitleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Identity");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogServiceProvider", b =>
+                {
+                    b.HasOne("PlayNext.Infrastructure.Persistence.CatalogService", "Service")
+                        .WithMany()
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Service");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogTitleGenre", b =>
+                {
+                    b.HasOne("PlayNext.Infrastructure.Persistence.CatalogGenre", "Genre")
+                        .WithMany()
+                        .HasForeignKey("GenreId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PlayNext.Infrastructure.Persistence.CatalogTitleRecord", "Title")
+                        .WithMany("Genres")
+                        .HasForeignKey("VersionId", "TitleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Genre");
+
+                    b.Navigation("Title");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogTitleRecord", b =>
+                {
+                    b.HasOne("PlayNext.Infrastructure.Persistence.CatalogTitleIdentity", null)
+                        .WithMany()
+                        .HasForeignKey("TitleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PlayNext.Infrastructure.Persistence.CatalogVersion", "Version")
+                        .WithMany("Titles")
+                        .HasForeignKey("VersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Version");
+                });
+
             modelBuilder.Entity("PlayNext.Infrastructure.Persistence.UserInteraction", b =>
                 {
+                    b.HasOne("PlayNext.Infrastructure.Persistence.CatalogTitleIdentity", null)
+                        .WithMany()
+                        .HasForeignKey("TitleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("PlayNext.Infrastructure.Persistence.ApplicationUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -350,6 +799,12 @@ namespace PlayNext.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("PlayNext.Infrastructure.Persistence.UserWatchHistoryEntry", b =>
                 {
+                    b.HasOne("PlayNext.Infrastructure.Persistence.CatalogTitleIdentity", null)
+                        .WithMany()
+                        .HasForeignKey("TitleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("PlayNext.Infrastructure.Persistence.ApplicationUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -357,6 +812,18 @@ namespace PlayNext.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogTitleRecord", b =>
+                {
+                    b.Navigation("Availability");
+
+                    b.Navigation("Genres");
+                });
+
+            modelBuilder.Entity("PlayNext.Infrastructure.Persistence.CatalogVersion", b =>
+                {
+                    b.Navigation("Titles");
                 });
 #pragma warning restore 612, 618
         }

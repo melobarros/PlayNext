@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { InteractionDocument } from '../../../core/models/interaction';
 import { MediaTitle } from '../../../core/models/media-title';
@@ -47,7 +47,7 @@ interface HistoryRow extends HistoryEntryView {
   imports: [Attribution, Poster, RouterLink],
   templateUrl: './history.html',
 })
-export class WatchHistory {
+export class WatchHistory implements OnInit {
   private readonly catalog = inject(CatalogService);
   private readonly interactions = inject(InteractionStore);
 
@@ -75,8 +75,16 @@ export class WatchHistory {
     })),
   );
 
-  constructor() {
-    this.catalog.loadTitles(this.region).subscribe((titles) => this.titles.set(titles));
+  ngOnInit(): void {
+    // One `ids` request for the whole log (feature 008,
+    // contracts/catalog-api.md "Screen usage"). The same title watched twice is
+    // one id: the log keeps both decisions, but there is nothing to fetch twice.
+    const ids = [...new Set(this.document().history.map((entry) => entry.titleId))];
+    if (ids.length === 0) return;
+
+    this.catalog
+      .loadTitlesById(this.region, ids)
+      .subscribe((titles) => this.titles.set(titles));
   }
 
   protected posterAlt(row: HistoryRow): string {

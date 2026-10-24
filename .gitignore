@@ -38,3 +38,6 @@ Thumbs.db
 
 # Local research and working notes (not published)
 research/
+
+# Captured catalog responses for the 008 parity harness (see specs/008-.../quickstart.md)
+frontend/src/app/features/deck/deck-logic/parity/fixtures/

@@ -1,5 +1,7 @@
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
+import { forkJoin, of } from 'rxjs';
+import { catalogQueryFor } from '../../core/models/catalog-query';
 import { DeckSession } from '../../core/models/deck-session';
 import { INTERACTION_STATE_LABELS, Interaction, InteractionState } from '../../core/models/interaction';
 import { MediaTitle } from '../../core/models/media-title';
@@ -404,14 +406,42 @@ export class Deck {
   /**
    * Ask the catalog for titles, and be loading until it answers.
    *
-   * The completion handler is total by contract (see `loadFailed`), which is
-   * what lets it be the only place `loading` is cleared — there is no error
-   * branch to forget, because there is no error branch.
+   * **Two requests, one logical load** (feature 008,
+   * contracts/catalog-api.md "Screen usage"). The pool is the targeted one —
+   * the visitor's services, genres and media type, with each dimension omitted
+   * when they left it to us — so a service + genre reaches that service's own
+   * depth instead of a catalog-wide sample. The second request resolves the
+   * titles the visitor has already rated, which the pool may no longer contain
+   * (they may live on a service the visitor did not pick) but whose genres are
+   * the feedback loop's whole input. The server ANDs filters, so the two sets
+   * cannot be asked for together; the contract says so and this is the deck
+   * obeying it.
+   *
+   * Both are merged **before** the signal is set, so `rankTitles` never runs
+   * over a half-loaded catalog: `historyAffinity` would briefly be computed
+   * without the rated titles and the deck would reorder under the visitor's
+   * eyes as the second answer arrived. `loading` therefore clears once, when
+   * both have completed.
+   *
+   * The completion handler is total by contract (see `loadFailed`) — both
+   * service methods complete rather than error — which is what lets it be the
+   * only place `loading` is cleared: there is no error branch to forget,
+   * because there is no error branch.
    */
   private load(): void {
     this.loading.set(true);
-    this.catalog.loadTitles(this.region).subscribe((titles) => {
-      this.titles.set(titles);
+
+    const preference = this.preference();
+    const query = preference === null ? {} : catalogQueryFor(preference);
+    const ratedIds = Object.keys(this.rated());
+
+    forkJoin([
+      this.catalog.loadTitles(this.region, query),
+      ratedIds.length === 0
+        ? of<MediaTitle[]>([])
+        : this.catalog.loadTitlesById(this.region, ratedIds),
+    ]).subscribe(([pool, rated]) => {
+      this.titles.set(withRated(pool, rated));
       this.loading.set(false);
     });
   }
@@ -647,6 +677,24 @@ function hintFor(outcome: SwipeOutcome): InteractionState | null {
   if (outcome === 'dismiss-left') return 'disliked';
   if (outcome === 'dismiss-right') return 'liked';
   return null;
+}
+
+/**
+ * The pool plus the rated titles it does not already carry.
+ *
+ * The pool is the deck; the rated titles are added only so `rankTitles` can
+ * read their genres before filter 4 removes them again. A rated title already
+ * in the pool is kept once — the pool's copy, which is the one that arrived
+ * from the same request that will be shown — so the merge cannot duplicate a
+ * card or let two copies of one title disagree.
+ *
+ * Order matters as little as it did before: ranking is deterministic and sorts
+ * the whole array, so where a supplementary title sits in the input is
+ * invisible in the output.
+ */
+function withRated(pool: MediaTitle[], rated: MediaTitle[]): MediaTitle[] {
+  const known = new Set(pool.map((title) => title.id));
+  return [...pool, ...rated.filter((title) => !known.has(title.id))];
 }
 
 /**

@@ -172,6 +172,11 @@ describe('deck action bar', () => {
           provide: CatalogService,
           useValue: {
             loadTitles: (): Observable<MediaTitle[]> => of(fixtureTitles()),
+            // The supplemental rated-id request (008 US2). Every test here
+            // starts with nothing rated, so it is never called — but the deck
+            // calls it on any load that has ratings, and a double that throws
+            // on a path the real service has is one refactor away from a lie.
+            loadTitlesById: (): Observable<MediaTitle[]> => of([]),
             // The notices (FR-013) have their own tests in deck.spec.ts; the
             // shell reads this on every render, so the double must answer.
             usingCachedTitles: signal(false),

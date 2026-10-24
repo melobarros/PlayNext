@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using PlayNext.Application.Contracts;
 using PlayNext.Application.Interfaces;
 using PlayNext.Domain;
 
@@ -13,21 +14,26 @@ namespace PlayNext.Infrastructure.Catalog;
 /// <summary>
 /// The catalog provider, spoken to over HTTP (research D3, D4, D12, D15).
 ///
-/// Composing a region's pool takes roughly twenty discovery queries plus one
-/// enriched query per title — hundreds of upstream calls — which is exactly why
-/// nothing on a request's critical path ever calls this (research D10). The
-/// visitor's request is answered from a snapshot; this runs behind it.
+/// Two seams are implemented here, and they answer different questions:
+/// <list type="bullet">
+///   <item><see cref="FetchAsync"/> composes a whole region pool in one pass —
+///   the 005 snapshot path and the rollback document's source.</item>
+///   <item><see cref="DiscoverAsync"/>/<see cref="EnrichAsync"/>, feature 008's
+///   split: discovery can filter <i>by</i> a service but cannot say which
+///   services carry a title, so a targeted pool is discovered per service and
+///   the badges come from one enriched call per <b>unique</b> title
+///   (research D4).</item>
+/// </list>
 ///
 /// Two properties of the provider shape the code:
 /// <list type="bullet">
-///   <item><b>Availability is only knowable per title.</b> Discovery can filter
-///   <i>by</i> a service but cannot say which services carry a title, so the
-///   badges come from one enriched call each — folded together with the trailer
-///   through <c>append_to_response</c> so it is one call rather than two
-///   (research D4).</item>
 ///   <item><b>Its rate limit is soft and enforced.</b> The batch paces itself
 ///   below the documented ceiling rather than discovering it, and treats a 429
-///   as the batch's end rather than something to retry into (research D16).</item>
+///   as the batch's end once the retry budget is spent (research D16).</item>
+///   <item><b>A refusal carries an instruction.</b> <c>Retry-After</c> is read
+///   and obeyed only when the pause fits within one refresh; a longer pause is
+///   recorded and the run is abandoned, because waiting it out would hold the
+///   batch past its own budget.</item>
 /// </list>
 /// </summary>
 public sealed class TmdbClient : ICatalogProvider
@@ -36,6 +42,13 @@ public sealed class TmdbClient : ICatalogProvider
     {
         PropertyNameCaseInsensitive = true,
     };
+
+    /// <summary>
+    /// The longest <c>Retry-After</c> a refresh will wait on. Past this the
+    /// provider is asking for a pause longer than one run should hold, so the
+    /// run ends and the next schedule tries again.
+    /// </summary>
+    private static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(2);
 
     private readonly HttpClient _http;
     private readonly TmdbOptions _options;
@@ -92,10 +105,103 @@ public sealed class TmdbClient : ICatalogProvider
 
         foreach (var candidate in candidates)
         {
-            titles.Add(await EnrichAsync(candidate, region, cancellationToken));
+            titles.Add(await EnrichLegacyAsync(candidate, region, cancellationToken));
         }
 
         return titles;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<CatalogCandidate>> DiscoverAsync(
+        string region,
+        CatalogSlice slice,
+        CatalogDiscoveryQuery query,
+        CancellationToken cancellationToken)
+    {
+        var candidates = new List<CatalogCandidate>(query.Target);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        for (var page = 1; page <= slice.MaxPages && candidates.Count < query.Target; page++)
+        {
+            var path = DiscoverPath(slice, query, region, page);
+            var response = await SendAsync(path, cancellationToken);
+            var body = await ReadAsync<DiscoverPage>(response, path, cancellationToken);
+
+            if (body.Results.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var item in body.Results)
+            {
+                if (candidates.Count >= query.Target)
+                {
+                    break;
+                }
+
+                var titleId = CatalogClassification.BuildTitleId(query.IsMovie, item.Id);
+
+                // The first page to reach a title owns it; a title reachable
+                // through several pages is still one title.
+                if (seen.Add(titleId))
+                {
+                    candidates.Add(new CatalogCandidate(
+                        titleId,
+                        query.IsMovie,
+                        item.Id,
+                        item.Popularity));
+                }
+            }
+
+            if (page >= body.TotalPages)
+            {
+                break;
+            }
+        }
+
+        return candidates;
+    }
+
+    /// <inheritdoc />
+    public async Task<CatalogTitleObservation> EnrichAsync(
+        string region,
+        CatalogCandidate candidate,
+        CancellationToken cancellationToken)
+    {
+        var path = DetailPath(candidate.IsMovie, candidate.TmdbId, region);
+        var response = await SendAsync(path, cancellationToken);
+        var detail = await ReadAsync<TitleDetail>(response, path, cancellationToken);
+
+        var genreIds = detail.Genres?
+            .Select(genre => genre.Id)
+            .ToList() ?? [];
+
+        var title = new CatalogTitle(
+            Id: candidate.TitleId,
+            Title: (detail.Title ?? detail.Name ?? string.Empty).Trim(),
+            ReleaseYear: ParseYear(detail.ReleaseDate ?? detail.FirstAirDate),
+            MediaType: CatalogClassification.ResolveMediaType(
+                candidate.IsMovie, genreIds, detail.OriginalLanguage),
+            Genres: CatalogVocabulary.MapGenres(genreIds),
+            Synopsis: detail.Overview?.Trim() ?? string.Empty,
+            Rating: Math.Round(detail.VoteAverage, 1),
+            VoteCount: detail.VoteCount,
+            // A series has no runtime: episode lengths are not a title runtime
+            // (FR-017).
+            RuntimeMinutes: candidate.IsMovie ? detail.Runtime : null,
+            TrailerUrl: TrailerUrl(detail),
+            PosterUrl: PosterUrl(detail.PosterPath),
+            // The observation carries every offer separately; the composition
+            // decides which ones become badges.
+            Availability: []);
+
+        var inRegion = RegionProvidersFor(detail, region);
+
+        return new CatalogTitleObservation(
+            candidate,
+            title,
+            Offers(inRegion),
+            inRegion?.Link);
     }
 
     /// <summary>
@@ -149,10 +255,13 @@ public sealed class TmdbClient : ICatalogProvider
     }
 
     /// <summary>
-    /// Fetches a title's availability and trailer, and assembles the catalog
-    /// title.
+    /// The 005 enrichment: a title's badges and trailer, assembled from the
+    /// discovery record plus one detail call.
     /// </summary>
-    private async Task<CatalogTitle> EnrichAsync(Candidate candidate, string region, CancellationToken cancellationToken)
+    private async Task<CatalogTitle> EnrichLegacyAsync(
+        Candidate candidate,
+        string region,
+        CancellationToken cancellationToken)
     {
         var path = DetailPath(candidate, region);
         var response = await SendAsync(path, cancellationToken);
@@ -160,14 +269,15 @@ public sealed class TmdbClient : ICatalogProvider
 
         var item = candidate.Item;
         var title = item.DisplayTitle;
-        var genres = CatalogVocabulary.MapGenres(item.GenreIds);
+        var genreIds = item.GenreIdsOrEmpty;
+        var genres = CatalogVocabulary.MapGenres(genreIds);
 
         return new CatalogTitle(
             Id: CatalogClassification.BuildTitleId(candidate.IsMovie, item.Id),
             Title: title,
             ReleaseYear: ParseYear(item.ReleaseDate ?? item.FirstAirDate),
             MediaType: CatalogClassification.ResolveMediaType(
-                candidate.IsMovie, item.GenreIds, item.OriginalLanguage),
+                candidate.IsMovie, genreIds, item.OriginalLanguage),
             Genres: genres,
             Synopsis: item.Overview?.Trim() ?? string.Empty,
             Rating: Math.Round(item.VoteAverage, 1),
@@ -186,9 +296,7 @@ public sealed class TmdbClient : ICatalogProvider
     /// </summary>
     private IReadOnlyList<StreamingAvailability> Availability(TitleDetail detail, string region, string title)
     {
-        if (detail.WatchProviders?.Results is not { } byRegion
-            || !byRegion.TryGetValue(region, out var inRegion)
-            || inRegion is null)
+        if (RegionProvidersFor(detail, region) is not { } inRegion)
         {
             return [];
         }
@@ -226,6 +334,49 @@ public sealed class TmdbClient : ICatalogProvider
 
         return badges;
     }
+
+    /// <summary>
+    /// Every streamable offer the provider reported, with its monetization, in
+    /// the provider's own bucket order. Canonicalization is the composition's
+    /// job — this method reports, it does not decide (research D7).
+    /// </summary>
+    private static IReadOnlyList<CatalogOffer> Offers(RegionProviders? inRegion)
+    {
+        if (inRegion is null)
+        {
+            return [];
+        }
+
+        var offers = new List<CatalogOffer>();
+        var seen = new HashSet<(int, string)>();
+
+        foreach (var (providers, monetization) in new[]
+                 {
+                     (inRegion.Flatrate, "flatrate"),
+                     (inRegion.Free, "free"),
+                     (inRegion.Ads, "ads"),
+                 })
+        {
+            foreach (var provider in providers ?? [])
+            {
+                if (seen.Add((provider.ProviderId, monetization)))
+                {
+                    offers.Add(new CatalogOffer(
+                        provider.ProviderId,
+                        provider.ProviderName,
+                        monetization));
+                }
+            }
+        }
+
+        return offers;
+    }
+
+    private static RegionProviders? RegionProvidersFor(TitleDetail detail, string region) =>
+        detail.WatchProviders?.Results is { } byRegion
+            && byRegion.TryGetValue(region, out var inRegion)
+                ? inRegion
+                : null;
 
     /// <summary>The first YouTube trailer, when the provider has one (002 FR-008).</summary>
     private static string? TrailerUrl(TitleDetail detail) =>
@@ -281,68 +432,172 @@ public sealed class TmdbClient : ICatalogProvider
     }
 
     /// <summary>
+    /// One discovery query as the provider expects it: every genre ANDed, and —
+    /// for a service slice — the provider ids, region, and streamable
+    /// monetizations that make the result that service's catalog rather than a
+    /// sample of the region's (FR-011).
+    /// </summary>
+    private string DiscoverPath(
+        CatalogSlice slice,
+        CatalogDiscoveryQuery query,
+        string region,
+        int page)
+    {
+        var parameters = new List<string>
+        {
+            $"with_genres={string.Join(',', query.GenreIds)}",
+            "sort_by=popularity.desc",
+            "include_adult=false",
+            $"language={Uri.EscapeDataString(_options.Language)}",
+            $"page={page}",
+        };
+
+        if (query.OriginalLanguage is not null)
+        {
+            parameters.Add($"with_original_language={Uri.EscapeDataString(query.OriginalLanguage)}");
+        }
+
+        if (slice.ProviderIds.Count > 0)
+        {
+            // Pipe-separated: the provider treats the list as OR, which is what
+            // "carried by any of this service's ids" means. Aliases are folded
+            // into the same list (research D7).
+            parameters.Add(
+                $"with_watch_providers={Uri.EscapeDataString(string.Join('|', slice.ProviderIds))}");
+
+            parameters.Add($"watch_region={Uri.EscapeDataString(region)}");
+
+            // Rent and buy are deliberately absent: the quiz asks which
+            // services the visitor pays for, and a rental is the dead end
+            // FR-007 removes (research D5).
+            parameters.Add(
+                $"with_watch_monetization_types={Uri.EscapeDataString("flatrate|free|ads")}");
+        }
+
+        return $"discover/{(query.IsMovie ? "movie" : "tv")}?{string.Join('&', parameters)}";
+    }
+
+    /// <summary>
     /// The enriched title query: availability and videos folded into the detail
     /// call, because the provider bills them as one request either way and one
     /// call per title is half of two (research D4).
     /// </summary>
     private string DetailPath(Candidate candidate, string region) =>
-        $"{(candidate.IsMovie ? "movie" : "tv")}/{candidate.Item.Id}"
+        DetailPath(candidate.IsMovie, candidate.Item.Id, region);
+
+    private string DetailPath(bool isMovie, int id, string region) =>
+        $"{(isMovie ? "movie" : "tv")}/{id}"
         + "?append_to_response=watch/providers,videos"
         + $"&language={Uri.EscapeDataString(_options.Language)}"
         + $"&watch_region={Uri.EscapeDataString(region)}";
 
     /// <summary>
-    /// Issues one paced request, treating anything but a 200 as the batch's end.
+    /// Issues one paced request, retrying what is worth retrying.
+    ///
+    /// Transient failures (a socket error, a 5xx, a client timeout) are retried
+    /// within <see cref="TmdbOptions.MaxRetries"/>. A 429 is obeyed when its
+    /// <c>Retry-After</c> fits inside one refresh and abandoned otherwise —
+    /// retrying into a rate limit is how a soft limit becomes a block
+    /// (research D16). Either way the caller sees a 429 as the run's end.
     /// </summary>
     private async Task<HttpResponseMessage> SendAsync(string path, CancellationToken cancellationToken)
     {
-        await PaceAsync(cancellationToken);
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, path);
-
-        // The key travels in a header rather than the query string, so it does
-        // not end up in a proxy's access log (research D1). It is never logged
-        // here, and no response body is either.
-        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _options.ApiKey);
-
-        var response = await _http.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        for (var attempt = 0; ; attempt++)
         {
-            // The provider has told us to stop; retrying into a 429 is how a
-            // batch turns into a block. The refresh is abandoned whole, and the
-            // next stale request will try again (research D16).
-            var retryAfter = response.Headers.RetryAfter?.Delta
-                ?? (response.Headers.RetryAfter?.Date is { } date ? date - _time.GetUtcNow() : null);
+            await PaceAsync(cancellationToken);
 
-            _logger.LogWarning(
-                "Catalog provider rate-limited the refresh; abandoning the batch. RetryAfter={RetryAfter}",
-                retryAfter);
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
 
-            response.Dispose();
+            // The key travels in a header rather than the query string, so it
+            // does not end up in a proxy's access log (research D1). It is
+            // never logged here, and no response body is either.
+            request.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _options.ApiKey);
 
-            throw new HttpRequestException(
-                "The catalog provider rate-limited the request.",
-                null,
-                HttpStatusCode.TooManyRequests);
+            HttpResponseMessage response;
+
+            try
+            {
+                response = await _http.SendAsync(request, cancellationToken);
+            }
+            catch (HttpRequestException) when (attempt < _options.MaxRetries)
+            {
+                await BackoffAsync(attempt, cancellationToken);
+                continue;
+            }
+            catch (OperationCanceledException)
+                when (!cancellationToken.IsCancellationRequested && attempt < _options.MaxRetries)
+            {
+                // The client's own timeout, not the caller's cancellation. The
+                // run's budget is checked first so a budget timeout propagates
+                // rather than being retried.
+                await BackoffAsync(attempt, cancellationToken);
+                continue;
+            }
+
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                var retryAfter = response.Headers.RetryAfter?.Delta
+                    ?? (response.Headers.RetryAfter?.Date is { } date ? date - _time.GetUtcNow() : null);
+
+                response.Dispose();
+
+                if (attempt < _options.MaxRetries
+                    && retryAfter is { } pause
+                    && pause <= MaxRetryAfter)
+                {
+                    await Task.Delay(pause > TimeSpan.Zero ? pause : Backoff(attempt), _time, cancellationToken);
+                    continue;
+                }
+
+                // The provider has told us to stop. The refresh is abandoned
+                // whole, and the next stale request will try again.
+                _logger.LogWarning(
+                    "Catalog provider rate-limited the refresh; abandoning the batch after {Attempts} attempt(s). RetryAfter={RetryAfter}",
+                    attempt + 1,
+                    retryAfter);
+
+                throw new HttpRequestException(
+                    "The catalog provider rate-limited the request.",
+                    null,
+                    HttpStatusCode.TooManyRequests);
+            }
+
+            if ((int)response.StatusCode >= 500 && attempt < _options.MaxRetries)
+            {
+                _logger.LogWarning(
+                    "Catalog provider answered {StatusCode}; retrying.",
+                    (int)response.StatusCode);
+
+                response.Dispose();
+
+                await BackoffAsync(attempt, cancellationToken);
+                continue;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "Catalog provider answered {StatusCode} for the refresh.",
+                    (int)response.StatusCode);
+
+                response.Dispose();
+
+                throw new HttpRequestException(
+                    "The catalog provider refused the request.",
+                    null,
+                    response.StatusCode);
+            }
+
+            return response;
         }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogWarning(
-                "Catalog provider answered {StatusCode} for the refresh.",
-                (int)response.StatusCode);
-
-            response.Dispose();
-
-            throw new HttpRequestException(
-                "The catalog provider refused the request.",
-                null,
-                response.StatusCode);
-        }
-
-        return response;
     }
+
+    private static TimeSpan Backoff(int attempt) =>
+        TimeSpan.FromSeconds(Math.Pow(2, Math.Max(0, attempt)));
+
+    private Task BackoffAsync(int attempt, CancellationToken cancellationToken) =>
+        Task.Delay(Backoff(attempt), _time, cancellationToken);
 
     private async Task<T> ReadAsync<T>(HttpResponseMessage response, string path, CancellationToken cancellationToken)
     {
@@ -397,10 +652,11 @@ public sealed class TmdbClient : ICatalogProvider
         [property: JsonPropertyName("id")] int Id,
         [property: JsonPropertyName("title")] string? Title,
         [property: JsonPropertyName("name")] string? Name,
-        [property: JsonPropertyName("genre_ids")] IReadOnlyList<int> GenreIds,
+        [property: JsonPropertyName("genre_ids")] IReadOnlyList<int>? GenreIds,
         [property: JsonPropertyName("original_language")] string? OriginalLanguage,
         [property: JsonPropertyName("overview")] string? Overview,
         [property: JsonPropertyName("poster_path")] string? PosterPath,
+        [property: JsonPropertyName("popularity")] double Popularity,
         [property: JsonPropertyName("vote_average")] double VoteAverage,
         [property: JsonPropertyName("vote_count")] int VoteCount,
         [property: JsonPropertyName("release_date")] string? ReleaseDate,
@@ -408,22 +664,42 @@ public sealed class TmdbClient : ICatalogProvider
     {
         /// <summary>Films carry <c>title</c> and series carry <c>name</c>; neither field means nothing.</summary>
         public string DisplayTitle => (Title ?? Name ?? string.Empty).Trim();
+
+        /// <summary>The provider omits the array for a title with no genres.</summary>
+        public IReadOnlyList<int> GenreIdsOrEmpty => GenreIds ?? [];
     }
 
     private sealed record TitleDetail(
+        [property: JsonPropertyName("title")] string? Title,
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("original_language")] string? OriginalLanguage,
+        [property: JsonPropertyName("overview")] string? Overview,
+        [property: JsonPropertyName("poster_path")] string? PosterPath,
+        [property: JsonPropertyName("vote_average")] double VoteAverage,
+        [property: JsonPropertyName("vote_count")] int VoteCount,
         [property: JsonPropertyName("runtime")] int? Runtime,
+        [property: JsonPropertyName("release_date")] string? ReleaseDate,
+        [property: JsonPropertyName("first_air_date")] string? FirstAirDate,
+        [property: JsonPropertyName("genres")] IReadOnlyList<GenreRef>? Genres,
         [property: JsonPropertyName("watch/providers")] WatchProviders? WatchProviders,
         [property: JsonPropertyName("videos")] VideoList? Videos);
+
+    private sealed record GenreRef(
+        [property: JsonPropertyName("id")] int Id,
+        [property: JsonPropertyName("name")] string? Name);
 
     private sealed record WatchProviders(
         [property: JsonPropertyName("results")] Dictionary<string, RegionProviders?>? Results);
 
     private sealed record RegionProviders(
+        [property: JsonPropertyName("link")] string? Link,
         [property: JsonPropertyName("flatrate")] IReadOnlyList<ProviderRef>? Flatrate,
         [property: JsonPropertyName("free")] IReadOnlyList<ProviderRef>? Free,
         [property: JsonPropertyName("ads")] IReadOnlyList<ProviderRef>? Ads);
 
-    private sealed record ProviderRef([property: JsonPropertyName("provider_id")] int ProviderId);
+    private sealed record ProviderRef(
+        [property: JsonPropertyName("provider_id")] int ProviderId,
+        [property: JsonPropertyName("provider_name")] string? ProviderName);
 
     private sealed record VideoList(
         [property: JsonPropertyName("results")] IReadOnlyList<Video>? Results);

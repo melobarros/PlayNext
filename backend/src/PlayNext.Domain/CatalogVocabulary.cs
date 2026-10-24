@@ -26,6 +26,21 @@ public sealed record CatalogProvider(int TmdbId, string? VocabId, string Display
 }
 
 /// <summary>
+/// One genre row for the vocabulary seeder (data-model §1).
+/// </summary>
+/// <param name="Id">The wire genre id: a quiz slug, or the slug of a tag name.</param>
+/// <param name="DisplayName">The name a card may show.</param>
+/// <param name="TmdbId">The provider's numeric id, or <c>null</c> for a genre the provider does not have.</param>
+/// <param name="IsSelectable">Whether the quiz offers this genre.</param>
+/// <param name="Position">Quiz order first, then tag order.</param>
+public sealed record CatalogGenreSeed(
+    string Id,
+    string DisplayName,
+    int? TmdbId,
+    bool IsSelectable,
+    int Position);
+
+/// <summary>
 /// The translation between the provider's vocabulary and 001's — the feature's
 /// other named critical path (constitution V), and a pure Domain rule
 /// (constitution VII): no HTTP, no database, no framework, so the mapping can
@@ -115,6 +130,21 @@ public static class CatalogVocabulary
         [10767] = "Talk",
         [10768] = "War & Politics",
     };
+
+    /// <summary>
+    /// The complete genre vocabulary as rows: the nine selectable genres in quiz
+    /// order, then the provider's other genres as non-selectable tags.
+    ///
+    /// One list rather than letting each writer reconstruct it from
+    /// <see cref="GenreIds"/> and <see cref="MapGenres"/> — the seeder and the
+    /// tests must agree about what a genre row is, and two derivations would be
+    /// free to drift.
+    ///
+    /// Declared <b>after</b> <see cref="GenreNames"/> deliberately: static field
+    /// initializers run in declaration order, and a list built from a field
+    /// declared below it would be built from <c>null</c>.
+    /// </summary>
+    public static readonly IReadOnlyList<CatalogGenreSeed> Genres = BuildGenres();
 
     /// <summary>
     /// The services the catalog knows how to link to (research D7).
@@ -296,6 +326,59 @@ public static class CatalogVocabulary
     /// drifted.
     /// </summary>
     public static readonly IReadOnlyList<string> TemplatePlaceholders = ["{title}", "{region}"];
+
+    /// <summary>
+    /// The nine selectable genres, then the tag genres, each with its provider
+    /// id where one exists. Tag order is the provider id's, so the rows are
+    /// reproducible from the same seed tables (constitution VI).
+    /// </summary>
+    private static IReadOnlyList<CatalogGenreSeed> BuildGenres()
+    {
+        var genres = new List<CatalogGenreSeed>(GenreSeed.Length + GenreNames.Count);
+
+        foreach (var (tmdbId, quizId) in GenreSeed)
+        {
+            genres.Add(new CatalogGenreSeed(
+                quizId,
+                DisplayNameFor(quizId),
+                tmdbId,
+                IsSelectable: true,
+                Position: genres.Count));
+        }
+
+        foreach (var (tmdbId, name) in GenreNames.OrderBy(entry => entry.Key))
+        {
+            genres.Add(new CatalogGenreSeed(
+                Slug(name),
+                name,
+                tmdbId,
+                IsSelectable: false,
+                Position: genres.Count));
+        }
+
+        return genres;
+    }
+
+    /// <summary>
+    /// The display name for a quiz genre id.
+    ///
+    /// Spelled out rather than derived from the slug, because "sci-fi" would
+    /// otherwise render as "Sci Fi" or "Sci-fi" — both visible on a card, and
+    /// neither what the quiz shows.
+    /// </summary>
+    private static string DisplayNameFor(string quizId) => quizId switch
+    {
+        "action" => "Action",
+        "comedy" => "Comedy",
+        "drama" => "Drama",
+        "horror" => "Horror",
+        "romance" => "Romance",
+        "sci-fi" => "Sci-Fi",
+        "thriller" => "Thriller",
+        "animation" => "Animation",
+        "documentary" => "Documentary",
+        _ => quizId,
+    };
 
     /// <summary>
     /// A lowercase, dash-separated tag from a genre name: "Sci-Fi &amp; Fantasy"

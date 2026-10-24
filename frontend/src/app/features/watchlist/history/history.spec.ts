@@ -64,8 +64,22 @@ class FakeCatalogService {
   /** A signal, like the real one — templates read it as `usingCachedTitles()`. */
   readonly usingCachedTitles = signal(false).asReadonly();
 
+  /** Every id batch the view asked for, in order — one per view (US2). */
+  readonly idRequests: string[][] = [];
+
   loadTitles(_region: string): Observable<MediaTitle[]> {
     return of(CATALOG.map((candidate) => ({ ...candidate })));
+  }
+
+  loadTitlesById(_region: string, ids: readonly string[]): Observable<MediaTitle[]> {
+    this.idRequests.push([...ids]);
+
+    const wanted = new Set(ids);
+    return of(
+      CATALOG.filter((candidate) => wanted.has(candidate.id)).map((candidate) => ({
+        ...candidate,
+      })),
+    );
   }
 }
 
@@ -77,6 +91,8 @@ interface SavedHistoryEntry {
 describe('watching history', () => {
   let fixture: ComponentFixture<WatchHistory>;
   let root: HTMLElement;
+  /** The fake the current `build()` installed, for its request log. */
+  let catalogService: FakeCatalogService;
 
   /**
    * Writes a document the way the deck writes it, straight to LocalStorage.
@@ -122,10 +138,12 @@ describe('watching history', () => {
    * log" and "remembers what it read the first time" are indistinguishable.
    */
   function build(): void {
+    catalogService = new FakeCatalogService();
+
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
-        { provide: CatalogService, useValue: new FakeCatalogService() },
+        { provide: CatalogService, useValue: catalogService },
       ],
     });
 
@@ -355,6 +373,39 @@ describe('watching history', () => {
 
       expect(screen.querySelector('app-detail')).toBeNull();
       expect(screen.querySelector('app-watch-history')).not.toBeNull();
+    });
+  });
+
+  /**
+   * What the history asks the catalog for (feature 008, US2).
+   *
+   * One `ids` request for the whole log, over the distinct ids it carries. The
+   * log is append-only, so the same title can appear twice; there is still only
+   * one title to fetch.
+   */
+  describe('the ids request (US2)', () => {
+    it('asks once for the distinct ids the log needs', () => {
+      saveHistory([
+        { titleId: 'arrival', chosenAt: PARASITE_WATCHED },
+        { titleId: 'arrival', chosenAt: ARRIVAL_WATCHED },
+        { titleId: 'parasite', chosenAt: ARRIVAL_WATCHED },
+      ]);
+
+      build();
+
+      expect(catalogService.idRequests).toHaveLength(1);
+      expect([...catalogService.idRequests[0]].sort()).toEqual(['arrival', 'parasite']);
+    });
+
+    it('does not ask at all when nothing was watched', () => {
+      saveHistory([]);
+
+      build();
+
+      // An empty id list is already a complete answer, and the empty state
+      // carries its own way out without one.
+      expect(catalogService.idRequests).toEqual([]);
+      expect(text().toLowerCase()).toContain('deck');
     });
   });
 });

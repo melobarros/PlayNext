@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { lastValueFrom, Observable, of, throwError } from 'rxjs';
+import { CatalogQuery } from '../models/catalog-query';
 import { FIXTURE_CATALOG } from '../models/media-catalog.fixture';
 import { MediaTitle } from '../models/media-title';
 import { GENRES, STREAMING_PROVIDERS } from '../models/quiz-options.data';
@@ -23,15 +24,19 @@ class ControllableSource implements CatalogSource {
   /** Every region the service asked for, in order — the client's entire region job. */
   readonly regions: string[] = [];
 
+  /** Every query the service asked for, in order and unmodified. */
+  readonly queries: (CatalogQuery | undefined)[] = [];
+
   /** Flip to make the next load fail, the way an unreachable provider would. */
   failing = false;
 
   /** How many times the source was asked, for the "tried, then fell back" case. */
   calls = 0;
 
-  load(region: string): Observable<MediaTitle[]> {
+  load(region: string, query?: CatalogQuery): Observable<MediaTitle[]> {
     this.calls++;
     this.regions.push(region);
+    this.queries.push(query);
 
     return this.failing
       ? throwError(() => new Error('provider unreachable'))
@@ -176,6 +181,107 @@ describe('CatalogService', () => {
 
       const reread = await lastValueFrom(service.loadTitles('BR'));
       expect(reread.length).toBe(FIXTURE_CATALOG.length);
+    });
+  });
+
+  describe('a targeted request (US2)', () => {
+    it('hands the query to the source unchanged', async () => {
+      const query: CatalogQuery = {
+        services: ['netflix', 'max'],
+        genres: ['horror'],
+        mediaTypes: ['movie'],
+      };
+
+      await lastValueFrom(service.loadTitles('BR', query));
+
+      // The service is a cache and a fallback, not a second owner of the query
+      // grammar: what the screen asked for is what the source sees.
+      expect(source.queries).toEqual([query]);
+    });
+
+    it('keeps a fallback per question rather than one for all of them', async () => {
+      await lastValueFrom(service.loadTitles('BR', { services: ['netflix'] }));
+      source.failing = true;
+
+      // A question never asked before has no answer of its own to fall back to,
+      // even though another question's catalog is cached. Serving it here would
+      // be answering "Netflix horror" with "everything we saw last time".
+      const unanswered = await lastValueFrom(
+        service.loadTitles('BR', { services: ['netflix'], genres: ['horror'] }),
+      );
+      expect(unanswered).toEqual([]);
+
+      const answered = await lastValueFrom(service.loadTitles('BR', { services: ['netflix'] }));
+      expect(answered.length).toBe(FIXTURE_CATALOG.length);
+    });
+
+    it('treats the same question in a different order as the same question', async () => {
+      await lastValueFrom(service.loadTitles('BR', { services: ['netflix', 'max'] }));
+      source.failing = true;
+
+      // Across a dimension the contract is OR, which has no order. A cache
+      // keyed on the array as typed would miss its own fallback here.
+      const reordered = await lastValueFrom(
+        service.loadTitles('BR', { services: ['max', 'netflix'] }),
+      );
+
+      expect(reordered.length).toBe(FIXTURE_CATALOG.length);
+    });
+
+    it('keys the fallback by region as well as by query', async () => {
+      await lastValueFrom(service.loadTitles('BR', { genres: ['horror'] }));
+      source.failing = true;
+
+      // A pool cached for BR is not an answer for US.
+      const otherRegion = await lastValueFrom(service.loadTitles('US', { genres: ['horror'] }));
+
+      expect(otherRegion).toEqual([]);
+    });
+  });
+
+  describe('loadTitlesById (US2)', () => {
+    const IDS = ['tmdb:movie:27205', 'tmdb:tv:1396'];
+
+    it('asks for exactly the ids it was given', async () => {
+      await lastValueFrom(service.loadTitlesById('BR', IDS));
+
+      expect(source.queries).toEqual([{ ids: IDS }]);
+      expect(source.regions).toEqual(['BR']);
+    });
+
+    it('asks nothing at all when there is nothing to resolve', async () => {
+      const titles = await lastValueFrom(service.loadTitlesById('BR', []));
+
+      // An empty list is already a complete answer; the round trip could not
+      // change what is shown.
+      expect(titles).toEqual([]);
+      expect(source.calls).toBe(0);
+    });
+
+    it('serves its own last good answer when the request fails', async () => {
+      const first = await lastValueFrom(service.loadTitlesById('BR', IDS));
+
+      source.failing = true;
+      const fallback = await lastValueFrom(service.loadTitlesById('BR', IDS));
+
+      expect(fallback.map((title) => title.id)).toEqual(first.map((title) => title.id));
+    });
+
+    it('neither raises nor clears the cached-titles notice', async () => {
+      // The notice is about the deck's *pool*. This request is supplementary,
+      // so it must not claim the pool was cached...
+      source.failing = true;
+      await lastValueFrom(service.loadTitlesById('BR', IDS));
+      expect(service.usingCachedTitles()).toBe(false);
+
+      // ...and must not clear a notice a failed pool load had raised.
+      await lastValueFrom(service.loadTitles('BR'));
+      expect(service.usingCachedTitles()).toBe(true);
+
+      source.failing = false;
+      await lastValueFrom(service.loadTitlesById('BR', IDS));
+
+      expect(service.usingCachedTitles()).toBe(true);
     });
   });
 

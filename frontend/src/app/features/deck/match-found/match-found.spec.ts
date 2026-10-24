@@ -76,8 +76,18 @@ function completedQuiz(): QuizState {
 }
 
 class FakeCatalogService {
+  /** Every id batch the view asked for, in order — one per view (US2). */
+  readonly idRequests: string[][] = [];
+
   loadTitles(_region: string): Observable<MediaTitle[]> {
     return of(CATALOG.map((title) => ({ ...title })));
+  }
+
+  loadTitlesById(_region: string, ids: readonly string[]): Observable<MediaTitle[]> {
+    this.idRequests.push([...ids]);
+
+    const wanted = new Set(ids);
+    return of(CATALOG.filter((title) => wanted.has(title.id)).map((title) => ({ ...title })));
   }
 }
 
@@ -85,6 +95,8 @@ describe('match found', () => {
   let fixture: ComponentFixture<MatchFound>;
   let root: HTMLElement;
   let interactions: InteractionStore;
+  /** The fake the `beforeEach` installed, for its request log. */
+  let service: FakeCatalogService;
 
   /** Opens the view for a title id, the way the route does. */
   function build(titleId: string): void {
@@ -158,6 +170,8 @@ describe('match found', () => {
     // the next test's starting condition.
     sessionStorage.clear();
 
+    service = new FakeCatalogService();
+
     TestBed.configureTestingModule({
       providers: [
         // Both destinations are stubbed: an unmatched URL must never be the
@@ -168,7 +182,7 @@ describe('match found', () => {
         ]),
         provideHttpClient(),
         provideHttpClientTesting(),
-        { provide: CatalogService, useValue: new FakeCatalogService() },
+        { provide: CatalogService, useValue: service },
       ],
     });
 
@@ -530,6 +544,29 @@ describe('match found', () => {
       build('t-does-not-exist');
 
       expect(() => tap('Start a new loop')).not.toThrow();
+    });
+  });
+
+  /**
+   * What Match Found asks the catalog for (feature 008, US2).
+   *
+   * One title, one id, one request. The chosen title may live on a service
+   * outside the visitor's pool, and a Watch Now decision is a reason to fetch
+   * it rather than to lose it.
+   */
+  describe('the ids request (US2)', () => {
+    it('asks for exactly the chosen id, once', () => {
+      build('t1');
+
+      expect(service.idRequests).toEqual([['t1']]);
+    });
+
+    it('asks even for an id it is about to report as unknown', () => {
+      build('t-does-not-exist');
+
+      // The unavailable branch is the answer to a real request, not a shortcut:
+      // a title may have arrived since the link was made.
+      expect(service.idRequests).toEqual([['t-does-not-exist']]);
     });
   });
 });

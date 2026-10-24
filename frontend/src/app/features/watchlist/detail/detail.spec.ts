@@ -88,12 +88,29 @@ const COMPLETED_AT = '2026-09-26T10:00:00.000Z';
 /** The catalog the fake service answers from, swappable between builds. */
 let catalog: MediaTitle[] = [];
 
+/** The fake the current `configure()` installed, for its request log. */
+let service: FakeCatalogService;
+
 class FakeCatalogService {
   /** A signal, like the real one — the deck reads it as `usingCachedTitles()`. */
   readonly usingCachedTitles = signal(false).asReadonly();
 
+  /** Every id batch the view asked for, in order — one per view (US2). */
+  readonly idRequests: string[][] = [];
+
   loadTitles(_region: string): Observable<MediaTitle[]> {
     return of(catalog.map((candidate) => ({ ...candidate })));
+  }
+
+  loadTitlesById(_region: string, ids: readonly string[]): Observable<MediaTitle[]> {
+    this.idRequests.push([...ids]);
+
+    const wanted = new Set(ids);
+    return of(
+      catalog.filter((candidate) => wanted.has(candidate.id)).map((candidate) => ({
+        ...candidate,
+      })),
+    );
   }
 }
 
@@ -111,13 +128,15 @@ describe('title details', () => {
   }
 
   function configure(): void {
+    service = new FakeCatalogService();
+
     TestBed.configureTestingModule({
       providers: [
         // The one route this view navigates to is `/watchlist` — that is where
         // Remove leaves the visitor, since the title they were looking at is no
         // longer rated.
         provideRouter([{ path: 'watchlist', children: [] }]),
-        { provide: CatalogService, useValue: new FakeCatalogService() },
+        { provide: CatalogService, useValue: service },
         { provide: Connectivity, useValue: new FakeConnectivity() },
       ],
     });
@@ -339,6 +358,30 @@ describe('title details', () => {
       build('gone');
 
       expect(root.querySelector('a[href="/watchlist"]')).not.toBeNull();
+    });
+  });
+
+  /**
+   * What the detail view asks the catalog for (feature 008, US2).
+   *
+   * One title, one id, one request. The view already has the id from the
+   * address; what it does not have is the title, and current availability is
+   * the reason it must be fetched rather than remembered (research.md D10).
+   */
+  describe('the ids request (US2)', () => {
+    it('asks for exactly the id in the address, once', () => {
+      build('arrival');
+
+      expect(service.idRequests).toEqual([['arrival']]);
+    });
+
+    it('asks even when it expects the catalog not to know the title', () => {
+      build('gone');
+
+      // A title may have arrived since the visitor's last visit, and the
+      // unavailable branch should be the answer to a real question rather
+      // than to a guess the view could have made on its own.
+      expect(service.idRequests).toEqual([['gone']]);
     });
   });
 

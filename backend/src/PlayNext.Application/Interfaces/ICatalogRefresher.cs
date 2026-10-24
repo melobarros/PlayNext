@@ -1,3 +1,5 @@
+using PlayNext.Application.Contracts;
+
 namespace PlayNext.Application.Interfaces;
 
 /// <summary>
@@ -22,6 +24,13 @@ public interface ICatalogRefresher
     /// </summary>
     /// <returns><c>true</c> when this call started the batch.</returns>
     bool TryStart(string region);
+
+    /// <summary>
+    /// Starts a retrieval in an explicit mode. <c>Configured</c> follows
+    /// <c>Catalog:Source</c>; <c>Normalized</c> and <c>Snapshot</c> override it
+    /// for the admin surface (contracts/catalog-refresh.md).
+    /// </summary>
+    bool TryStart(string region, CatalogRunMode mode);
 
     /// <summary>
     /// Whether a retrieval for the region is in flight. For logging and for the
