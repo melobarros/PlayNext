@@ -77,6 +77,30 @@ public sealed class CatalogRefreshRunStore(AppDbContext db) : ICatalogRefreshRun
     }
 
     /// <inheritdoc />
+    public async Task ProgressAsync(
+        Guid runId,
+        IReadOnlyDictionary<string, CatalogRunCounts> counts,
+        IReadOnlyDictionary<string, string> failures,
+        CancellationToken cancellationToken)
+    {
+        var run = await db.CatalogRefreshRuns
+            .FirstOrDefaultAsync(row => row.Id == runId, cancellationToken);
+
+        // A run that has already ended keeps its terminal account. Progress is
+        // written after every slice, so a timeout or an abort can land between
+        // the last slice and that write; the terminal row must win.
+        if (run is null || run.Status != CatalogRunStatuses.Running)
+        {
+            return;
+        }
+
+        run.CountsJson = JsonSerializer.Serialize(counts, Json);
+        run.FailuresJson = JsonSerializer.Serialize(failures, Json);
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
     public async Task<CatalogRunSummary?> LatestAsync(string region, CancellationToken cancellationToken)
     {
         var run = await db.CatalogRefreshRuns

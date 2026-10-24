@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Runtime.ExceptionServices;
 using PlayNext.Application.Contracts;
 using PlayNext.Application.Interfaces;
 using PlayNext.Domain;
@@ -9,7 +11,8 @@ public sealed record CatalogRefreshPolicy(
     CatalogSlicePlanOptions SlicePlan,
     TimeSpan Timeout,
     TimeSpan BuildingMaxAge,
-    TimeSpan SupersededMaxAge);
+    TimeSpan SupersededMaxAge,
+    int Concurrency);
 
 /// <summary>
 /// Plans, discovers, enriches, composes, and promotes a normalized catalog
@@ -79,9 +82,10 @@ public sealed class RefreshCatalogUseCase(
             }
 
             var plan = CatalogSlicePlan.Build(policy.SlicePlan);
-            var enriched = new Dictionary<string, CatalogTitleObservation>(StringComparer.Ordinal);
+            var enriched = new ConcurrentDictionary<string, CatalogTitleObservation>(StringComparer.Ordinal);
             var fresh = new List<SliceOutcome>(plan.Count);
             var failures = new Dictionary<string, string>(StringComparer.Ordinal);
+            var progress = new Dictionary<string, CatalogRunCounts>(StringComparer.Ordinal);
 
             foreach (var slice in plan)
             {
@@ -91,6 +95,8 @@ public sealed class RefreshCatalogUseCase(
                 {
                     var outcome = await ExecuteSliceAsync(region, slice, enriched, linked.Token);
                     fresh.Add(outcome);
+
+                    progress[slice.Name] = SliceCounts(outcome, region, sliceStarted);
 
                     log.SliceCompleted(
                         region,
@@ -120,6 +126,11 @@ public sealed class RefreshCatalogUseCase(
                         ? $"{Describe(exception)}; no previous version to carry"
                         : $"{Describe(exception)}; last-known-good carried";
 
+                    // The slice's own contribution is unknown until the
+                    // composition carries it; a watching operator sees the
+                    // failure immediately and the carried count at the end.
+                    progress[slice.Name] = new CatalogRunCounts();
+
                     log.SliceCompleted(
                         region,
                         slice.Name,
@@ -130,6 +141,12 @@ public sealed class RefreshCatalogUseCase(
                         0,
                         time.GetUtcNow() - sliceStarted);
                 }
+
+                // Written after each slice, not during one: a slice is the
+                // smallest unit a run can report without inventing a partial
+                // one, and this is what lets the status endpoint show eleven
+                // finished slices instead of only "Running".
+                await ReportProgressAsync(region, runId, progress, failures, linked.Token);
             }
 
             if (failures.Count > 0 && active is null)
@@ -205,38 +222,173 @@ public sealed class RefreshCatalogUseCase(
     /// <summary>
     /// One slice: all of its discovery queries, then one enrichment per title
     /// not already enriched by an earlier slice.
+    ///
+    /// Calls overlap up to <see cref="CatalogRefreshPolicy.Concurrency"/>, but
+    /// the <i>results</i> do not: each query writes its own slot and each title
+    /// its own, and both are read back in plan order. A batch that completed in
+    /// a different order therefore composes the same version, which is what
+    /// keeps pool positions and the general pool's discovery order stable.
+    ///
+    /// The rate limiter in the provider still spaces call starts, so the number
+    /// in flight cannot raise the request rate above <c>Tmdb:RequestsPerSecond</c>.
     /// </summary>
     private async Task<SliceOutcome> ExecuteSliceAsync(
         string region,
         CatalogSlice slice,
-        Dictionary<string, CatalogTitleObservation> enriched,
+        ConcurrentDictionary<string, CatalogTitleObservation> enriched,
         CancellationToken cancellationToken)
     {
+        var discovered = new IReadOnlyList<CatalogCandidate>[slice.Queries.Count];
+
+        await RunBoundedAsync(
+            slice.Queries.Count,
+            async (index, token) =>
+            {
+                discovered[index] = await provider.DiscoverAsync(
+                    region,
+                    slice,
+                    slice.Queries[index],
+                    token);
+            },
+            cancellationToken);
+
         var candidates = new List<CatalogCandidate>();
 
-        foreach (var query in slice.Queries)
+        foreach (var page in discovered)
         {
-            var found = await provider.DiscoverAsync(region, slice, query, cancellationToken);
-            candidates.AddRange(found);
+            candidates.AddRange(page);
         }
 
         var distinct = CatalogDiscoveryOrder.Distinct(candidates);
-        var observations = new List<CatalogTitleObservation>(distinct.Count);
-        var enrichedHere = 0;
+        var observations = new CatalogTitleObservation[distinct.Count];
+        var pending = new List<int>(distinct.Count);
 
-        foreach (var candidate in distinct)
+        // Titles an earlier slice already enriched cost nothing here (FR-012);
+        // only the rest go to the provider. Since `distinct` holds each id once,
+        // the concurrent writes below touch different keys.
+        for (var index = 0; index < distinct.Count; index++)
         {
-            if (!enriched.TryGetValue(candidate.TitleId, out var observation))
+            if (enriched.TryGetValue(distinct[index].TitleId, out var known))
             {
-                observation = await provider.EnrichAsync(region, candidate, cancellationToken);
-                enriched[candidate.TitleId] = observation;
-                enrichedHere++;
+                observations[index] = known;
             }
-
-            observations.Add(observation);
+            else
+            {
+                pending.Add(index);
+            }
         }
 
-        return new SliceOutcome(slice, candidates.Count, observations, enrichedHere);
+        await RunBoundedAsync(
+            pending.Count,
+            async (position, token) =>
+            {
+                var index = pending[position];
+                var candidate = distinct[index];
+                var observation = await provider.EnrichAsync(region, candidate, token);
+
+                enriched[candidate.TitleId] = observation;
+                observations[index] = observation;
+            },
+            cancellationToken);
+
+        return new SliceOutcome(slice, candidates.Count, observations, pending.Count);
+    }
+
+    /// <summary>
+    /// Runs one indexed body over <paramref name="count"/> items with at most
+    /// <see cref="CatalogRefreshPolicy.Concurrency"/> calls in flight.
+    ///
+    /// <see cref="Parallel.ForEachAsync{TSource}(IEnumerable{TSource}, ParallelOptions, Func{TSource, CancellationToken, ValueTask})"/>
+    /// cancels its own loop on the first failing body, so a slice stops paying
+    /// for the rest of a batch it already knows failed. It may report one
+    /// failure beside the cancellations it caused, or several failures at once;
+    /// the caller's handlers distinguish a 429 from an outage from the run's own
+    /// timeout, so the aggregate is unwrapped here rather than hidden behind an
+    /// <see cref="AggregateException"/> none of those clauses would match.
+    /// </summary>
+    private async Task RunBoundedAsync(
+        int count,
+        Func<int, CancellationToken, ValueTask> body,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Parallel.ForEachAsync(
+                Enumerable.Range(0, count),
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = Math.Max(1, policy.Concurrency),
+                    CancellationToken = cancellationToken,
+                },
+                body);
+        }
+        catch (AggregateException aggregate)
+        {
+            var failures = aggregate.Flatten().InnerExceptions;
+
+            var failure = failures.FirstOrDefault(inner => inner is not OperationCanceledException)
+                ?? failures[0];
+
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
+
+    /// <summary>
+    /// A finished slice's counts as the status endpoint can show them before the
+    /// version is composed.
+    ///
+    /// The availability count is folded with the same rule the composition uses,
+    /// so the number an operator watches during a run matches the number the
+    /// finished run records — including the fact that a title discovered by
+    /// several slices is counted in each of them, exactly as <see cref="Counts"/>
+    /// does. What progress cannot know yet is a failed slice's carried
+    /// contribution; that appears when the terminal write composes the version.
+    /// </summary>
+    private static CatalogRunCounts SliceCounts(
+        SliceOutcome outcome,
+        string region,
+        DateTimeOffset observedAt)
+    {
+        // Folding a title's offers does not depend on the run-wide service
+        // vocabulary — that map is only accumulated for the composition — so a
+        // scratch one keeps this path free of the composition's state.
+        var services = new Dictionary<string, CatalogServiceRow>(StringComparer.Ordinal);
+
+        return new CatalogRunCounts(
+            Discovered: outcome.Discovered,
+            Fresh: outcome.Observations.Count,
+            Carried: 0,
+            Skipped: 0,
+            Enriched: outcome.Enriched,
+            AvailabilityEntries: outcome.Observations.Sum(observation =>
+                AvailabilityFor(observation, region, observedAt, services).Count));
+    }
+
+    /// <summary>
+    /// Publishes the slices finished so far, and swallows a failure to do so:
+    /// progress is an account of the run, not part of building it, and must not
+    /// decide whether the run succeeds. The run's own timeout is the exception —
+    /// that is the run ending, not a progress problem.
+    /// </summary>
+    private async Task ReportProgressAsync(
+        string region,
+        Guid runId,
+        IReadOnlyDictionary<string, CatalogRunCounts> counts,
+        IReadOnlyDictionary<string, string> failures,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await runs.ProgressAsync(runId, counts, failures, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            log.ProgressUnavailable(region);
+        }
     }
 
     /// <summary>

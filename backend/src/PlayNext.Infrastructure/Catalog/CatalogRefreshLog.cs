@@ -37,4 +37,15 @@ public sealed class CatalogRefreshLog(ILogger<CatalogRefreshLog> logger) : ICata
             carried,
             enriched);
     }
+
+    /// <inheritdoc />
+    public void ProgressUnavailable(string region)
+    {
+        // No exception detail: the message would come from the database layer,
+        // and this port's contract is that a line carries counts and timing and
+        // nothing else.
+        logger.LogWarning(
+            "Catalog refresh progress for {Region} could not be written; the run continues.",
+            region);
+    }
 }

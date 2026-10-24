@@ -25,6 +25,20 @@ public interface ICatalogRefreshRunStore
         DateTimeOffset completedAt,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Replaces a still-<c>Running</c> run's counts and failures with the slices
+    /// finished so far, so the status endpoint can follow a run while it is in
+    /// flight rather than only report it after the fact.
+    ///
+    /// A row that already has a terminal status is left untouched: a late
+    /// progress write must not reopen the outcome.
+    /// </summary>
+    Task ProgressAsync(
+        Guid runId,
+        IReadOnlyDictionary<string, CatalogRunCounts> counts,
+        IReadOnlyDictionary<string, string> failures,
+        CancellationToken cancellationToken);
+
     /// <summary>The most recent run for a region, or <c>null</c> when it has never had one.</summary>
     Task<CatalogRunSummary?> LatestAsync(string region, CancellationToken cancellationToken);
 

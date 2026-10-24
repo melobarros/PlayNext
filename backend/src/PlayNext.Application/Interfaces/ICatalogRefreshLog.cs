@@ -20,4 +20,11 @@ public interface ICatalogRefreshLog
         int carried,
         int enriched,
         TimeSpan duration);
+
+    /// <summary>
+    /// A progress update could not be written to the run row. The refresh keeps
+    /// going: progress is an account of the run, not part of building it, and the
+    /// terminal write is the record that matters.
+    /// </summary>
+    void ProgressUnavailable(string region);
 }

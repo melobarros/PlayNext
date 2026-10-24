@@ -276,7 +276,8 @@ builder.Services.AddScoped(services =>
                 tmdb.MaxDiscoverPages),
             TimeSpan.FromMinutes(catalog.RefreshTimeoutMinutes),
             CatalogStartupMaintenance.BuildingMaxAge,
-            CatalogStartupMaintenance.SupersededMaxAge));
+            CatalogStartupMaintenance.SupersededMaxAge,
+            catalog.RefreshConcurrency));
 });
 
 builder.Services.AddScoped<MigrateCatalogUseCase>();

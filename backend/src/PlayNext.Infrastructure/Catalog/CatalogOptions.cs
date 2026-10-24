@@ -34,6 +34,20 @@ public sealed class CatalogOptions
     /// <summary>The soft budget for one refresh, in minutes.</summary>
     public int RefreshTimeoutMinutes { get; set; } = 55;
 
+    /// <summary>
+    /// How many provider calls one refresh keeps in flight.
+    ///
+    /// The request <i>rate</i> stays the provider's ceiling
+    /// (<c>Tmdb:RequestsPerSecond</c>); this only decides how many round trips
+    /// may overlap while they wait. Sequential calls made a full refresh take
+    /// longer than its own budget on the free tier, where each call costs about
+    /// 100 ms of latency that is not throughput. Four stays far below the rate
+    /// limit's ceiling and still cuts the wall time several-fold; the cost is
+    /// that a failed call can race the others in its batch, which the refresher
+    /// unwraps to one failure per slice rather than a different outcome.
+    /// </summary>
+    public int RefreshConcurrency { get; set; } = 4;
+
     public CatalogMigrationOptions Migration { get; set; } = new();
 }
 

@@ -207,6 +207,111 @@ public sealed class Catalog_refresh(CatalogApiFactory api) : NormalizedCatalogTe
     }
 
     [Fact]
+    public async Task A_refresh_overlaps_provider_calls_up_to_the_configured_bound()
+    {
+        await _api.ResetCatalogAsync();
+        UseNormalized();
+
+        var bound = CatalogOptions.RefreshConcurrency;
+
+        Assert.True(bound > 1, $"the suite expects an overlapping refresh, not {bound} call at a time");
+
+        // Every upstream call parks at the socket, so what has arrived is
+        // exactly the batch's width: a sequential refresh would stop at one,
+        // and an unapplied bound would keep growing.
+        _api.Tmdb.Hold();
+
+        var run = RefreshAsync();
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+
+        while (_api.Tmdb.RequestCount < bound)
+        {
+            Assert.True(
+                DateTimeOffset.UtcNow < deadline,
+                $"the refresh did not reach {bound} calls in flight; it stopped at {_api.Tmdb.RequestCount}");
+
+            await Task.Delay(20);
+        }
+
+        // Nothing can complete while the gate is held, so no further iteration
+        // may start either.
+        await Task.Delay(250);
+
+        Assert.Equal(bound, _api.Tmdb.RequestCount);
+
+        _api.Tmdb.Release();
+
+        var finished = await run;
+
+        // Overlap is a speed change, not a data change: the version has the
+        // same membership the sequential expectations pin, which is the other
+        // half of "results are placed, not raced into, their slots".
+        Assert.NotNull(finished);
+        Assert.Equal(CatalogRunStatus.Succeeded, finished!.Status);
+        Assert.NotNull(finished.VersionId);
+        Assert.Equal(
+            GeneralPool.Length
+                + (StubTmdbHandler.BandTitles - 1) * CatalogVocabulary.GenreIds.Count * 2,
+            await TitleCountAsync(finished.VersionId!.Value));
+    }
+
+    [Fact]
+    public async Task A_running_refresh_reports_each_finished_slice_before_the_run_ends()
+    {
+        await _api.ResetCatalogAsync();
+        UseNormalized();
+
+        // The general slice is the plan's first: nine genres × movie/TV, the two
+        // anime streams, then one enrichment per handcrafted title. Parking the
+        // provider on the call after it leaves the run alive with exactly one
+        // slice finished — and because the progress write that follows a slice is
+        // awaited before the next one starts, that write is already committed
+        // when the second slice's first call arrives.
+        var afterGeneral = 2 * CatalogVocabulary.GenreIds.Count + 2 + GeneralPool.Length;
+
+        _api.Tmdb.HoldAfter(afterGeneral + 1);
+
+        var run = RefreshAsync();
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+
+        while (_api.Tmdb.RequestCount <= afterGeneral)
+        {
+            Assert.True(
+                DateTimeOffset.UtcNow < deadline,
+                $"the refresh did not reach the second slice; it stopped at {_api.Tmdb.RequestCount} calls");
+
+            await Task.Delay(20);
+        }
+
+        var progress = await LatestRunAsync();
+
+        Assert.NotNull(progress);
+        Assert.Equal(CatalogRunStatus.Running, progress!.Status);
+        Assert.Null(progress.CompletedAt);
+        Assert.NotNull(progress.Counts);
+
+        // Only the finished slice is reported. An operator polling the status
+        // endpoint mid-run sees the general slice's numbers instead of an empty
+        // object that only fills in at the end.
+        var general = Assert.Single(progress.Counts!);
+        Assert.Equal(CatalogSlicePlan.GeneralSliceName, general.Key);
+        Assert.Equal(GeneralPool.Length, general.Value.Fresh);
+        Assert.Equal(GeneralPool.Length, general.Value.Enriched);
+        Assert.Equal(9, general.Value.AvailabilityEntries);
+
+        _api.Tmdb.Release();
+
+        var finished = await run;
+
+        // Progress is the run's account, not a second one: what the operator saw
+        // mid-run is exactly what the terminal row records.
+        Assert.NotNull(finished);
+        Assert.Equal(CatalogRunStatus.Succeeded, finished!.Status);
+        Assert.NotNull(finished.Counts);
+        Assert.Equal(general.Value, finished.Counts![CatalogSlicePlan.GeneralSliceName]);
+    }
+
+    [Fact]
     public async Task Netflix_and_max_horror_pools_reach_the_stub_s_reported_depth()
     {
         await DeepRefreshAsync();
