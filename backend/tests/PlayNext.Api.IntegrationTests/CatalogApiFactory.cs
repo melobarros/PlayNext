@@ -430,8 +430,33 @@ public sealed class StubTmdbHandler : HttpMessageHandler
         ([386], "peacock"),
     ];
 
-    /// <summary>Every upstream request this stub answered, for assertions about call counts.</summary>
+    /// <summary>
+    /// Every upstream request this stub answered, for assertions about call
+    /// counts.
+    ///
+    /// A refresh keeps several calls in flight, so this list is appended from
+    /// more than one thread. Tests read it — and call <see cref="Reset"/> — only
+    /// once the run is idle, so <see cref="_requestsSync"/> needs to guard the
+    /// writing side alone.
+    /// </summary>
     public List<string> Requests { get; } = [];
+
+    private readonly object _requestsSync = new();
+
+    /// <summary>
+    /// How many calls have arrived so far, read safely while a refresh is still
+    /// running — the one number a concurrency test needs mid-flight.
+    /// </summary>
+    public int RequestCount
+    {
+        get
+        {
+            lock (_requestsSync)
+            {
+                return Requests.Count;
+            }
+        }
+    }
 
     /// <summary>When set, every call fails as a network error — the provider being unreachable.</summary>
     public bool IsDown { get; set; }
@@ -530,7 +555,11 @@ public sealed class StubTmdbHandler : HttpMessageHandler
         RefusesWith = null;
         FailureStatus = HttpStatusCode.InternalServerError;
         FailingProviderIds.Clear();
-        Requests.Clear();
+
+        lock (_requestsSync)
+        {
+            Requests.Clear();
+        }
     }
 
     /// <summary>
@@ -671,7 +700,11 @@ public sealed class StubTmdbHandler : HttpMessageHandler
         CancellationToken cancellationToken)
     {
         var url = request.RequestUri!;
-        Requests.Add(url.PathAndQuery);
+
+        lock (_requestsSync)
+        {
+            Requests.Add(url.PathAndQuery);
+        }
 
         // The test decides how long a refresh takes: a held gate keeps this
         // call — and the slice waiting on it — in flight until Release.

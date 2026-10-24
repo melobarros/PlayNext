@@ -403,6 +403,7 @@ JSON snapshot per region, with reads and refreshes switched independently:
 | `Catalog__MaxPoolTitles` | `1000` | Cap for a filtered pool response |
 | `Catalog__MaxIdsPerRequest` | `1000` | Cap for an `ids` batch |
 | `Catalog__RefreshTimeoutMinutes` | `55` | Soft budget for one refresh |
+| `Catalog__RefreshConcurrency` | `4` | Provider calls one refresh keeps in flight |
 | `Tmdb__ServiceTitlesPerGenre` | `300` | Depth target per service/genre/media type |
 | `Tmdb__MaxDiscoverPages` | `25` | Safety cap on discovery paging |
 | `Tmdb__MaxRetries` | `2` | Retries for transient provider failures |

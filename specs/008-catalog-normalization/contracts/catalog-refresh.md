@@ -70,6 +70,13 @@ The background run owns its own scope and cancellation. A request timeout or a
 client disconnect does not cancel it; the run's own soft timeout
 (`Catalog:RefreshTimeoutMinutes`, default 55) and the stale-run cleanup do.
 
+Provider calls overlap up to `Catalog:RefreshConcurrency` (default 4). That is
+what keeps a full refresh inside a budget measured per call on a single-core
+instance; the request *rate* is still capped by `Tmdb:RequestsPerSecond`, so
+overlapping calls cannot exceed the provider's limit. Discovery results and
+enrichments are written into their plan slots, so a batch that finishes in a
+different order composes the same version as a sequential one.
+
 ## `GET /catalog/refresh/status`
 
 Returns the most recent run for a region, including a run that is still
@@ -223,6 +230,7 @@ App settings used by this feature:
 | `Catalog__MaxPoolTitles` | `1000` | Cap for a targeted pool response |
 | `Catalog__MaxIdsPerRequest` | `1000` | Cap for an `ids` batch |
 | `Catalog__RefreshTimeoutMinutes` | `55` | Soft budget for one refresh |
+| `Catalog__RefreshConcurrency` | `4` | Provider calls one refresh keeps in flight |
 | `Tmdb__ServiceTitlesPerGenre` | `300` | Depth target per service/genre/media type |
 | `Tmdb__MaxDiscoverPages` | `25` | Safety cap on paging (target needs 15 at 20/page) |
 | `Tmdb__MaxRetries` | `2` | Retries for transient provider failures |

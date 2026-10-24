@@ -207,6 +207,55 @@ public sealed class Catalog_refresh(CatalogApiFactory api) : NormalizedCatalogTe
     }
 
     [Fact]
+    public async Task A_refresh_overlaps_provider_calls_up_to_the_configured_bound()
+    {
+        await _api.ResetCatalogAsync();
+        UseNormalized();
+
+        var bound = CatalogOptions.RefreshConcurrency;
+
+        Assert.True(bound > 1, $"the suite expects an overlapping refresh, not {bound} call at a time");
+
+        // Every upstream call parks at the socket, so what has arrived is
+        // exactly the batch's width: a sequential refresh would stop at one,
+        // and an unapplied bound would keep growing.
+        _api.Tmdb.Hold();
+
+        var run = RefreshAsync();
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+
+        while (_api.Tmdb.RequestCount < bound)
+        {
+            Assert.True(
+                DateTimeOffset.UtcNow < deadline,
+                $"the refresh did not reach {bound} calls in flight; it stopped at {_api.Tmdb.RequestCount}");
+
+            await Task.Delay(20);
+        }
+
+        // Nothing can complete while the gate is held, so no further iteration
+        // may start either.
+        await Task.Delay(250);
+
+        Assert.Equal(bound, _api.Tmdb.RequestCount);
+
+        _api.Tmdb.Release();
+
+        var finished = await run;
+
+        // Overlap is a speed change, not a data change: the version has the
+        // same membership the sequential expectations pin, which is the other
+        // half of "results are placed, not raced into, their slots".
+        Assert.NotNull(finished);
+        Assert.Equal(CatalogRunStatus.Succeeded, finished!.Status);
+        Assert.NotNull(finished.VersionId);
+        Assert.Equal(
+            GeneralPool.Length
+                + (StubTmdbHandler.BandTitles - 1) * CatalogVocabulary.GenreIds.Count * 2,
+            await TitleCountAsync(finished.VersionId!.Value));
+    }
+
+    [Fact]
     public async Task Netflix_and_max_horror_pools_reach_the_stub_s_reported_depth()
     {
         await DeepRefreshAsync();

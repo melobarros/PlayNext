@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Runtime.ExceptionServices;
 using PlayNext.Application.Contracts;
 using PlayNext.Application.Interfaces;
 using PlayNext.Domain;
@@ -9,7 +11,8 @@ public sealed record CatalogRefreshPolicy(
     CatalogSlicePlanOptions SlicePlan,
     TimeSpan Timeout,
     TimeSpan BuildingMaxAge,
-    TimeSpan SupersededMaxAge);
+    TimeSpan SupersededMaxAge,
+    int Concurrency);
 
 /// <summary>
 /// Plans, discovers, enriches, composes, and promotes a normalized catalog
@@ -79,7 +82,7 @@ public sealed class RefreshCatalogUseCase(
             }
 
             var plan = CatalogSlicePlan.Build(policy.SlicePlan);
-            var enriched = new Dictionary<string, CatalogTitleObservation>(StringComparer.Ordinal);
+            var enriched = new ConcurrentDictionary<string, CatalogTitleObservation>(StringComparer.Ordinal);
             var fresh = new List<SliceOutcome>(plan.Count);
             var failures = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -205,38 +208,115 @@ public sealed class RefreshCatalogUseCase(
     /// <summary>
     /// One slice: all of its discovery queries, then one enrichment per title
     /// not already enriched by an earlier slice.
+    ///
+    /// Calls overlap up to <see cref="CatalogRefreshPolicy.Concurrency"/>, but
+    /// the <i>results</i> do not: each query writes its own slot and each title
+    /// its own, and both are read back in plan order. A batch that completed in
+    /// a different order therefore composes the same version, which is what
+    /// keeps pool positions and the general pool's discovery order stable.
+    ///
+    /// The rate limiter in the provider still spaces call starts, so the number
+    /// in flight cannot raise the request rate above <c>Tmdb:RequestsPerSecond</c>.
     /// </summary>
     private async Task<SliceOutcome> ExecuteSliceAsync(
         string region,
         CatalogSlice slice,
-        Dictionary<string, CatalogTitleObservation> enriched,
+        ConcurrentDictionary<string, CatalogTitleObservation> enriched,
         CancellationToken cancellationToken)
     {
+        var discovered = new IReadOnlyList<CatalogCandidate>[slice.Queries.Count];
+
+        await RunBoundedAsync(
+            slice.Queries.Count,
+            async (index, token) =>
+            {
+                discovered[index] = await provider.DiscoverAsync(
+                    region,
+                    slice,
+                    slice.Queries[index],
+                    token);
+            },
+            cancellationToken);
+
         var candidates = new List<CatalogCandidate>();
 
-        foreach (var query in slice.Queries)
+        foreach (var page in discovered)
         {
-            var found = await provider.DiscoverAsync(region, slice, query, cancellationToken);
-            candidates.AddRange(found);
+            candidates.AddRange(page);
         }
 
         var distinct = CatalogDiscoveryOrder.Distinct(candidates);
-        var observations = new List<CatalogTitleObservation>(distinct.Count);
-        var enrichedHere = 0;
+        var observations = new CatalogTitleObservation[distinct.Count];
+        var pending = new List<int>(distinct.Count);
 
-        foreach (var candidate in distinct)
+        // Titles an earlier slice already enriched cost nothing here (FR-012);
+        // only the rest go to the provider. Since `distinct` holds each id once,
+        // the concurrent writes below touch different keys.
+        for (var index = 0; index < distinct.Count; index++)
         {
-            if (!enriched.TryGetValue(candidate.TitleId, out var observation))
+            if (enriched.TryGetValue(distinct[index].TitleId, out var known))
             {
-                observation = await provider.EnrichAsync(region, candidate, cancellationToken);
-                enriched[candidate.TitleId] = observation;
-                enrichedHere++;
+                observations[index] = known;
             }
-
-            observations.Add(observation);
+            else
+            {
+                pending.Add(index);
+            }
         }
 
-        return new SliceOutcome(slice, candidates.Count, observations, enrichedHere);
+        await RunBoundedAsync(
+            pending.Count,
+            async (position, token) =>
+            {
+                var index = pending[position];
+                var candidate = distinct[index];
+                var observation = await provider.EnrichAsync(region, candidate, token);
+
+                enriched[candidate.TitleId] = observation;
+                observations[index] = observation;
+            },
+            cancellationToken);
+
+        return new SliceOutcome(slice, candidates.Count, observations, pending.Count);
+    }
+
+    /// <summary>
+    /// Runs one indexed body over <paramref name="count"/> items with at most
+    /// <see cref="CatalogRefreshPolicy.Concurrency"/> calls in flight.
+    ///
+    /// <see cref="Parallel.ForEachAsync{TSource}(IEnumerable{TSource}, ParallelOptions, Func{TSource, CancellationToken, ValueTask})"/>
+    /// cancels its own loop on the first failing body, so a slice stops paying
+    /// for the rest of a batch it already knows failed. It may report one
+    /// failure beside the cancellations it caused, or several failures at once;
+    /// the caller's handlers distinguish a 429 from an outage from the run's own
+    /// timeout, so the aggregate is unwrapped here rather than hidden behind an
+    /// <see cref="AggregateException"/> none of those clauses would match.
+    /// </summary>
+    private async Task RunBoundedAsync(
+        int count,
+        Func<int, CancellationToken, ValueTask> body,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Parallel.ForEachAsync(
+                Enumerable.Range(0, count),
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = Math.Max(1, policy.Concurrency),
+                    CancellationToken = cancellationToken,
+                },
+                body);
+        }
+        catch (AggregateException aggregate)
+        {
+            var failures = aggregate.Flatten().InnerExceptions;
+
+            var failure = failures.FirstOrDefault(inner => inner is not OperationCanceledException)
+                ?? failures[0];
+
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
     }
 
     /// <summary>
