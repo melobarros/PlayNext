@@ -53,13 +53,34 @@ jobs:
           [ -n "$host" ] || fail "No destinationAppUrl in the publish profile."
           BASE_URL="https://$host"
 
+          # --- Wake --------------------------------------------------------
+          # F1 has no always-on, and this runs after hours of quiet, so the
+          # first request pays a cold start that can outlast any single request
+          # timeout on its own. Ask for a cheap public response first and retry
+          # until the app answers; 200 and 503 both mean it is up. Failing to
+          # wake it is left to the POST below, which reports the real error.
+          for attempt in $(seq 1 6); do
+            woke=$(curl -s -o /dev/null -m 30 -w '%{http_code}' \
+              "$BASE_URL/api/catalog?region=BR" || true)
+
+            if [ "$woke" = "200" ] || [ "$woke" = "503" ]; then
+              echo "App answered (HTTP $woke) on wake attempt $attempt."
+              break
+            fi
+
+            echo "  wake $attempt — HTTP ${woke:-timeout}, retrying"
+            sleep 10
+          done
+
           # --- Start -------------------------------------------------------
           # The request body is a sanitized status document, never a catalog
-          # payload, so printing it on an unexpected status is safe.
+          # payload, so printing it on an unexpected status is safe. `|| true`
+          # keeps a curl timeout in `code` (empty) instead of exiting the step
+          # with curl's status before the case can name the failure.
           body=$(mktemp)
-          code=$(curl -s -o "$body" -m 30 -w '%{http_code}' -X POST \
+          code=$(curl -s -o "$body" -m 60 -w '%{http_code}' -X POST \
             -H "X-PlayNext-Admin-Token: $ADMIN_TOKEN" \
-            "$BASE_URL/api/catalog/refresh?region=BR")
+            "$BASE_URL/api/catalog/refresh?region=BR" || true)
 
           case "$code" in
             202)
@@ -70,6 +91,9 @@ jobs:
               # status; starting a second one is neither needed nor possible.
               echo "::notice::A catalog refresh is already running for BR; nothing to do."
               exit 0
+              ;;
+            "")
+              fail "POST /api/catalog/refresh timed out after 60s."
               ;;
             *)
               cat "$body" || true
@@ -89,10 +113,10 @@ jobs:
             status_body=$(mktemp)
             status_code=$(curl -s -o "$status_body" -m 30 -w '%{http_code}' \
               -H "X-PlayNext-Admin-Token: $ADMIN_TOKEN" \
-              "$BASE_URL/api/catalog/refresh/status?region=BR")
+              "$BASE_URL/api/catalog/refresh/status?region=BR" || true)
 
             if [ "$status_code" != "200" ]; then
-              echo "  poll $attempt — status endpoint returned $status_code, retrying"
+              echo "  poll $attempt — status endpoint returned ${status_code:-timeout}, retrying"
               continue
             fi
 
