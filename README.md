@@ -445,14 +445,17 @@ visit after ~20 idle minutes pays a cold start.
 Portfolio READMEs usually stop before this section. The gaps are real, and
 knowing them is part of the work:
 
-- **The catalog can be deep per service, but the live deployment has not cut
-  over.** Feature 008 stores per-service pools in PostgreSQL — "Netflix +
-  horror" can return 300 titles instead of 8 of 916 — but production still
-  reads the snapshot path until the cutover checklist runs.
+- **The normalized catalog is live, but its snapshot path is still in the
+  build.** The cutover ran on 2026-10-24: a full refresh finished in 12 minutes
+  and "Netflix + horror" in BR now serves 298 titles instead of 9. Production
+  still carries both read paths (`Catalog:Source`), so the 005 snapshot refresh
+  and the one-time migration runner stay until they are deliberately retired;
+  the rollback drill is documented but has not been practised against the live
+  app.
 - **Google sign-in is dormant** — it needs a Google Cloud client id this
   deployment does not have, so the button says so rather than pretending.
 - **No coverage threshold is enforced.** There are 1028 unit/component tests
-  plus 107 integration tests, and CI fails on a skipped database suite, but
+  plus 109 integration tests, and CI fails on a skipped database suite, but
   nothing fails on a coverage drop.
 - **Refresh-token rotation has no reuse detection.** A rotated token is
   invalidated, but a replayed one is not treated as a breach signal.
@@ -462,7 +465,7 @@ knowing them is part of the work:
   covered by tests; the end-to-end pass against a real browser is still open
   (`specs/004-guest-auth-migration/tasks.md`, T046).
 
-The F1 tier is also a demo constraint rather than a design one — a full
-per-service catalog rebuild does not fit its daily egress, which is why the
-normalized path ships behind `Catalog:Source` and the cutover waits for a B1
-plan (~$13/month).
+The F1 tier remains a demo constraint, but the catalog no longer depends on an
+upgrade: the first full normalized rebuild ran on F1 in 12 minutes, well inside
+the 55-minute soft budget. B1 (~$13/month) is still the obvious next step if
+traffic grows — not because the refresh needs it.
