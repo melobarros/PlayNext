@@ -17,7 +17,7 @@ rankTitles(
   preferences: Preference,
   interactions: Readonly<Record<string, Interaction>>,
   shownTitleIds: readonly string[],
-  engine: EngineChoice = DEFAULT_ENGINE,   // 'v1'
+  engine: EngineChoice = DEFAULT_ENGINE,   // 'v2'
 ): RankedTitle[]
 ```
 
@@ -120,15 +120,15 @@ own release year, not of the centre — the card explains itself.
 
 | Query value | Engine | `engineVersion` recorded |
 |---|---|---|
-| absent | `v1` | `recommend-v1` |
+| absent | `v2` | `recommend-v2` |
 | `v1` | `v1` | `recommend-v1` |
 | `v2` | `v2` | `recommend-v2` |
-| anything else | `v1` | `recommend-v1` |
+| anything else | `v2` | `recommend-v2` |
 
-The absence of `v2` from the default row is the T013 fallback: the measured
-candidate did not clear SC-001, and the spec clarification of 2026-10-24 says a
-candidate that cannot does not become the default. `v2` stays selectable by name
-and reported by the harness.
+The default is `v2` by the owner's decision of 2026-10-24: the measured
+candidate did not clear SC-001 (its NDCG@10 trailed the incumbent's on the
+frozen fixture), and the owner chose to ship it to every visitor anyway. `v1`
+stays selectable by name and reported by the harness.
 
 The version recorded on an impression is the engine that produced the card
 (FR-012), so the rollout's like-rate comparison (SC-008) reads stored rows.

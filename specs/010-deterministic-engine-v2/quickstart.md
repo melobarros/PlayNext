@@ -62,10 +62,10 @@ Checklist:
 
 | Query | Expected |
 |---|---|
-| no `engine` parameter | v1 order (the incumbent kept the deck after the T013 fallback); impressions stamp `recommend-v1` |
-| `?engine=v2` | v2 order; impressions stamp `recommend-v2` |
+| no `engine` parameter | v2 order (the default by the decision of 2026-10-24); impressions stamp `recommend-v2` |
 | `?engine=v1` | v1 order; impressions stamp `recommend-v1` |
-| `?engine=v3`, `?engine=` | v1; no error, no console warning storm |
+| `?engine=v2` | v2 order; impressions stamp `recommend-v2` |
+| `?engine=v3`, `?engine=` | v2; no error, no console warning storm |
 
 ## 3. Harness — the numbers that decide SC-001/SC-002
 
@@ -83,8 +83,9 @@ Recorded outcome (2026-10-24, the full evidence is in `tasks.md`):
 - SC-001 was **measured and missed**: `candidate-v2` NDCG@10 0.611 against the
   incumbent's 0.675. The only configurations that cleared the 0.7425 gate did so
   by zeroing history and the mismatch rule or by weakening the FR-008 prior, so
-  they were rejected as fixture-fitting. The fallback applies: v1 stays the
-  deck's default and v2 stays reachable through `?engine=v2`.
+  they were rejected as fixture-fitting. Implementation first shipped with the
+  v1 default; the owner then decided (2026-10-24) to put v2 in front of every
+  visitor anyway, with `?engine=v1` keeping the incumbent reachable.
 - SC-002 **holds**: `candidate-v2` diversity 0.701 > incumbent 0.691, coverage
   0.685 ≥ 90% of the incumbent's 0.667.
 
@@ -117,17 +118,18 @@ v1 in the same bundle).
 1. Run the app the usual way (`backend` API + `frontend` dev server).
 2. Open the deck at 390 px width (through the fixed-size iframe technique the
    project uses for headless checks — desktop windows clamp wider).
-3. Complete or skip the quiz, then open `?engine=v2` and swipe 10 cards:
+3. Complete or skip the quiz, then open the deck with no parameter — v2 is the
+   default — and swipe 10 cards:
    - no card repeats a genre run so long that the deck reads as one shelf
      (SC-002 by eye);
    - every reason sentence is true of the card it sits on — a reason never
      names a genre, an era, or a service the card does not have;
    - a card with no reason shows no reason row (SC-004);
    - the deck never shows a card already rated (Feedback Loop, visually).
-4. Reload with the parameter removed — the incumbent's order — and confirm at
-   least one card position differs, proving both the override and the default.
-5. Check the Network tab: impressions carry `recommend-v2` under `?engine=v2`
-   and `recommend-v1` by default.
+4. Reload with `?engine=v1` — the incumbent's order — and confirm at least one
+   card position differs, proving both the default and the override.
+5. Check the Network tab: impressions carry `recommend-v2` by default and
+   `recommend-v1` under `?engine=v1`.
 
 ## Definition of done
 

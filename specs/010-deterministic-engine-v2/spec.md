@@ -17,6 +17,7 @@
 - Q: How is the incumbent kept available? → A: The deck can be asked for engine v1 through a documented query override while the rollout is being evaluated; v2 is the default. Both implementations remain in the evaluation harness as rankers regardless.
 - Q: How much of the deck does the diversity re-rank cover? → A: A bounded top window of 50 titles; beyond it, the deck continues in score order. Fifty covers a long session and keeps the work bounded.
 - Q: May the reason vocabulary grow? → A: Yes, by one code for era affinity. A feature that cannot be said as a sentence to the visitor — runtime — may contribute to the score without ever speaking.
+- Q: SC-001 was measured and not met on the fixture. Does v2 still become the default? → A: Yes — the owner's decision of 2026-10-24 is to put v2 in front of every visitor regardless, accepting the measured result; v1 stays selectable through `?engine=v1`. This supersedes the first clarification's outcome (not its measurement): the gate is recorded as missed, and the default switches anyway.
 
 ## User Scenarios & Testing *(mandatory)*
 

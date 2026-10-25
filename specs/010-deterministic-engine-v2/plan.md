@@ -16,11 +16,14 @@ term backs. The offline harness gains a `candidate-v2` row so SC-001/SC-002
 are numbers, not opinions, and the deck's engine is selectable once via
 `?engine=v1` for a staged comparison that 009's stored events can judge.
 
-**Shipped outcome (T013 fallback)**: the harness measured v2 below the
-incumbent's NDCG@10, so by the spec clarification of 2026-10-24 v2 did **not**
-become the default. v1 still serves the deck; `?engine=v2` selects the
-candidate and the harness reports both rows. The measured numbers and the
-tuning ceiling are in `tasks.md` § Evidence.
+**Shipped outcome (owner decision, 2026-10-24)**: the harness measured v2 below
+the incumbent's NDCG@10, so implementation briefly shipped with v1 as the
+default. The owner then chose to put v2 in front of every visitor anyway,
+accepting the fixture result: the deck now runs v2, `?engine=v1` selects the
+incumbent, and the harness reports both rows. The measured numbers and the
+tuning ceiling are in `tasks.md` § Evidence; how the engine works is explained
+in the repository README's
+[How the deck is ranked](../../README.md#how-the-deck-is-ranked) section.
 
 ## Technical Context
 

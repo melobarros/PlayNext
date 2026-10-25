@@ -489,3 +489,34 @@ Final suite, after the removal — `npx ng test --watch=false`:
 
 The backend is untouched by T026; its last recorded run is T023's (211 + 178 +
 130 passed, 0 failed).
+
+### Post-implementation — Owner decision: v2 becomes the default (2026-10-24)
+
+The T013 fallback shipped first: v1 served the deck, v2 was reachable through
+`?engine=v2`. After reviewing the recorded numbers, the owner chose to put v2
+in front of every visitor anyway.
+
+Changed:
+
+- `frontend/src/app/features/deck/deck-logic/recommend.ts` — `DEFAULT_ENGINE`
+  is `'v2'`; `RECOMMEND_ENGINE_VERSION` names `recommend-v2`;
+  `engineChoiceFrom` still accepts `v1` and falls back to v2 for anything else.
+- Tests updated to the new default: `recommend.spec.ts` (registry default and
+  dispatch) and `deck.spec.ts` (default impressions stamp `recommend-v2`; the
+  incumbent is served through `?engine=v1`).
+- Artifacts reconciled: `spec.md` Clarifications (the owner decision supersedes
+  the SC-001 gate's outcome, not its measurement), `plan.md` shipped outcome,
+  `data-model.md` engine-choice table, `contracts/ranking-engine.md` selection
+  table, `quickstart.md` sections 2, 3, and 6, and the repository README's
+  "How the deck is ranked" section.
+
+Verification after the flip:
+
+- `npx ng test --watch=false`: **52 files passed, 1 skipped; 941 passed, 299
+  skipped, 0 failed.** The flip changed only the expected assertions; no other
+  suite depended on v1 default ordering.
+- `npx ng build`: clean, output `frontend/dist/playnext`.
+
+The SC-001 miss stands exactly as recorded in T013/T016/T024 — v2 trailed the
+incumbent's NDCG@10 (0.611 vs 0.675). Shipping it anyway is the owner's
+decision, and the incumbent remains reachable at `?engine=v1`.

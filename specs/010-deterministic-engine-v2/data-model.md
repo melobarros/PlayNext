@@ -31,9 +31,9 @@ Rules:
 
 | Value | Meaning | Engine version stamped on impressions |
 |---|---|---|
-| `v1` (default) | The incumbent, which kept the deck after the T013 fallback | `recommend-v1` |
-| `v2` | The candidate, reachable through `?engine=v2` | `recommend-v2` |
-| anything else | Treated as `v1`; an invalid override is not an error | `recommend-v1` |
+| `v2` (default) | The candidate, in front of every visitor by the decision of 2026-10-24 | `recommend-v2` |
+| `v1` | The incumbent, reachable through `?engine=v1` | `recommend-v1` |
+| anything else | Treated as `v2`; an invalid override is not an error | `recommend-v2` |
 
 ## Vocabulary: Reason codes
 
@@ -59,13 +59,13 @@ Rules:
 
 | Version | Ranker | Role |
 |---|---|---|
-| `recommend-v1` | Incumbent | Serves the deck (the T013 fallback); the harness baseline forever |
-| `recommend-v2` | Candidate | Measured by the harness, reachable on the deck through `?engine=v2` |
+| `recommend-v1` | Incumbent | The harness baseline forever; selectable on the deck through `?engine=v1` |
+| `recommend-v2` | Candidate | Serves the deck (the decision of 2026-10-24); measured by the harness |
 | `popularity-v1` | Baseline | Unchanged; still uses the fixed quality prior (D5) |
 
 The version changes with any rule change that could reorder the deck (FR-012).
-`RECOMMEND_ENGINE_VERSION` in `recommend.ts` names the default, which is v1
-after the T013 fallback.
+`RECOMMEND_ENGINE_VERSION` in `recommend.ts` names the default, which is v2
+after the owner's decision of 2026-10-24.
 
 ## Report shape: unchanged
 

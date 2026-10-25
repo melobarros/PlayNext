@@ -31,17 +31,17 @@ function preference(): Preference {
 const noInteractions = {};
 
 describe('the engine choice', () => {
-  it('defaults to v1 after the T013 fallback', () => {
-    expect(DEFAULT_ENGINE).toBe('v1');
-    expect(RECOMMEND_ENGINE_VERSION).toBe('recommend-v1');
+  it('defaults to v2, the owner decision of 2026-10-24', () => {
+    expect(DEFAULT_ENGINE).toBe('v2');
+    expect(RECOMMEND_ENGINE_VERSION).toBe('recommend-v2');
   });
 
   it('serves either engine by name, and the default for everything else', () => {
     expect(engineChoiceFrom('v1')).toBe('v1');
     expect(engineChoiceFrom('v2')).toBe('v2');
-    expect(engineChoiceFrom(null)).toBe('v1');
-    expect(engineChoiceFrom('')).toBe('v1');
-    expect(engineChoiceFrom('v3')).toBe('v1');
+    expect(engineChoiceFrom(null)).toBe('v2');
+    expect(engineChoiceFrom('')).toBe('v2');
+    expect(engineChoiceFrom('v3')).toBe('v2');
   });
 
   it('maps each choice to the version it stamps on an impression', () => {
@@ -55,11 +55,11 @@ describe('the engine choice', () => {
 });
 
 describe('rankTitles dispatch', () => {
-  it('runs the incumbent by default', () => {
+  it('runs the candidate by default', () => {
     const byDefault = rankTitles(FIXTURE_CATALOG, preference(), noInteractions, []);
-    const explicit = rankTitlesV1(FIXTURE_CATALOG, preference(), noInteractions, []);
+    const explicit = rankTitlesV2(FIXTURE_CATALOG, preference(), noInteractions, []);
 
-    expect(byDefault.map((t) => t.id)).toEqual(explicit.map((t) => t.id));
+    expect(byDefault).toEqual(explicit);
   });
 
   it('runs the candidate when asked for v2', () => {

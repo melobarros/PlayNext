@@ -27,19 +27,17 @@ export { eligibleTitles, weightedRating, type RankedTitle } from './recommend-sh
 /**
  * The engine the deck runs unless asked otherwise (010, D7).
  *
- * **v1, after the T013 fallback.** The spec's gate for making v2 the default
- * was a 10% NDCG@10 win over the incumbent on the frozen `personas-v1` fixture
- * (SC-001). Honest tuning of the contract's weights could not reach it: with
- * the catalog-calibrated quality prior FR-008 requires, the best configuration
- * scored 0.643 against the incumbent's 0.675, and the only weight sets that
- * crossed 0.7425 did so by zeroing history and the mismatch rule or by weakening
- * the quality prior past what FR-008 permits. The clarification of 2026-10-24
- * says v2 does not become the default in that case, so the incumbent keeps the
- * deck and v2 stays reachable through `?engine=v2` and in the harness.
+ * **v2, by the owner's decision of 2026-10-24.** The spec's gate for switching
+ * the default was a 10% NDCG@10 win over the incumbent on the frozen
+ * `personas-v1` fixture (SC-001). v2 measured 0.611 against the incumbent's
+ * 0.675 and did not clear it, so implementation initially shipped the fallback
+ * with v1 as the default. The owner then chose to put v2 in front of every
+ * visitor anyway, accepting the fixture result: the deck now runs v2, and the
+ * incumbent stays selectable through `?engine=v1` and in the harness.
  *
  * Measured numbers: `specs/010-deterministic-engine-v2/tasks.md`, Evidence.
  */
-export const DEFAULT_ENGINE = 'v1' as const;
+export const DEFAULT_ENGINE = 'v2' as const;
 
 export type EngineChoice = 'v1' | 'v2';
 
@@ -70,8 +68,8 @@ export const RECOMMEND_ENGINE_VERSION = ENGINE_VERSIONS[DEFAULT_ENGINE];
  *
  * Each engine is selectable by name; everything else — absent, empty, unknown —
  * falls back to the current default, because an invalid override is not an
- * error a visitor should ever see. After the T013 fallback the default is v1,
- * and `v2` is the override that asks for the candidate.
+ * error a visitor should ever see. The default is v2 (the decision of
+ * 2026-10-24); `v1` is the override that asks for the incumbent.
  */
 export function engineChoiceFrom(value: string | null): EngineChoice {
   return value === 'v1' || value === 'v2' ? value : DEFAULT_ENGINE;
