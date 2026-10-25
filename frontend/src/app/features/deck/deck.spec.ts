@@ -1817,6 +1817,32 @@ describe('deck shell', () => {
       expect(impression.score).toBeGreaterThan(0);
     });
 
+    it('serves the candidate when the URL asks for it, and says so on the record', async () => {
+      // After the T013 fallback the default is the incumbent; this override is
+      // how the rollout comparison keeps running on the deployed deck.
+      completeQuiz();
+      vi.spyOn(TestBed.inject(Router), 'url', 'get').mockReturnValue('/deck?engine=v2');
+
+      build();
+      await flushTelemetry();
+
+      const [impression] = transport.impressions;
+
+      expect(impression.engineVersion).toBe('recommend-v2');
+    });
+
+    it('treats an unknown engine as the default instead of failing', async () => {
+      completeQuiz();
+      vi.spyOn(TestBed.inject(Router), 'url', 'get').mockReturnValue('/deck?engine=v3');
+
+      build();
+      await flushTelemetry();
+
+      const [impression] = transport.impressions;
+
+      expect(impression.engineVersion).toBe('recommend-v1');
+    });
+
     it('records a card restored by undo again, at the position it first held', async () => {
       completeQuiz();
 

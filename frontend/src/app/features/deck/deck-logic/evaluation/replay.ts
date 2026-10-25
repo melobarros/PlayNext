@@ -187,8 +187,8 @@ export function replaySession(
 }
 
 /** The reports, one per ranker, with the incumbent and baseline always first. */
-function rankersFor(candidate: Ranker): Ranker[] {
-  const rankers = [incumbentRanker, popularityRanker, candidate];
+function rankersFor(candidates: readonly Ranker[]): Ranker[] {
+  const rankers = [incumbentRanker, popularityRanker, ...candidates];
   const seen = new Set<string>();
 
   // Deduplicated by name: asking to evaluate the incumbent is a legitimate
@@ -210,8 +210,11 @@ function rankersFor(candidate: Ranker): Ranker[] {
  * over the same fixture return deep-equal reports — nothing here reads a clock,
  * a random source, or a hash-ordered map.
  */
-export function evaluate(fixture: EvaluationFixture, candidate: Ranker): EvaluationReport {
-  const report = rankersFor(candidate).map((ranker): RankerReport => {
+export function evaluate(
+  fixture: EvaluationFixture,
+  ...candidates: Ranker[]
+): EvaluationReport {
+  const report = rankersFor(candidates).map((ranker): RankerReport => {
     const decisions: SessionDecision[] = [];
 
     for (const session of fixture.sessions) {

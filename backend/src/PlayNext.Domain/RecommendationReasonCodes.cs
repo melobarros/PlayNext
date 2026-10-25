@@ -18,6 +18,9 @@ public static class RecommendationReasonCodes
     /// <summary>A genre inferred from the visitor's ratings.</summary>
     public const string GenreAffinity = "genre-affinity";
 
+    /// <summary>A release era inferred from the visitor's ratings (added by 010).</summary>
+    public const string EraAffinity = "era-affinity";
+
     /// <summary>Available on a service the visitor chose.</summary>
     public const string Service = "service";
 
@@ -25,7 +28,8 @@ public static class RecommendationReasonCodes
     public const string None = "none";
 
     /// <summary>Every code, in the order the ranker's branches are evaluated.</summary>
-    public static readonly IReadOnlyList<string> All = [GenrePicked, GenreAffinity, Service, None];
+    public static readonly IReadOnlyList<string> All =
+        [GenrePicked, GenreAffinity, EraAffinity, Service, None];
 
     /// <summary>Whether <paramref name="code"/> is in the vocabulary.</summary>
     public static bool IsKnown(string? code) =>

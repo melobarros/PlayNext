@@ -1,6 +1,7 @@
 using PlayNext.Application.Contracts;
 using PlayNext.Application.Interfaces;
 using PlayNext.Application.UseCases;
+using PlayNext.Domain;
 
 namespace PlayNext.Application.Tests;
 
@@ -136,6 +137,65 @@ public class RecordRecommendationEventsUseCaseTests
         Assert.Equal(1, result.Outcome.AcceptedActions);
         Assert.Empty(result.Errors);
         Assert.Equal(0, result.RetryAfterSeconds);
+    }
+
+    [Theory]
+    [InlineData("genre-picked")]
+    [InlineData("genre-affinity")]
+    [InlineData("era-affinity")]
+    [InlineData("service")]
+    [InlineData("none")]
+    public async Task Every_code_the_ranker_can_emit_is_accepted(string code)
+    {
+        // The wire values are spelled out on purpose: this pins the contract
+        // strings, not whatever a constant happens to hold. `era-affinity` is
+        // feature 010's addition.
+        Assert.True(RecommendationReasonCodes.IsKnown(code));
+
+        var store = new RecordingStore();
+
+        var result = await UseCase(store, new AlwaysAdmittingLimiter())
+            .ExecuteAsync(
+                Batch(impressions: [Impression() with { ReasonCode = code }]),
+                null);
+
+        Assert.Equal(RecommendationIntakeStatus.Accepted, result.Status);
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public async Task Every_code_in_the_domain_vocabulary_is_accepted()
+    {
+        // Whatever the ranker's closed set grows to, the intake must accept it:
+        // one vocabulary, read from Domain rather than restated here.
+        var store = new RecordingStore();
+
+        foreach (var code in RecommendationReasonCodes.All)
+        {
+            var result = await UseCase(store, new AlwaysAdmittingLimiter())
+                .ExecuteAsync(
+                    Batch(impressions: [Impression() with { ReasonCode = code }]),
+                    null);
+
+            Assert.Equal(RecommendationIntakeStatus.Accepted, result.Status);
+            Assert.Empty(result.Errors);
+        }
+    }
+
+    [Fact]
+    public async Task An_unknown_reason_code_is_still_refused_after_the_vocabulary_grew()
+    {
+        // Growing the closed set by one code does not make it open: a code that
+        // merely looks like a reason is still refused before the store.
+        var store = new RecordingStore();
+
+        var result = await UseCase(store, new AlwaysAdmittingLimiter())
+            .ExecuteAsync(
+                Batch(impressions: [Impression() with { ReasonCode = "era-preference" }]),
+                null);
+
+        Assert.Equal(RecommendationIntakeStatus.Invalid, result.Status);
+        Assert.Equal(0, store.Calls);
     }
 
     [Fact]

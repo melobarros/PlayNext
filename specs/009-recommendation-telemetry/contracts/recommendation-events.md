@@ -67,7 +67,7 @@ Authorization: Bearer <access token>   (optional)
 | `catalogVersion` | RFC 3339 timestamp | the catalog payload's `fetchedAt` |
 | `filterHash` | string ≤ 32 | hex digest; opaque to the server |
 | `score` | number | finite; the ranker's own score |
-| `reasonCode` | enum | `genre-picked`, `genre-affinity`, `service`, `none` |
+| `reasonCode` | enum | `genre-picked`, `genre-affinity`, `era-affinity`¹, `service`, `none` |
 | `shownAt` | RFC 3339 timestamp | the client's clock |
 | `impressionClientEventId` | UUID | the impression this action answers |
 | `kind` | enum | `liked`, `disliked`, `skip`, `watch_now`, `undo` |
@@ -76,6 +76,9 @@ Authorization: Bearer <access token>   (optional)
 
 Unknown properties are ignored. A batch with both arrays empty is a valid no-op
 and answers 202 with zero counts.
+
+¹ `era-affinity` was added by feature 010 (deterministic engine v2). The set
+stays closed — any value outside it is still a validation error.
 
 ## Response
 

@@ -1,454 +1,96 @@
-import { Interaction, InteractionState, isRated, isRejection } from '../../../core/models/interaction';
+import { Interaction } from '../../../core/models/interaction';
 import { MediaTitle } from '../../../core/models/media-title';
 import { Preference } from '../../../core/models/quiz';
-import type { ReasonCode } from '../../../core/models/telemetry';
-import {
-  GENRES,
-  RETIRED_PROVIDERS,
-  RETIRED_PROVIDER_SUCCESSORS,
-  STREAMING_PROVIDERS,
-} from '../../../core/models/quiz-options.data';
+import { RankedTitle } from './recommend-shared';
+import { RECOMMEND_V1_ENGINE_VERSION, rankTitlesV1 } from './recommend-v1';
+import { RECOMMEND_V2_ENGINE_VERSION, rankTitlesV2 } from './recommend-v2';
 
 /**
- * The recommendation engine
- * (`specs/002-recommendation-deck/contracts/recommendation-engine.md`).
+ * The recommendation engine's public surface
+ * (`specs/002-recommendation-deck/contracts/recommendation-engine.md`,
+ * `specs/010-deterministic-engine-v2/contracts/ranking-engine.md`).
+ *
+ * Feature 010 split the ordering rules into versioned modules —
+ * `recommend-v1.ts` (the incumbent) and `recommend-v2.ts` (the candidate) —
+ * while the candidate rule, the shared types, and this registry stay here. A
+ * caller asks for an engine by name; it never imports a module directly unless
+ * it is the offline harness, which must pin each row to a known version.
  *
  * A pure function, deliberately: it is the product's core asset and the reason
  * the deck is trustworthy, so both constitution invariants — Filter Enforcement
  * and the Feedback Loop — are provable by test rather than arguable. No Angular,
- * no DOM, no clock, no network, and **no randomness anywhere**. A new loop feels
- * fresh because the visitor's own ratings changed the scores, not because a dice
- * roll did (constitution VI).
- *
- * The Milestone 2 backend reimplements this in the Domain layer, which is why
- * it is written to be read by someone porting it: every term is a named
- * constant and every rule maps to a numbered filter in the contract.
+ * no DOM, no clock, no network, and **no randomness anywhere** (constitution VI).
  */
 
-/** Score weight for each net genre the visitor's own ratings point at. */
-const HISTORY_AFFINITY_WEIGHT = 6;
+export { eligibleTitles, weightedRating, type RankedTitle } from './recommend-shared';
 
 /**
- * The engine's own name for what it computes (009, research D6).
+ * The engine the deck runs unless asked otherwise (010, D7).
  *
- * Stored on every impression so a replay months later knows which ranking rule
- * produced the card. Bump it whenever a change could reorder the deck; the
- * offline harness then compares the old fixture against the new rule instead
- * of comparing two reports that quietly disagree about what "incumbent" means.
+ * **v1, after the T013 fallback.** The spec's gate for making v2 the default
+ * was a 10% NDCG@10 win over the incumbent on the frozen `personas-v1` fixture
+ * (SC-001). Honest tuning of the contract's weights could not reach it: with
+ * the catalog-calibrated quality prior FR-008 requires, the best configuration
+ * scored 0.643 against the incumbent's 0.675, and the only weight sets that
+ * crossed 0.7425 did so by zeroing history and the mismatch rule or by weakening
+ * the quality prior past what FR-008 permits. The clarification of 2026-10-24
+ * says v2 does not become the default in that case, so the incumbent keeps the
+ * deck and v2 stays reachable through `?engine=v2` and in the harness.
+ *
+ * Measured numbers: `specs/010-deterministic-engine-v2/tasks.md`, Evidence.
  */
-export const RECOMMEND_ENGINE_VERSION = 'recommend-v1';
+export const DEFAULT_ENGINE = 'v1' as const;
+
+export type EngineChoice = 'v1' | 'v2';
 
 /**
- * The closed reason vocabulary the record stores (009).
+ * The version string each choice stamps on an impression (FR-012).
  *
- * The card shows prose and the record stores this, so a change of wording is
- * not a change of history. Declared in `core/models/telemetry.ts` — the wire
- * needs it too — and re-exported here because this is where it is decided.
+ * The deck records the engine that produced the card, not the engine that is
+ * default today, so a stored row months later names the rule that actually
+ * ranked it.
  */
-export type { ReasonCode };
-
+export const ENGINE_VERSIONS: Readonly<Record<EngineChoice, string>> = {
+  v1: RECOMMEND_V1_ENGINE_VERSION,
+  v2: RECOMMEND_V2_ENGINE_VERSION,
+};
 
 /**
- * Demotion for each selectable genre a title wears that the visitor did not
- * pick — the difference between "a comedy" and "a kids animation filed under
- * comedy". Chosen against the two terms it sits between: it outweighs the
- * widest rating gap a mega-vote title can open over a mid-rated one, and it
- * stays below two loved genres (2 × 6), so the visitor's own ratings still
- * speak louder than one unselected tag. It can only reorder *within* a match
- * tier, which is why it needs no guard against the tier above it.
+ * The default engine's version.
+ *
+ * Bump the default's entry whenever a change could reorder the deck; the
+ * offline harness then compares the old fixture against the new rule instead of
+ * comparing two reports that quietly disagree about what "incumbent" means.
+ * During the 010 rollout this constant follows `DEFAULT_ENGINE`.
  */
-const MISMATCHED_GENRE_PENALTY = 10;
-
-/** The quiz's own genre vocabulary — the ids a visitor can actually select. */
-const SELECTABLE_GENRE_IDS: ReadonlySet<string> = new Set(GENRES.map((genre) => genre.id));
+export const RECOMMEND_ENGINE_VERSION = ENGINE_VERSIONS[DEFAULT_ENGINE];
 
 /**
- * Confidence-weighted rating: pulls low-evidence titles toward the middle, so a
- * lone 10.0 from a handful of votes cannot top the deck. The prior is a 6.5
- * rating over 500 votes — standard, explainable to a stakeholder, and computed
- * identically every time.
- */
-const RATING_PRIOR = 6.5;
-const RATING_PRIOR_WEIGHT = 500;
-
-/**
- * Id → the word a visitor would say, for the reason line.
+ * Turns the deck's `?engine=` value into a choice (010, D7).
  *
- * Retired services are in here too, for the same reason they are in the
- * successor map: a title's availability is whatever the server last saw, and an
- * id this app no longer offers must still resolve to a name rather than to
- * itself.
+ * Each engine is selectable by name; everything else — absent, empty, unknown —
+ * falls back to the current default, because an invalid override is not an
+ * error a visitor should ever see. After the T013 fallback the default is v1,
+ * and `v2` is the override that asks for the candidate.
  */
-const GENRE_LABELS: ReadonlyMap<string, string> = new Map(
-  GENRES.map((genre) => [genre.id, genre.displayName]),
-);
-
-const PROVIDER_LABELS: ReadonlyMap<string, string> = new Map(
-  [...STREAMING_PROVIDERS, ...RETIRED_PROVIDERS].map((provider) => [
-    provider.id,
-    provider.displayName,
-  ]),
-);
-
-/** States that mean "more like this". `watchingNow` is deliberately neither. */
-const POSITIVE_STATES: readonly InteractionState[] = ['loved', 'liked', 'wantToWatch'];
-
-/**
- * A ranked title, plus the one-line answer to "why is this card here?".
- *
- * The reason is decided *here* rather than derived in the card because it is a
- * statement about this ranking: it names the selection or the rating signal
- * that actually placed the title, and only the engine knows which of those
- * fired. It rides along on the returned value so `MediaTitle` stays purely the
- * storage-and-transport shape — a `reason` on the wire would be a claim the API
- * does not make, and the card would be guessing at it.
- *
- * `null` is the honest answer for a title that ranked on nothing in particular:
- * a deck is allowed to contain cards we cannot justify, and the card shows
- * nothing rather than inventing a reason.
- */
-export interface RankedTitle extends MediaTitle {
-  reason: string | null;
-  /**
-   * The within-tier term of the sort key (009).
-   *
-   * The tier (`matches`) is a separate key and a coarser statement; this is the
-   * number that separated two titles inside the same tier. It is exposed so an
-   * impression can record *why* the card sat where it did, and it is the value
-   * the harness and any future ranker are compared against.
-   */
-  score: number;
-  /**
-   * The branch of <see>reasonFor</see> that produced `reason` (009).
-   *
-   * `none` exactly when `reason` is null, which is what makes the stored code
-   * and the sentence on the card two views of one decision rather than two
-   * claims that could drift apart.
-   */
-  reasonCode: ReasonCode;
+export function engineChoiceFrom(value: string | null): EngineChoice {
+  return value === 'v1' || value === 'v2' ? value : DEFAULT_ENGINE;
 }
 
 /**
- * Ranks the catalog for a visitor, best first.
- *
- * The order is two keys deep, not one score: how many of the visitor's genres
- * the title matches, then a within-tier score. Making the tier its own key
- * rather than a weighted term is what makes "rom-coms first, animations when
- * those run out" a property of the comparator instead of an arithmetic
- * argument — no affinity total or rating gap can ever carry a title past the
- * tier above it, whatever the catalog holds.
+ * Ranks the catalog for a visitor with the chosen engine, best first.
  *
  * Returns a new array every call and never mutates its inputs. An empty result
  * is a normal value — it drives the empty state (FR-014), it is not an error.
- *
- * Every returned title carries its own `reason` (stage 4 below). The reason is
- * computed for all of them, not lazily for the one on screen: it reads the same
- * inputs the score did, so computing it here is what keeps the sentence and the
- * ordering from ever disagreeing.
  */
 export function rankTitles(
   catalog: readonly MediaTitle[],
   preferences: Preference,
   interactions: Readonly<Record<string, Interaction>>,
   shownTitleIds: readonly string[],
+  engine: EngineChoice = DEFAULT_ENGINE,
 ): RankedTitle[] {
-  const { lovedGenres, dislikedGenres } = genreSignals(catalog, interactions);
-
-  return catalog
-    .filter((title) => isEligible(title, preferences, interactions, shownTitleIds))
-    .map((title) => ({
-      title,
-      matches: matchedGenres(title, preferences),
-      within:
-        HISTORY_AFFINITY_WEIGHT * historyAffinity(title, lovedGenres, dislikedGenres) -
-        MISMATCHED_GENRE_PENALTY * mismatchedGenres(title, preferences) +
-        weightedRating(title),
-    }))
-    .sort(
-      (a, b) =>
-        b.matches - a.matches || b.within - a.within || compareIds(a.title.id, b.title.id),
-    )
-    .map((scored) => ({
-      // Spread rather than pick: a field added to `MediaTitle` later rides
-      // along automatically instead of silently going missing on the card.
-      ...scored.title,
-      score: scored.within,
-      ...reasonFor(scored.title, preferences, lovedGenres),
-    }));
-}
-
-/**
- * The candidates `rankTitles` would have been willing to show, in catalog
- * order (009).
- *
- * The popularity baseline in the offline harness must rank the *same* pool as
- * the incumbent, or the comparison would measure the filter rather than the
- * ordering. It asks this instead of re-implementing the five filters, so a new
- * filter cannot be added to one and forgotten in the other.
- */
-export function eligibleTitles(
-  catalog: readonly MediaTitle[],
-  preferences: Preference,
-  interactions: Readonly<Record<string, Interaction>>,
-  shownTitleIds: readonly string[],
-): MediaTitle[] {
-  return catalog.filter((title) => isEligible(title, preferences, interactions, shownTitleIds));
-}
-
-/**
- * Stage 4 — the reason, in the visitor's own words.
- *
- * One sentence, and only ever one: the deck's promise is that a card can be
- * justified, not that every term of the score is itemized. The precedence is
- * the order the visitor would recognize their own decision in — what they
- * *chose* in the quiz, then what their *ratings* have taught us, then the
- * service they already pay for. A title that landed on nothing but its
- * confidence-weighted rating gets `null`, which the card renders as silence.
- *
- * Every branch is guarded by a label lookup, so an id the option lists do not
- * know returns `null` rather than leaking `a-defunct-service` onto the card —
- * the same rule the card's own id→name mapping follows.
- */
-function reasonFor(
-  title: MediaTitle,
-  preferences: Preference,
-  lovedGenres: ReadonlySet<string>,
-): { reason: string | null; reasonCode: ReasonCode } {
-  // 1 — a genre from the quiz, named as the visitor chose it. Under a real
-  // selection this is always available: filter 2 has already guaranteed that a
-  // title reaching here overlaps the selection, so the only way past this
-  // branch is a stored id with no label.
-  if (!preferences.genre.any) {
-    const picked = labelFor(title.genres, preferences.genre.values);
-    if (picked !== null) {
-      return { reason: `Because you picked ${picked}`, reasonCode: 'genre-picked' };
-    }
-  }
-
-  // 2 — a genre the visitor's own ratings point at. Only reachable under
-  // `Any`, where nothing was chosen and the feedback loop is the whole story.
-  const loved = labelFor(title.genres, [...lovedGenres]);
-  if (loved !== null) {
-    return { reason: `Because you loved ${loved}`, reasonCode: 'genre-affinity' };
-  }
-
-  // 3 — the plainest reason of all, and the deck's founding constraint: it is
-  // on a service they told us they have.
-  const service = title.availability.find((entry) =>
-    isOnSelectedService(entry.providerId, preferences),
-  );
-  const serviceLabel =
-    service === undefined ? undefined : PROVIDER_LABELS.get(service.providerId);
-  if (serviceLabel !== undefined) {
-    return { reason: `On ${serviceLabel}, one of your services`, reasonCode: 'service' };
-  }
-
-  return { reason: null, reasonCode: 'none' };
-}
-
-/** The first of `ids` that is also a genre of this title, named. */
-function labelFor(genres: readonly string[], ids: readonly string[]): string | null {
-  const match = genres.find((genre) => ids.includes(genre));
-  return match === undefined ? null : (GENRE_LABELS.get(match) ?? null);
-}
-
-/**
- * Stage 1 — the five hard filters. A title is dropped when any one holds;
- * order is irrelevant, a drop is a drop.
- */
-function isEligible(
-  title: MediaTitle,
-  preferences: Preference,
-  interactions: Readonly<Record<string, Interaction>>,
-  shownTitleIds: readonly string[],
-): boolean {
-  // A title that cannot be scored is filtered out rather than allowed to
-  // produce NaN, which would corrupt the sort for every other title.
-  if (!isScorable(title)) return false;
-
-  // 1 — media type (FR-005).
-  if (!preferences.mediaType.any && !preferences.mediaType.values.includes(title.mediaType)) {
-    return false;
-  }
-
-  // 2 — genre (FR-005).
-  if (!preferences.genre.any && matchedGenres(title, preferences) === 0) return false;
-
-  // 3 — availability (FR-006). The constitution's named invariant: we never
-  // suggest something the visitor cannot watch, unless they explicitly asked
-  // to see other platforms.
-  if (
-    !preferences.provider.any &&
-    !preferences.includeUnownedProviders &&
-    !isAvailableOnSelectedService(title, preferences)
-  ) {
-    return false;
-  }
-
-  // 4 — already rated (FR-009, Feedback Loop invariant). Every state, not just
-  // the two rejections: a title the visitor has judged, saved or watched is
-  // not an open question, and a new loop is a new *walk* rather than a fresh
-  // memory. Reading presence is what makes this survive the loop boundary,
-  // where filter 5 below is cleared and this one is not.
-  if (isRated(interactions[title.id])) return false;
-
-  // 5 — already advanced past this loop (FR-010). The one thing a new loop
-  // does forget, which is the point: nothing is repeated *within* a loop, but
-  // an unrated title is welcome back in the next one.
-  return !shownTitleIds.includes(title.id);
-}
-
-function isScorable(title: MediaTitle): boolean {
-  return (
-    typeof title.id === 'string' &&
-    title.id.length > 0 &&
-    Number.isFinite(title.rating) &&
-    Number.isFinite(title.voteCount) &&
-    title.voteCount >= 0
-  );
-}
-
-/**
- * Filter 3's question, asked of the visitor's selected services **and their
- * successors**.
- *
- * The successor lookup is what keeps a saved preference for a service that no
- * longer exists from matching nothing: Star+ is gone and its catalog is
- * Disney+'s, so a visitor whose stored preference says `star-plus` is looking
- * for Disney+ titles whether or not they have heard the news. The alternative —
- * matching literally — is an empty deck for that visitor, every genre, with no
- * way to discover why.
- *
- * A direct match is still checked first and still wins; the alias only ever
- * *adds* titles to a selection, never removes one.
- */
-function isAvailableOnSelectedService(title: MediaTitle, preferences: Preference): boolean {
-  return title.availability.some((entry) => isOnSelectedService(entry.providerId, preferences));
-}
-
-/**
- * One availability entry's half of that question, split out because stage 4's
- * reason line has to name the *specific* service it matched — "On Disney+, one
- * of your services" is only true of the entry that matched, and asking the
- * title-level question would tell you that something matched without saying
- * what.
- */
-function isOnSelectedService(providerId: string, preferences: Preference): boolean {
-  return preferences.provider.values.some(
-    (selected) =>
-      selected === providerId || RETIRED_PROVIDER_SUCCESSORS[selected] === providerId,
-  );
-}
-
-/** Stage 2's tier key. Plain overlap: more of what they asked for ranks higher. */
-function matchedGenres(title: MediaTitle, preferences: Preference): number {
-  if (preferences.genre.any) return 0;
-  return title.genres.filter((genre) => preferences.genre.values.includes(genre)).length;
-}
-
-/**
- * Stage 2's demotion term — the other half of what a genre selection says.
- *
- * Picking comedy and romance is also a statement about animation, and a title
- * wearing a genre the visitor could have picked but did not starts lower than
- * one that stays inside the selection. This is what puts Shrek behind a
- * rom-com instead of letting vote count decide.
- *
- * `Any` carries no such statement — it is the absence of a selection, not a
- * choice against everything — so the term vanishes and the tier falls back to
- * affinity and rating.
- *
- * Only the quiz's selectable ids count. A slug tag (`family`, `fantasy`…) is
- * not a genre the visitor was offered, so a title carrying one has disobeyed
- * nothing and is never penalized for it.
- */
-function mismatchedGenres(title: MediaTitle, preferences: Preference): number {
-  if (preferences.genre.any) return 0;
-  return title.genres.filter(
-    (genre) => SELECTABLE_GENRE_IDS.has(genre) && !preferences.genre.values.includes(genre),
-  ).length;
-}
-
-/**
- * Stage 2, term 2 — the feedback loop's positive/negative signal.
- *
- * Derived from the visitor's own ratings, and it **may be negative**: a title
- * wearing genres the visitor rejected sinks. Rejected *titles* are already gone
- * by filter 4; this is how their taste generalizes past the specific titles
- * they rejected.
- *
- * It counts every genre a title wears, tags included, and is left unbounded:
- * the tier key above it is what keeps a loved-genre total from carrying a title
- * past a better match, so no clamp is needed here to say that.
- */
-function historyAffinity(
-  title: MediaTitle,
-  lovedGenres: ReadonlySet<string>,
-  dislikedGenres: ReadonlySet<string>,
-): number {
-  const loved = title.genres.filter((genre) => lovedGenres.has(genre)).length;
-  const disliked = title.genres.filter((genre) => dislikedGenres.has(genre)).length;
-
-  return loved - disliked;
-}
-
-/**
- * The genres the visitor's ratings point at, gathered from the **whole**
- * catalog — including titles the filters will go on to drop. Computing this
- * after filtering would throw away the very signal the term exists to carry.
- *
- * Since filter 4 drops every rated title, *everything* this reads is dropped by
- * the time the sort runs. That is not a contradiction, it is the whole design:
- * the rated titles are gone from the deck precisely because they have already
- * said what they had to say, and this is where that gets heard.
- *
- * A rated id the catalog does not know contributes nothing, which is correct:
- * we cannot infer a genre from a title we cannot see.
- */
-function genreSignals(
-  catalog: readonly MediaTitle[],
-  interactions: Readonly<Record<string, Interaction>>,
-): { lovedGenres: Set<string>; dislikedGenres: Set<string> } {
-  const lovedGenres = new Set<string>();
-  const dislikedGenres = new Set<string>();
-
-  for (const title of catalog) {
-    const state = interactions[title.id]?.state;
-    if (state === undefined) continue;
-
-    // `watchingNow` is neither: having watched something says nothing yet
-    // about whether they want more of it.
-    const target = POSITIVE_STATES.includes(state)
-      ? lovedGenres
-      : isRejection(state)
-        ? dislikedGenres
-        : undefined;
-
-    if (target === undefined) continue;
-    for (const genre of title.genres) target.add(genre);
-  }
-
-  return { lovedGenres, dislikedGenres };
-}
-
-/** Stage 2, term 3 — quality, confidence-weighted (see the constants above). */
-export function weightedRating(title: MediaTitle): number {
-  return (
-    (title.rating * title.voteCount + RATING_PRIOR * RATING_PRIOR_WEIGHT) /
-    (title.voteCount + RATING_PRIOR_WEIGHT)
-  );
-}
-
-/**
- * Stage 3 — the id tiebreak.
- *
- * This is what makes FR-011 real. Without it the sequence would depend on
- * `Array.prototype.sort` stability and on the order the catalog happened to
- * arrive in, so the same preferences could produce a different deck on a
- * different device. Compared with `<`/`>` rather than `localeCompare` so the
- * order is byte-for-byte identical everywhere, independent of locale.
- */
-function compareIds(a: string, b: string): number {
-  if (a === b) return 0;
-  return a < b ? -1 : 1;
+  return engine === 'v1'
+    ? rankTitlesV1(catalog, preferences, interactions, shownTitleIds)
+    : rankTitlesV2(catalog, preferences, interactions, shownTitleIds);
 }

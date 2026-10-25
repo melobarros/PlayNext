@@ -1,7 +1,7 @@
 import { personasFixture } from './fixtures/personas';
 import { formatReport } from './report';
 import { evaluate } from './replay';
-import { incumbentRanker, invertedRanker } from './rankers';
+import { candidateV2Ranker, incumbentRanker, invertedRanker } from './rankers';
 import { FixtureSession } from './types';
 
 /**
@@ -27,12 +27,15 @@ function silentSessions(): FixtureSession[] {
 }
 
 describe('the evaluation report', () => {
-  const report = evaluate(personasFixture, invertedRanker);
+  // The standard run: the incumbent, the baseline, the candidate this feature
+  // ships, and the deliberately inverted control (010, D9).
+  const report = evaluate(personasFixture, candidateV2Ranker, invertedRanker);
 
-  it('always carries the incumbent and the popularity baseline', () => {
+  it('always carries the incumbent, the popularity baseline and every candidate', () => {
     expect(report.report.map((entry) => entry.name)).toEqual([
       'incumbent',
       'popularity',
+      'candidate-v2',
       'candidate-inverted',
     ]);
   });
@@ -83,12 +86,12 @@ describe('the evaluation report', () => {
   });
 
   it('produces deep-equal reports from two evaluations of the same fixture', () => {
-    expect(evaluate(personasFixture, invertedRanker)).toEqual(report);
+    expect(evaluate(personasFixture, candidateV2Ranker, invertedRanker)).toEqual(report);
   });
 
   it('ranks a good ordering above a deliberately inverted one', () => {
     const incumbent = report.report[0];
-    const candidate = report.report[2];
+    const candidate = report.report[3];
 
     // The labels in the fixture land on titles two selected genres deep, which
     // is exactly what the incumbent reads — and the reverse of what the
@@ -112,6 +115,6 @@ describe('the evaluation report', () => {
     // The harness's output is its *only* output: it asserts nothing about how
     // good the deck is, it makes the comparison visible to whoever reads the
     // build.
-    console.log(formatReport(evaluate(personasFixture, invertedRanker)));
+    console.log(formatReport(evaluate(personasFixture, candidateV2Ranker, invertedRanker)));
   });
 });
