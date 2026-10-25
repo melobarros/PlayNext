@@ -20,7 +20,13 @@ import { toPreference } from '../quiz/quiz-logic/quiz-rules';
 import { Actions } from './actions/actions';
 import { Card } from './card/card';
 import { advance, currentCard, loopFor, rewind, startNewLoop } from './deck-logic/deck-session';
-import { RankedTitle, RECOMMEND_ENGINE_VERSION, rankTitles } from './deck-logic/recommend';
+import {
+  EngineChoice,
+  ENGINE_VERSIONS,
+  engineChoiceFrom,
+  RankedTitle,
+  rankTitles,
+} from './deck-logic/recommend';
 import { dismissThreshold, PointerSample, SwipeOutcome, swipeDecision } from './deck-logic/swipe';
 import { DeckOutcome, EmptyState } from './empty-state/empty-state';
 
@@ -93,6 +99,15 @@ export class Deck {
   private readonly sessions = inject(DeckSessionStore);
   private readonly router = inject(Router);
   private readonly telemetry = inject(RecommendationTelemetry);
+
+  /**
+   * The engine this deck was asked for (010, D7).
+   *
+   * Read once from `?engine=` and fixed for the component's lifetime, like the
+   * visitor's answers: a reviewer can share the link, and the order it promised
+   * is the order it serves. Absent or unknown values fall back to the default.
+   */
+  private readonly engineChoice = engineRequestedBy(this.router);
 
   /** The device's region (FR-005): scopes availability, never the title list (CatalogService). */
   private readonly region = currentRegion();
@@ -421,7 +436,7 @@ export class Deck {
         // at the length it had before the rating, which is exactly the ordinal
         // it occupied when it was first shown.
         position: session.shownTitleIds.length + 1,
-        engineVersion: RECOMMEND_ENGINE_VERSION,
+        engineVersion: ENGINE_VERSIONS[this.engineChoice],
 
         // Read at record time rather than at send time: this names the
         // snapshot the ranker actually scored, which a later refresh must not
@@ -708,7 +723,7 @@ export class Deck {
     const preference = this.preference();
     if (preference === null) return [];
 
-    return rankTitles(this.titles(), preference, rated, shownTitleIds);
+    return rankTitles(this.titles(), preference, rated, shownTitleIds, this.engineChoice);
   }
 
   private readPreference(): Preference | null {
@@ -810,6 +825,20 @@ function telemetryKindFor(state: InteractionState): TelemetryActionKind | null {
 function withRated(pool: MediaTitle[], rated: MediaTitle[]): MediaTitle[] {
   const known = new Set(pool.map((title) => title.id));
   return [...pool, ...rated.filter((title) => !known.has(title.id))];
+}
+
+/**
+ * Resolves `?engine=` through the registry (010, D7).
+ *
+ * The query is the only lever: no storage, no server flag, nothing that could
+ * stick to a visitor between sessions or leak between visitors. An absent or
+ * repeated parameter resolves to the default engine rather than failing — an
+ * invalid override must never cost the visitor their deck.
+ */
+function engineRequestedBy(router: Router): EngineChoice {
+  const requested: unknown = router.parseUrl(router.url).queryParams['engine'];
+
+  return engineChoiceFrom(typeof requested === 'string' ? requested : null);
 }
 
 /**

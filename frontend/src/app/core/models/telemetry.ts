@@ -17,7 +17,12 @@
 export type TelemetryActionKind = 'liked' | 'disliked' | 'skip' | 'watch_now' | 'undo';
 
 /** The branch of the ranker that placed a card. `none` when it placed nothing in particular. */
-export type ReasonCode = 'genre-picked' | 'genre-affinity' | 'service' | 'none';
+export type ReasonCode =
+  | 'genre-picked'
+  | 'genre-affinity'
+  | 'era-affinity'
+  | 'service'
+  | 'none';
 
 /** Where the card was displayed. `deck` is the only surface today. */
 export type TelemetrySurface = 'deck';

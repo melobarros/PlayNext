@@ -1802,7 +1802,7 @@ describe('deck shell', () => {
         titleId: 'alpha',
         surface: 'deck',
         position: 1,
-        engineVersion: 'recommend-v1',
+        engineVersion: 'recommend-v2',
         catalogVersion: CATALOG_VERSION,
         reasonCode: 'genre-picked',
       });
@@ -1815,6 +1815,32 @@ describe('deck shell', () => {
 
       expect(Number.isFinite(impression.score)).toBe(true);
       expect(impression.score).toBeGreaterThan(0);
+    });
+
+    it('serves the incumbent when the URL asks for it, and says so on the record', async () => {
+      // v2 is the default (the decision of 2026-10-24); this override is how
+      // the rollout comparison keeps the incumbent running on the deployed deck.
+      completeQuiz();
+      vi.spyOn(TestBed.inject(Router), 'url', 'get').mockReturnValue('/deck?engine=v1');
+
+      build();
+      await flushTelemetry();
+
+      const [impression] = transport.impressions;
+
+      expect(impression.engineVersion).toBe('recommend-v1');
+    });
+
+    it('treats an unknown engine as the default instead of failing', async () => {
+      completeQuiz();
+      vi.spyOn(TestBed.inject(Router), 'url', 'get').mockReturnValue('/deck?engine=v3');
+
+      build();
+      await flushTelemetry();
+
+      const [impression] = transport.impressions;
+
+      expect(impression.engineVersion).toBe('recommend-v2');
     });
 
     it('records a card restored by undo again, at the position it first held', async () => {

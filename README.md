@@ -21,10 +21,10 @@ synopsis, rating, where to watch — and one swipe records your reaction.
 |---|---|
 | **Stack** | .NET 10 minimal API · Angular 22 (standalone, signals, zoneless) · PostgreSQL + EF Core · Tailwind v4 |
 | **Architecture** | Clean Architecture, enforced by project references rather than by convention — the domain assembly references nothing |
-| **Tests** | **1028 unit/component + 107 integration, all passing** |
+| **Tests** | **1330 unit/component + 130 integration, all passing** |
 | **Pipeline** | Every push to `main`: test → migrate → deploy → smoke-test the live URL |
 | **Cost** | **$0/month** — Azure App Service F1 + Neon Postgres |
-| **Process** | 6 features, each specified, planned, and broken into tasks before any code was written |
+| **Process** | 8 features, each specified, planned, and broken into tasks before any code was written |
 
 ### The three things most worth asking about
 
@@ -49,6 +49,7 @@ Everything below is the detail behind those, ending with an honest
 
 - [Architecture](#architecture)
 - [Engineering decisions](#engineering-decisions)
+- [How the deck is ranked](#how-the-deck-is-ranked)
 - [Testing](#testing)
 - [Spec-driven development with AI](#spec-driven-development-with-ai)
 - [CI/CD](#cicd)
@@ -177,19 +178,154 @@ shell, so the app opens with no network at all.
 
 ---
 
+## How the deck is ranked
+
+### The short version
+
+The deck is not a random shuffle, and it is not a popularity list. Every title
+that survives the hard filters goes onto one scorecard, and the highest scores
+are dealt first.
+
+Six things move a title up or down that scorecard:
+
+- **The quiz** — every genre you picked that the title carries adds points.
+- **Your ratings** — genres your own liked titles point at add points; genres
+  you rejected subtract them.
+- **Mismatches** — every genre the title carries that you did *not* pick costs
+  it points. A title wearing three genres you never chose is a worse fit than
+  one wearing two.
+- **Your services** — a small bonus when the title is on a service you said you
+  pay for.
+- **Era and runtime** — titles closer to the release years and running times of
+  the titles you rated positively score higher. Both terms stay neutral until
+  there are at least three positive ratings to learn from.
+- **Quality** — the rating, weighted by how many votes stand behind it, so one
+  enthusiastic score from a handful of voters cannot outrank a well-liked film.
+
+Then a variety pass looks at the top 50 candidates. For each next card it
+balances the card's score against how similar its genres are to the cards
+already dealt, so the deck does not show five near-identical titles in a row.
+The trade is deliberately mild — relevance stays the dominant signal.
+
+Every "Because you …" line comes from the same scorecard: the engine may only
+state a reason whose term actually *added* points to that card. If nothing did,
+the card shows no reason at all.
+
+The whole thing is arithmetic — no clock, no network, no randomness, no
+learning. The same catalog, quiz, ratings, and already-shown titles produce the
+same order on every device, and two runs of the offline harness are identical.
+
+### The detail
+
+**What a candidate is.** Both engines share one eligibility function, unchanged
+from the original deck: a title must be scorable, match the media type and at
+least one selected genre (unless those are "Any"), be on a selected service
+(unless other platforms are allowed), and must not have been rated or already
+shown. A harness comparison therefore measures ordering, never eligibility.
+
+**The score.** For each eligible title:
+
+```
+score =  4    × matchedGenres
+       + 6    × historyAffinity
+       − 10   × mismatchedGenres
+       + 1    × onSelectedService
+       + 2.5  × eraFit
+       + 1.5  × runtimeFit
+       + calibratedQuality
+```
+
+- `matchedGenres` counts the visitor's selected genres the title carries; `0`
+  when genres are "Any". `mismatchedGenres` counts the selectable genres the
+  title wears that the visitor did not pick; also `0` under "Any".
+- `onSelectedService` is `1` when the title is on a selected service (through
+  the retired-provider successor map), `0` otherwise.
+- `historyAffinity` sums the profile's genre weights over the title's distinct
+  genres and divides by that count — a title is not boosted just for carrying
+  many tags.
+- `eraFit = max(0, 1 − |releaseYear − eraCentre| / 20)` and
+  `runtimeFit = max(0, 1 − |runtimeMinutes − runtimeCentre| / 45)`; each is `0`
+  until there are at least three positive ratings (three carrying a runtime,
+  for that term).
+- `calibratedQuality = (rating·votes + μ·m) / (votes + m)`, with μ and m the
+  catalog's own mean rating and mean vote count. On a small catalog the prior
+  dominates; on a large one the title's own votes do.
+
+Titles are sorted by score, descending, with the title id as the final
+tiebreak.
+
+**The taste profile.** Recomputed on every ranking call and never stored: each
+rated title adds `+1` to each of its distinct genres for a positive state
+(loved, liked, want to watch) or `−1` for a rejection (disliked, not
+interested), summed across titles. The era centre is the mean release year of
+positively rated titles; the runtime centre is the mean runtime of those that
+carry one. With no ratings the profile is empty and the order falls back to
+quiz selections and quality — the deck is never empty or an error.
+
+**The variety pass.** The top 50 candidates are re-ranked with maximal marginal
+relevance. Relevance is min–max-normalised over that window; similarity is the
+Jaccard overlap of two titles' genre sets. Each pick maximises
+`0.75 × relevance − 0.25 × similarity to the closest card already picked`, ties
+falling back to score order; anything beyond the window keeps score order. It
+is deterministic by construction — no floating-point special cases, and every
+tie has a defined answer.
+
+**The reasons.** First branch whose term contributed positively wins:
+
+| Order | Code stored | Sentence shown |
+|---|---|---|
+| 1 | `genre-picked` | "Because you picked {genre}" |
+| 2 | `genre-affinity` | "Because you loved {genre}" |
+| 3 | `era-affinity` | "Because you loved {decade}s titles" |
+| 4 | `service` | "On {service}, one of your services" |
+| 5 | `none` | (no reason row) |
+
+Runtime can add points but never speaks: there is no honest one-sentence way to
+say "this runs 106 minutes and you seem to like 110". The era sentence names
+the decade of the card's own release year, not of the profile's centre.
+
+**Two engines, one switch.** The deck runs `recommend-v2` by default.
+`?engine=v1` serves the incumbent; any other value falls back to v2 without an
+error. Every impression records which engine produced the card
+(`recommend-v1` / `recommend-v2`), so stored events can compare like rates over
+real traffic before the override is ever removed.
+
+**The measured result.** Feature 009's offline harness replays the frozen
+`personas-v1` fixture in temporal order and reports six measures per ranker.
+Two consecutive runs produced byte-identical reports; the current table:
+
+| Ranker | NDCG@10 | MRR | Hit@10 | Precision@10 | Coverage | Diversity |
+|---|---|---|---|---|---|---|
+| incumbent `recommend-v1` | 0.675 | 0.625 | 1.000 | 0.380 | 0.667 | 0.691 |
+| popularity `popularity-v1` | 0.285 | 0.388 | 0.917 | 0.140 | 0.333 | 0.849 |
+| v2 `recommend-v2` | 0.611 | 0.542 | 1.000 | 0.353 | 0.685 | 0.701 |
+
+Where it stands, honestly: v2 wins on variety and coverage — the reasons it
+exists — but it does not beat the incumbent on aggregate relevance. Feature
+010's agreed gate required NDCG@10 at least 10% above the incumbent's; that
+gate was measured and missed. The owner's decision of 2026-10-24 was to put v2
+in front of every visitor anyway, accepting the fixture result, with the
+incumbent one query parameter away. The weights, every rule, and the tests that
+pin them are in
+[`recommend-v2.ts`](frontend/src/app/features/deck/deck-logic/recommend-v2.ts)
+and
+[`contracts/ranking-engine.md`](specs/010-deterministic-engine-v2/contracts/ranking-engine.md).
+
+---
+
 ## Testing
 
-**1028 unit and component tests, all passing** — measured on the current commit:
+**1330 unit and component tests, all passing** — measured on the current commit:
 
 | Suite | Tests | Scope |
 |---|---|---|
-| `PlayNext.Domain.Tests` | 193 | Invariants, value objects, state transitions |
-| `PlayNext.Application.Tests` | 87 | Use cases against hand-written fakes for the Application ports |
-| Frontend (Vitest, 40 files) | 748 | Components, services, and the pure functions behind the swipe |
+| `PlayNext.Domain.Tests` | 211 | Invariants, value objects, state transitions |
+| `PlayNext.Application.Tests` | 178 | Use cases against hand-written fakes for the Application ports |
+| Frontend (Vitest, 52 files) | 941 | Components, services, and the pure functions behind the swipe |
 
-A further **107 API integration tests** run against live PostgreSQL
+A further **130 API integration tests** run against live PostgreSQL
 (`PlayNext.Api.IntegrationTests`); they skip locally without a database, so
-they are counted separately. In the run recorded here all 107 executed and
+they are counted separately. In the run recorded here all 130 executed and
 passed.
 
 The Application tests use hand-written fakes rather than a mocking framework,
@@ -212,7 +348,7 @@ actually ran, so a silent skip cannot pass the build.
 ## Spec-driven development with AI
 
 Every feature in this repo went through a written spec before any code existed
-— six spec directories now, all six implemented. The process is
+— eight spec directories now, all eight implemented. The process is
 [Spec Kit](https://github.com/github/spec-kit), and the repo's
 [constitution](.specify/memory/constitution.md) (**v1.4.0**, seven principles)
 is the part that makes it more than ceremony.
@@ -274,7 +410,7 @@ push to main
    ├─ test      postgres:17 service container
    │              ├─ dotnet test          Domain + Application + integration
    │              ├─ skip guard           fail if the DB tests did not run
-   │              ├─ npx ng test          748 specs
+   │              ├─ npx ng test          941 specs
    │              └─ npm run build        → dist/playnext/browser
    │
    ├─ migrate   dotnet ef database update ──► Neon, before new code is live
@@ -434,7 +570,7 @@ visit after ~20 idle minutes pays a cold start.
 |------|----------|
 | [frontend/](frontend/) | Angular 22 PWA — standalone components, signals, Tailwind v4 |
 | [backend/](backend/) | .NET 10 API — `Domain` → `Application` → `Infrastructure` / `Api` |
-| [specs/](specs/) | Six feature specs, each with its plan and task breakdown |
+| [specs/](specs/) | Eight feature specs, each with its plan and task breakdown |
 | [docs/](docs/) | Product requirements, design notes, images |
 | [.specify/](.specify/) | Spec Kit configuration and the project constitution |
 
@@ -454,8 +590,8 @@ knowing them is part of the work:
   app.
 - **Google sign-in is dormant** — it needs a Google Cloud client id this
   deployment does not have, so the button says so rather than pretending.
-- **No coverage threshold is enforced.** There are 1028 unit/component tests
-  plus 109 integration tests, and CI fails on a skipped database suite, but
+- **No coverage threshold is enforced.** There are 1330 unit/component tests
+  plus 130 integration tests, and CI fails on a skipped database suite, but
   nothing fails on a coverage drop.
 - **Refresh-token rotation has no reuse detection.** A rotated token is
   invalidated, but a replayed one is not treated as a breach signal.

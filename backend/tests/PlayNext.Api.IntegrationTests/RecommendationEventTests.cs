@@ -285,6 +285,27 @@ public sealed class RecommendationEventTests : IClassFixture<AuthApiFactory>
     }
 
     [GatedFact]
+    public async Task An_era_affinity_impression_is_accepted()
+    {
+        // Feature 010's era reason, end to end: the value the frontend's
+        // `ReasonCode` union can emit is a value the intake stores verbatim.
+        var session = NewSession();
+        var impressionId = Guid.NewGuid();
+
+        var response = await PostAsync(Batch(
+            impressions: [Impression(session, impressionId, reasonCode: "era-affinity")]));
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+
+        await using var db = new AppDbContext(DbOptions());
+
+        var impression = await db.RecommendationImpressions
+            .SingleAsync(row => row.ClientEventId == impressionId);
+
+        Assert.Equal("era-affinity", impression.ReasonCode);
+    }
+
+    [GatedFact]
     public async Task An_unknown_reason_code_is_refused_and_stores_nothing()
     {
         var session = NewSession();

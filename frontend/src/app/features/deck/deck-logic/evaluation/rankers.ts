@@ -1,20 +1,27 @@
 import {
+  ENGINE_VERSIONS,
   eligibleTitles,
   rankTitles,
-  RECOMMEND_ENGINE_VERSION,
   weightedRating,
 } from '../recommend';
 import { Ranker, RankerInput } from './types';
 
 /**
- * The three ranking rules the harness compares
- * (`specs/009-recommendation-telemetry/contracts/evaluation-harness.md`).
+ * The ranking rules the harness compares
+ * (`specs/009-recommendation-telemetry/contracts/evaluation-harness.md`,
+ * `specs/010-deterministic-engine-v2/contracts/ranking-engine.md`).
  *
  * The incumbent and the baseline read the *same* candidate pool — the baseline
  * asks `eligibleTitles` rather than re-implementing the five filters — so a
  * report compares orderings and never filters. A baseline with a different pool
  * would make the difference between the two rows unreadable: part ranking, part
  * eligibility.
+ *
+ * Every row is pinned to a version. The incumbent is v1 by name and forever:
+ * after 010's T013 fallback left v1 as the deck's default, a row that merely
+ * followed the default would still be the right ranking, but one that followed
+ * a future default would silently stop being the yardstick the 009 fixture was
+ * captured against.
  */
 
 /** Title-id order, the tie-break every ranker ends with. */
@@ -25,17 +32,32 @@ function byTitleId(left: { id: string }, right: { id: string }): number {
 }
 
 /**
- * The shipped engine.
+ * The incumbent, `recommend-v1`.
  *
  * A thin wrapper on purpose: the row named `incumbent` has to be the ranker the
- * deck actually runs, or the report is a comparison between three tools and the
- * product.
+ * fixture was captured against, or every report after 010 compares the new
+ * engine to a moving target.
  */
 export const incumbentRanker: Ranker = {
   name: 'incumbent',
-  engineVersion: RECOMMEND_ENGINE_VERSION,
+  engineVersion: ENGINE_VERSIONS.v1,
   rank: (input: RankerInput) =>
-    rankTitles(input.catalog, input.preference, input.interactions, input.shownTitleIds),
+    rankTitles(input.catalog, input.preference, input.interactions, input.shownTitleIds, 'v1'),
+};
+
+/**
+ * The candidate, `recommend-v2` — reachable on the deck through `?engine=v2`.
+ *
+ * Separate from the incumbent row on purpose: while the rollout is evaluated,
+ * both numbers must appear on every run so the comparison survives in the
+ * build log (FR-013). It is not the default: the T013 gate was measured and
+ * missed, and the fallback keeps v1 serving the deck.
+ */
+export const candidateV2Ranker: Ranker = {
+  name: 'candidate-v2',
+  engineVersion: ENGINE_VERSIONS.v2,
+  rank: (input: RankerInput) =>
+    rankTitles(input.catalog, input.preference, input.interactions, input.shownTitleIds, 'v2'),
 };
 
 /**
@@ -80,5 +102,6 @@ export const invertedRanker: Ranker = {
       input.preference,
       input.interactions,
       input.shownTitleIds,
+      'v1',
     ).reverse(),
 };
